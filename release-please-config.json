@@ -1,4 +1,5 @@
 {
+  "plugins": ["cargo-workspace"],
   "packages": {
     "dynamic_expressions": {
       "release-type": "rust",
