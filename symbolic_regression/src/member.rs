@@ -23,10 +23,7 @@ pub struct PopMember<T: Float, Ops, const D: usize> {
     pub cost: T,
 }
 
-impl<T: Float, Ops, const D: usize> Clone for PopMember<T, Ops, D>
-where
-    T: Clone,
-{
+impl<T: Float, Ops, const D: usize> Clone for PopMember<T, Ops, D> {
     fn clone(&self) -> Self {
         Self {
             id: self.id,

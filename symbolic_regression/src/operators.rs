@@ -1,7 +1,7 @@
-use dynamic_expressions::operators::builtin::{Add, Div, Max, Min, Mul, Sub};
+use dynamic_expressions::operators::builtin::OpMeta;
+use dynamic_expressions::operators::builtin::{Add, Div, Mul, Sub};
 use dynamic_expressions::operators::scalar::{HasOp, OpId};
 use rand::Rng;
-use std::any::TypeId;
 use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
@@ -114,7 +114,7 @@ impl<Ops, const D: usize> OperatorsBuilder<Ops, D> {
     pub fn unary<Op>(self) -> Self
     where
         Ops: HasOp<Op, 1>,
-        Op: 'static,
+        Op: OpMeta<1>,
     {
         self.nary::<1, Op>()
     }
@@ -122,7 +122,7 @@ impl<Ops, const D: usize> OperatorsBuilder<Ops, D> {
     pub fn binary<Op>(self) -> Self
     where
         Ops: HasOp<Op, 2>,
-        Op: 'static,
+        Op: OpMeta<2>,
     {
         self.nary::<2, Op>()
     }
@@ -130,28 +130,15 @@ impl<Ops, const D: usize> OperatorsBuilder<Ops, D> {
     pub fn nary<const A: usize, Op>(mut self) -> Self
     where
         Ops: HasOp<Op, A>,
-        Op: 'static,
+        Op: OpMeta<A>,
     {
         assert!(A >= 1 && A <= D, "arity {A} not supported for D={D}");
         let arity_u8: u8 = A
             .try_into()
             .unwrap_or_else(|_| panic!("arity {A} does not fit in u8"));
 
-        let (commutative, associative) = if A == 2 {
-            let id = TypeId::of::<Op>();
-            (
-                id == TypeId::of::<Add>()
-                    || id == TypeId::of::<Mul>()
-                    || id == TypeId::of::<Max>()
-                    || id == TypeId::of::<Min>(),
-                id == TypeId::of::<Add>()
-                    || id == TypeId::of::<Mul>()
-                    || id == TypeId::of::<Max>()
-                    || id == TypeId::of::<Min>(),
-            )
-        } else {
-            (false, false)
-        };
+        let commutative = <Op as OpMeta<A>>::COMMUTATIVE;
+        let associative = <Op as OpMeta<A>>::ASSOCIATIVE;
 
         self.operators.push(
             A,
@@ -162,7 +149,7 @@ impl<Ops, const D: usize> OperatorsBuilder<Ops, D> {
                 },
                 commutative,
                 associative,
-                complexity: 1.0,
+                complexity: <Op as OpMeta<A>>::COMPLEXITY,
             },
         );
         self

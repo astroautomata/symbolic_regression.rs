@@ -9,16 +9,55 @@ pub trait BuiltinOp<T: Float, const A: usize> {
     fn partial(args: &[T; A], idx: usize) -> T;
 }
 
+pub trait OpMeta<const A: usize> {
+    const COMMUTATIVE: bool = false;
+    const ASSOCIATIVE: bool = false;
+    const COMPLEXITY: f32 = 1.0;
+}
+
 fn two<T: Float>() -> T {
     T::one() + T::one()
 }
 
 macro_rules! builtin_op {
+    (@name $Op:ident, $name:literal) => {
+        $name
+    };
+    (@name $Op:ident) => {
+        crate::paste::paste! { stringify!([<$Op:snake>]) }
+    };
+    (@infix $v:expr) => {
+        $v
+    };
+    (@infix) => {
+        None
+    };
+    (@commutative $v:expr) => {
+        $v
+    };
+    (@commutative) => {
+        false
+    };
+    (@associative $v:expr) => {
+        $v
+    };
+    (@associative) => {
+        false
+    };
+    (@complexity $v:expr) => {
+        $v
+    };
+    (@complexity) => {
+        1.0f32
+    };
     (
         $(#[$meta:meta])*
         $Op:ident : $A:literal {
-            name: $name:literal,
-            infix: $infix:expr,
+            $(name: $name:literal,)?
+            $(infix: $infix:expr,)?
+            $(commutative: $commutative:expr,)?
+            $(associative: $associative:expr,)?
+            $(complexity: $complexity:expr,)?
             eval($args:ident) $eval:block,
             partial($pargs:ident, $idx:ident) $partial:block $(,)?
         }
@@ -26,12 +65,18 @@ macro_rules! builtin_op {
         $(#[$meta])*
         pub struct $Op;
 
+        impl OpMeta<$A> for $Op {
+            const COMMUTATIVE: bool = builtin_op!(@commutative $($commutative)?);
+            const ASSOCIATIVE: bool = builtin_op!(@associative $($associative)?);
+            const COMPLEXITY: f32 = builtin_op!(@complexity $($complexity)?);
+        }
+
         impl<T: Float> BuiltinOp<T, $A> for $Op {
-            const NAME: &'static str = $name;
-            const INFIX: Option<&'static str> = $infix;
-            const DISPLAY: &'static str = match $infix {
+            const NAME: &'static str = builtin_op!(@name $Op $(, $name)?);
+            const INFIX: Option<&'static str> = builtin_op!(@infix $($infix)?);
+            const DISPLAY: &'static str = match builtin_op!(@infix $($infix)?) {
                 Some(s) => s,
-                None => $name,
+                None => builtin_op!(@name $Op $(, $name)?),
             };
 
             fn eval(args: &[T; $A]) -> T {
@@ -49,8 +94,6 @@ macro_rules! builtin_op {
 }
 
 builtin_op!(Cos: 1 {
-    name: "cos",
-    infix: None,
     eval(args) { args[0].cos() },
     partial(args, idx) {
         match idx {
@@ -61,8 +104,6 @@ builtin_op!(Cos: 1 {
 });
 
 builtin_op!(Sin: 1 {
-    name: "sin",
-    infix: None,
     eval(args) { args[0].sin() },
     partial(args, idx) {
         match idx {
@@ -73,8 +114,6 @@ builtin_op!(Sin: 1 {
 });
 
 builtin_op!(Tan: 1 {
-    name: "tan",
-    infix: None,
     eval(args) { args[0].tan() },
     partial(args, idx) {
         match idx {
@@ -88,8 +127,6 @@ builtin_op!(Tan: 1 {
 });
 
 builtin_op!(Asin: 1 {
-    name: "asin",
-    infix: None,
     eval(args) { args[0].asin() },
     partial(args, idx) {
         match idx {
@@ -100,8 +137,6 @@ builtin_op!(Asin: 1 {
 });
 
 builtin_op!(Acos: 1 {
-    name: "acos",
-    infix: None,
     eval(args) { args[0].acos() },
     partial(args, idx) {
         match idx {
@@ -112,8 +147,6 @@ builtin_op!(Acos: 1 {
 });
 
 builtin_op!(Atan: 1 {
-    name: "atan",
-    infix: None,
     eval(args) { args[0].atan() },
     partial(args, idx) {
         match idx {
@@ -124,8 +157,6 @@ builtin_op!(Atan: 1 {
 });
 
 builtin_op!(Sinh: 1 {
-    name: "sinh",
-    infix: None,
     eval(args) { args[0].sinh() },
     partial(args, idx) {
         match idx {
@@ -136,8 +167,6 @@ builtin_op!(Sinh: 1 {
 });
 
 builtin_op!(Cosh: 1 {
-    name: "cosh",
-    infix: None,
     eval(args) { args[0].cosh() },
     partial(args, idx) {
         match idx {
@@ -148,8 +177,6 @@ builtin_op!(Cosh: 1 {
 });
 
 builtin_op!(Tanh: 1 {
-    name: "tanh",
-    infix: None,
     eval(args) { args[0].tanh() },
     partial(args, idx) {
         match idx {
@@ -163,8 +190,6 @@ builtin_op!(Tanh: 1 {
 });
 
 builtin_op!(Asinh: 1 {
-    name: "asinh",
-    infix: None,
     eval(args) { args[0].asinh() },
     partial(args, idx) {
         match idx {
@@ -175,8 +200,6 @@ builtin_op!(Asinh: 1 {
 });
 
 builtin_op!(Acosh: 1 {
-    name: "acosh",
-    infix: None,
     eval(args) { args[0].acosh() },
     partial(args, idx) {
         match idx {
@@ -190,8 +213,6 @@ builtin_op!(Acosh: 1 {
 });
 
 builtin_op!(Atanh: 1 {
-    name: "atanh",
-    infix: None,
     eval(args) { args[0].atanh() },
     partial(args, idx) {
         match idx {
@@ -202,8 +223,6 @@ builtin_op!(Atanh: 1 {
 });
 
 builtin_op!(Sec: 1 {
-    name: "sec",
-    infix: None,
     eval(args) { T::one() / args[0].cos() },
     partial(args, idx) {
         match idx {
@@ -217,8 +236,6 @@ builtin_op!(Sec: 1 {
 });
 
 builtin_op!(Csc: 1 {
-    name: "csc",
-    infix: None,
     eval(args) { T::one() / args[0].sin() },
     partial(args, idx) {
         match idx {
@@ -233,8 +250,6 @@ builtin_op!(Csc: 1 {
 });
 
 builtin_op!(Cot: 1 {
-    name: "cot",
-    infix: None,
     eval(args) { T::one() / args[0].tan() },
     partial(args, idx) {
         match idx {
@@ -248,8 +263,6 @@ builtin_op!(Cot: 1 {
 });
 
 builtin_op!(Exp: 1 {
-    name: "exp",
-    infix: None,
     eval(args) { args[0].exp() },
     partial(args, idx) {
         match idx {
@@ -260,8 +273,6 @@ builtin_op!(Exp: 1 {
 });
 
 builtin_op!(Log: 1 {
-    name: "log",
-    infix: None,
     eval(args) { args[0].ln() },
     partial(args, idx) {
         match idx {
@@ -272,8 +283,6 @@ builtin_op!(Log: 1 {
 });
 
 builtin_op!(Log2: 1 {
-    name: "log2",
-    infix: None,
     eval(args) { args[0].log2() },
     partial(args, idx) {
         match idx {
@@ -284,8 +293,6 @@ builtin_op!(Log2: 1 {
 });
 
 builtin_op!(Log10: 1 {
-    name: "log10",
-    infix: None,
     eval(args) { args[0].log10() },
     partial(args, idx) {
         match idx {
@@ -299,8 +306,6 @@ builtin_op!(Log10: 1 {
 });
 
 builtin_op!(Log1p: 1 {
-    name: "log1p",
-    infix: None,
     eval(args) { args[0].ln_1p() },
     partial(args, idx) {
         match idx {
@@ -311,8 +316,6 @@ builtin_op!(Log1p: 1 {
 });
 
 builtin_op!(Exp2: 1 {
-    name: "exp2",
-    infix: None,
     eval(args) { args[0].exp2() },
     partial(args, idx) {
         match idx {
@@ -323,8 +326,6 @@ builtin_op!(Exp2: 1 {
 });
 
 builtin_op!(Expm1: 1 {
-    name: "expm1",
-    infix: None,
     eval(args) { args[0].exp_m1() },
     partial(args, idx) {
         match idx {
@@ -335,8 +336,6 @@ builtin_op!(Expm1: 1 {
 });
 
 builtin_op!(Sqrt: 1 {
-    name: "sqrt",
-    infix: None,
     eval(args) { args[0].sqrt() },
     partial(args, idx) {
         match idx {
@@ -347,8 +346,6 @@ builtin_op!(Sqrt: 1 {
 });
 
 builtin_op!(Cbrt: 1 {
-    name: "cbrt",
-    infix: None,
     eval(args) { args[0].cbrt() },
     partial(args, idx) {
         match idx {
@@ -362,8 +359,6 @@ builtin_op!(Cbrt: 1 {
 });
 
 builtin_op!(Abs: 1 {
-    name: "abs",
-    infix: None,
     eval(args) { args[0].abs() },
     partial(args, idx) {
         match idx {
@@ -383,8 +378,6 @@ builtin_op!(Abs: 1 {
 });
 
 builtin_op!(Abs2: 1 {
-    name: "abs2",
-    infix: None,
     eval(args) { args[0] * args[0] },
     partial(args, idx) {
         match idx {
@@ -395,9 +388,7 @@ builtin_op!(Abs2: 1 {
 });
 
 builtin_op!(Inv: 1 {
-    name: "inv",
-    infix: None,
-    eval(args) { T::one() / args[0] },
+    eval(args) { args[0].recip() },
     partial(args, idx) {
         match idx {
             0 => -T::one() / (args[0] * args[0]),
@@ -407,8 +398,6 @@ builtin_op!(Inv: 1 {
 });
 
 builtin_op!(Sign: 1 {
-    name: "sign",
-    infix: None,
     eval(args) { args[0].signum() },
     partial(_args, idx) {
         match idx {
@@ -419,8 +408,6 @@ builtin_op!(Sign: 1 {
 });
 
 builtin_op!(Identity: 1 {
-    name: "identity",
-    infix: None,
     eval(args) { args[0] },
     partial(_args, idx) {
         match idx {
@@ -431,7 +418,6 @@ builtin_op!(Identity: 1 {
 });
 
 builtin_op!(Neg: 1 {
-    name: "neg",
     infix: Some("-"),
     eval(args) { -args[0] },
     partial(_args, idx) {
@@ -443,8 +429,9 @@ builtin_op!(Neg: 1 {
 });
 
 builtin_op!(Add: 2 {
-    name: "add",
     infix: Some("+"),
+    commutative: true,
+    associative: true,
     eval(args) { args[0] + args[1] },
     partial(_args, idx) {
         match idx {
@@ -455,7 +442,6 @@ builtin_op!(Add: 2 {
 });
 
 builtin_op!(Sub: 2 {
-    name: "sub",
     infix: Some("-"),
     eval(args) { args[0] - args[1] },
     partial(_args, idx) {
@@ -468,8 +454,9 @@ builtin_op!(Sub: 2 {
 });
 
 builtin_op!(Mul: 2 {
-    name: "mul",
     infix: Some("*"),
+    commutative: true,
+    associative: true,
     eval(args) { args[0] * args[1] },
     partial(args, idx) {
         match idx {
@@ -481,7 +468,6 @@ builtin_op!(Mul: 2 {
 });
 
 builtin_op!(Div: 2 {
-    name: "div",
     infix: Some("/"),
     eval(args) { args[0] / args[1] },
     partial(args, idx) {
@@ -494,8 +480,6 @@ builtin_op!(Div: 2 {
 });
 
 builtin_op!(Pow: 2 {
-    name: "pow",
-    infix: None,
     eval(args) { args[0].powf(args[1]) },
     partial(args, idx) {
         let x = args[0];
@@ -510,8 +494,6 @@ builtin_op!(Pow: 2 {
 });
 
 builtin_op!(Atan2: 2 {
-    name: "atan2",
-    infix: None,
     eval(args) { args[0].atan2(args[1]) },
     partial(args, idx) {
         let y = args[0];
@@ -526,13 +508,28 @@ builtin_op!(Atan2: 2 {
 });
 
 builtin_op!(Min: 2 {
-    name: "min",
-    infix: None,
-    eval(args) {
-        if args[0] < args[1] { args[0] } else { args[1] }
-    },
+    commutative: true,
+    associative: true,
+    eval(args) { args[0].min(args[1]) },
     partial(args, idx) {
         let half = T::from(0.5).expect("Float can represent 0.5");
+        if args[0].is_nan() && args[1].is_nan() {
+            return half;
+        }
+        if args[0].is_nan() {
+            return match idx {
+                0 => T::zero(),
+                1 => T::one(),
+                _ => unreachable!(),
+            };
+        }
+        if args[1].is_nan() {
+            return match idx {
+                0 => T::one(),
+                1 => T::zero(),
+                _ => unreachable!(),
+            };
+        }
         match idx {
             0 => {
                 if args[0] < args[1] {
@@ -558,13 +555,28 @@ builtin_op!(Min: 2 {
 });
 
 builtin_op!(Max: 2 {
-    name: "max",
-    infix: None,
-    eval(args) {
-        if args[0] > args[1] { args[0] } else { args[1] }
-    },
+    commutative: true,
+    associative: true,
+    eval(args) { args[0].max(args[1]) },
     partial(args, idx) {
         let half = T::from(0.5).expect("Float can represent 0.5");
+        if args[0].is_nan() && args[1].is_nan() {
+            return half;
+        }
+        if args[0].is_nan() {
+            return match idx {
+                0 => T::zero(),
+                1 => T::one(),
+                _ => unreachable!(),
+            };
+        }
+        if args[1].is_nan() {
+            return match idx {
+                0 => T::one(),
+                1 => T::zero(),
+                _ => unreachable!(),
+            };
+        }
         match idx {
             0 => {
                 if args[0] > args[1] {
@@ -590,9 +602,7 @@ builtin_op!(Max: 2 {
 });
 
 builtin_op!(Fma: 3 {
-    name: "fma",
-    infix: None,
-    eval(args) { args[0] * args[1] + args[2] },
+    eval(args) { args[0].mul_add(args[1], args[2]) },
     partial(args, idx) {
         match idx {
             0 => args[1],
@@ -604,13 +614,20 @@ builtin_op!(Fma: 3 {
 });
 
 builtin_op!(Clamp: 3 {
-    name: "clamp",
-    infix: None,
     eval(args) {
         let x = args[0];
         let lo = args[1];
         let hi = args[2];
-        if x < lo { lo } else if x > hi { hi } else { x }
+        // `Float::clamp` may panic if `lo > hi`, so keep old behavior as fallback.
+        if lo <= hi {
+            x.clamp(lo, hi)
+        } else if x < lo {
+            lo
+        } else if x > hi {
+            hi
+        } else {
+            x
+        }
     },
     partial(args, idx) {
         let x = args[0];

@@ -2,13 +2,7 @@ use crate::expr::{PNode, PostfixExpr};
 use crate::operators::scalar::OpId;
 use core::fmt;
 
-pub trait OpNames {
-    fn op_name(op: OpId) -> &'static str;
-
-    fn op_pretty_name(op: OpId) -> &'static str {
-        Self::op_name(op)
-    }
-}
+pub use crate::operators::names::OpNames;
 
 #[derive(Clone, Debug, Default)]
 pub struct StringTreeOptions<'a> {

@@ -1,21 +1,6 @@
 use crate::expr::{Metadata, PNode, PostfixExpr};
-use crate::operators::scalar::OpId;
-
-pub trait HasAdd {
-    const ADD: OpId;
-}
-pub trait HasSub {
-    const SUB: OpId;
-}
-pub trait HasMul {
-    const MUL: OpId;
-}
-pub trait HasDiv {
-    const DIV: OpId;
-}
-pub trait HasNeg {
-    const NEG: OpId;
-}
+use crate::operators::builtin::{Add, Div, Mul, Neg, Sub};
+use crate::operators::scalar::HasOp;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Lit<T>(pub T);
@@ -74,156 +59,167 @@ fn __const_expr<T, Ops, const D: usize>(value: T) -> PostfixExpr<T, Ops, D> {
 
 impl<T, Ops, const D: usize> core::ops::Add for PostfixExpr<T, Ops, D>
 where
-    Ops: HasAdd,
+    Ops: HasOp<Add, 2>,
 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        debug_assert_eq!(Ops::ADD.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::ADD.id, [self, rhs])
+        __apply_postfix::<T, Ops, D, 2>(<Ops as HasOp<Add, 2>>::ID, [self, rhs])
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Sub for PostfixExpr<T, Ops, D>
 where
-    Ops: HasSub,
+    Ops: HasOp<Sub, 2>,
 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        debug_assert_eq!(Ops::SUB.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::SUB.id, [self, rhs])
+        __apply_postfix::<T, Ops, D, 2>(<Ops as HasOp<Sub, 2>>::ID, [self, rhs])
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Mul for PostfixExpr<T, Ops, D>
 where
-    Ops: HasMul,
+    Ops: HasOp<Mul, 2>,
 {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        debug_assert_eq!(Ops::MUL.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::MUL.id, [self, rhs])
+        __apply_postfix::<T, Ops, D, 2>(<Ops as HasOp<Mul, 2>>::ID, [self, rhs])
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Div for PostfixExpr<T, Ops, D>
 where
-    Ops: HasDiv,
+    Ops: HasOp<Div, 2>,
 {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        debug_assert_eq!(Ops::DIV.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::DIV.id, [self, rhs])
+        __apply_postfix::<T, Ops, D, 2>(<Ops as HasOp<Div, 2>>::ID, [self, rhs])
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Neg for PostfixExpr<T, Ops, D>
 where
-    Ops: HasNeg,
+    Ops: HasOp<Neg, 1>,
 {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        debug_assert_eq!(Ops::NEG.arity, 1);
-        __apply_postfix::<T, Ops, D, 1>(Ops::NEG.id, [self])
+        __apply_postfix::<T, Ops, D, 1>(<Ops as HasOp<Neg, 1>>::ID, [self])
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Add<T> for PostfixExpr<T, Ops, D>
 where
-    Ops: HasAdd,
+    Ops: HasOp<Add, 2>,
 {
     type Output = Self;
 
     fn add(self, rhs: T) -> Self::Output {
-        debug_assert_eq!(Ops::ADD.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::ADD.id, [self, __const_expr::<T, Ops, D>(rhs)])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Add, 2>>::ID,
+            [self, __const_expr::<T, Ops, D>(rhs)],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Sub<T> for PostfixExpr<T, Ops, D>
 where
-    Ops: HasSub,
+    Ops: HasOp<Sub, 2>,
 {
     type Output = Self;
 
     fn sub(self, rhs: T) -> Self::Output {
-        debug_assert_eq!(Ops::SUB.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::SUB.id, [self, __const_expr::<T, Ops, D>(rhs)])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Sub, 2>>::ID,
+            [self, __const_expr::<T, Ops, D>(rhs)],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Mul<T> for PostfixExpr<T, Ops, D>
 where
-    Ops: HasMul,
+    Ops: HasOp<Mul, 2>,
 {
     type Output = Self;
 
     fn mul(self, rhs: T) -> Self::Output {
-        debug_assert_eq!(Ops::MUL.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::MUL.id, [self, __const_expr::<T, Ops, D>(rhs)])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Mul, 2>>::ID,
+            [self, __const_expr::<T, Ops, D>(rhs)],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Div<T> for PostfixExpr<T, Ops, D>
 where
-    Ops: HasDiv,
+    Ops: HasOp<Div, 2>,
 {
     type Output = Self;
 
     fn div(self, rhs: T) -> Self::Output {
-        debug_assert_eq!(Ops::DIV.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::DIV.id, [self, __const_expr::<T, Ops, D>(rhs)])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Div, 2>>::ID,
+            [self, __const_expr::<T, Ops, D>(rhs)],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Add<PostfixExpr<T, Ops, D>> for Lit<T>
 where
-    Ops: HasAdd,
+    Ops: HasOp<Add, 2>,
 {
     type Output = PostfixExpr<T, Ops, D>;
 
     fn add(self, rhs: PostfixExpr<T, Ops, D>) -> Self::Output {
-        debug_assert_eq!(Ops::ADD.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::ADD.id, [__const_expr::<T, Ops, D>(self.0), rhs])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Add, 2>>::ID,
+            [__const_expr::<T, Ops, D>(self.0), rhs],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Sub<PostfixExpr<T, Ops, D>> for Lit<T>
 where
-    Ops: HasSub,
+    Ops: HasOp<Sub, 2>,
 {
     type Output = PostfixExpr<T, Ops, D>;
 
     fn sub(self, rhs: PostfixExpr<T, Ops, D>) -> Self::Output {
-        debug_assert_eq!(Ops::SUB.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::SUB.id, [__const_expr::<T, Ops, D>(self.0), rhs])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Sub, 2>>::ID,
+            [__const_expr::<T, Ops, D>(self.0), rhs],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Mul<PostfixExpr<T, Ops, D>> for Lit<T>
 where
-    Ops: HasMul,
+    Ops: HasOp<Mul, 2>,
 {
     type Output = PostfixExpr<T, Ops, D>;
 
     fn mul(self, rhs: PostfixExpr<T, Ops, D>) -> Self::Output {
-        debug_assert_eq!(Ops::MUL.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::MUL.id, [__const_expr::<T, Ops, D>(self.0), rhs])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Mul, 2>>::ID,
+            [__const_expr::<T, Ops, D>(self.0), rhs],
+        )
     }
 }
 
 impl<T, Ops, const D: usize> core::ops::Div<PostfixExpr<T, Ops, D>> for Lit<T>
 where
-    Ops: HasDiv,
+    Ops: HasOp<Div, 2>,
 {
     type Output = PostfixExpr<T, Ops, D>;
 
     fn div(self, rhs: PostfixExpr<T, Ops, D>) -> Self::Output {
-        debug_assert_eq!(Ops::DIV.arity, 2);
-        __apply_postfix::<T, Ops, D, 2>(Ops::DIV.id, [__const_expr::<T, Ops, D>(self.0), rhs])
+        __apply_postfix::<T, Ops, D, 2>(
+            <Ops as HasOp<Div, 2>>::ID,
+            [__const_expr::<T, Ops, D>(self.0), rhs],
+        )
     }
 }
