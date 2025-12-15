@@ -21,13 +21,39 @@ This workspace contains two crates:
 | [`symbolic_regression`](./symbolic_regression) | [![crates.io](https://img.shields.io/crates/v/symbolic_regression)](https://crates.io/crates/symbolic_regression) | [![CI (symbolic_regression)](https://github.com/MilesCranmer/symbolic_regression.rs/actions/workflows/ci-symbolic-regression.yml/badge.svg?branch=main)](https://github.com/MilesCranmer/symbolic_regression.rs/actions/workflows/ci-symbolic-regression.yml) |
 | [`dynamic_expressions`](./dynamic_expressions) | [![crates.io](https://img.shields.io/crates/v/dynamic_expressions)](https://crates.io/crates/dynamic_expressions) | [![CI (dynamic_expressions)](https://github.com/MilesCranmer/symbolic_regression.rs/actions/workflows/ci-dynamic-expressions.yml/badge.svg?branch=main)](https://github.com/MilesCranmer/symbolic_regression.rs/actions/workflows/ci-dynamic-expressions.yml) |
 
-## Quickstart
+## CLI (`symreg`)
+
+This repo optionally ships an experimental CLI binary named `symreg`, behind the `cli` feature.
+
+Install from the git repo:
+
+```sh
+cargo install \
+  --git https://github.com/MilesCranmer/symbolic_regression.rs \
+  --package symbolic_regression \
+  --features cli \
+  --bin symreg
+```
+
+Run on a CSV dataset:
+
+```sh
+symreg data.csv --y target --x x1,x2,x3 --niterations=100 --populations=4 --population-size=64
+```
+
+Notes:
+
+- Use `symreg --list-operators` to see available builtin operators.
+- Quote operator lists in shells to avoid globbing (e.g. `--binary-operators='+,*'`).
+
+## Low-level API
 
 Execute `examples/example.rs`, which is the standard example from the [`SymbolicRegression.jl` README](https://github.com/MilesCranmer/SymbolicRegression.jl).
 
 ```sh
 cargo run -p symbolic_regression --example example --release
 ```
+
 
 The code executed is:
 
