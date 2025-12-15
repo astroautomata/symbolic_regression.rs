@@ -27,7 +27,7 @@ This repo optionally ships an experimental CLI binary named `symreg`, behind the
 
 Install from the git repo:
 
-```sh
+```bash
 cargo install \
   --git https://github.com/MilesCranmer/symbolic_regression.rs \
   --package symbolic_regression \
@@ -37,7 +37,7 @@ cargo install \
 
 Run on a CSV dataset:
 
-```sh
+```bash
 symreg data.csv --y target --x x1,x2,x3 --niterations=100 --populations=4 --population-size=64
 ```
 
@@ -50,7 +50,7 @@ Notes:
 
 Execute `examples/example.rs`, which is the standard example from the [`SymbolicRegression.jl` README](https://github.com/MilesCranmer/SymbolicRegression.jl).
 
-```sh
+```bash
 cargo run -p symbolic_regression --example example --release
 ```
 
