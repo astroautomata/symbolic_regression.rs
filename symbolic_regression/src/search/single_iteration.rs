@@ -6,6 +6,7 @@ use crate::options::Options;
 use crate::population::Population;
 use crate::search::regularized_evolution::{reg_evol_cycle, RegEvolCtx};
 use dynamic_expressions::operators::scalar::ScalarOpSet;
+use dynamic_expressions::operators::OpRegistry;
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 use rand::Rng;
 
@@ -28,7 +29,7 @@ pub fn s_r_cycle<T, Ops, const D: usize, R: Rng>(
 ) -> (f64, HallOfFame<T, Ops, D>)
 where
     T: Float + FromPrimitive + ToPrimitive,
-    Ops: ScalarOpSet<T>,
+    Ops: ScalarOpSet<T> + OpRegistry,
 {
     let max_temp = 1.0;
     let min_temp = if ctx.options.annealing { 0.0 } else { 1.0 };
@@ -70,13 +71,20 @@ pub fn optimize_and_simplify_population<T, Ops, const D: usize, R: Rng>(
 ) -> f64
 where
     T: Float + FromPrimitive + ToPrimitive,
-    Ops: ScalarOpSet<T>,
+    Ops: ScalarOpSet<T> + OpRegistry,
 {
     let mut num_evals = 0.0;
 
     if ctx.options.should_simplify {
-        // Stub: real simplification would rewrite `expr.nodes` using algebraic rules.
-        let _ = ctx.curmaxsize;
+        for m in &mut pop.members {
+            let changed = dynamic_expressions::simplify_in_place::<T, Ops, D>(
+                &mut m.expr,
+                &ctx.evaluator.eval_opts,
+            );
+            if changed {
+                m.rebuild_plan(ctx.dataset.n_features);
+            }
+        }
     }
 
     if ctx.options.should_optimize_constants && ctx.options.optimizer_probability > 0.0 {

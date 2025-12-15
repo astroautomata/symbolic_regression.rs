@@ -5,6 +5,7 @@ use crate::options::Options;
 use crate::population::Population;
 use crate::selection::best_of_sample;
 use dynamic_expressions::operators::scalar::ScalarOpSet;
+use dynamic_expressions::operators::OpRegistry;
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 use rand::Rng;
 
@@ -27,7 +28,7 @@ pub fn reg_evol_cycle<T, Ops, const D: usize, R: Rng>(
 ) -> f64
 where
     T: Float + FromPrimitive + ToPrimitive,
-    Ops: ScalarOpSet<T>,
+    Ops: ScalarOpSet<T> + OpRegistry,
 {
     let mut num_evals = 0.0;
     let n_evol_cycles =

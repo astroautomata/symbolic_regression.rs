@@ -12,6 +12,7 @@ use crate::mutate;
 use crate::options::Options;
 use crate::population::Population;
 use dynamic_expressions::operators::scalar::ScalarOpSet;
+use dynamic_expressions::operators::OpRegistry;
 use dynamic_expressions::strings::OpNames;
 use num_traits::Float;
 use progress::SearchProgress;
@@ -104,7 +105,7 @@ where
         + std::fmt::Display
         + Send
         + Sync,
-    Ops: ScalarOpSet<T> + OpNames + Send + Sync,
+    Ops: ScalarOpSet<T> + OpNames + OpRegistry + Send + Sync,
 {
     #[cfg(target_arch = "wasm32")]
     {
@@ -130,7 +131,7 @@ where
         + std::fmt::Display
         + Send
         + Sync,
-    Ops: ScalarOpSet<T> + OpNames + Send + Sync,
+    Ops: ScalarOpSet<T> + OpNames + OpRegistry + Send + Sync,
 {
     let counters = SearchCounters {
         total_cycles: options.niterations * options.populations,
@@ -193,7 +194,7 @@ pub struct SearchEngine<T: Float, Ops, const D: usize> {
 impl<T, Ops, const D: usize> SearchEngine<T, Ops, D>
 where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + std::fmt::Display,
-    Ops: ScalarOpSet<T> + OpNames,
+    Ops: ScalarOpSet<T> + OpNames + OpRegistry,
 {
     pub fn new(dataset: Dataset<T>, options: Options<T, D>) -> Self {
         let counters = SearchCounters {
@@ -354,7 +355,7 @@ fn execute_task<T, Ops, const D: usize>(
 ) -> SearchTaskResult<T, Ops, D>
 where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive,
-    Ops: ScalarOpSet<T>,
+    Ops: ScalarOpSet<T> + OpRegistry,
 {
     let mut ctx = single_iteration::IterationCtx::<T, Ops, D, _> {
         rng: &mut pop_state.rng,
@@ -463,7 +464,7 @@ fn run_scoped_search<'scope, 'env, T, Ops, const D: usize>(
         + std::fmt::Display
         + Send
         + Sync,
-    Ops: ScalarOpSet<T> + OpNames + Send + Sync + 'scope,
+    Ops: ScalarOpSet<T> + OpNames + OpRegistry + Send + Sync + 'scope,
 {
     let dataset = state.dataset;
     let options = state.options;
