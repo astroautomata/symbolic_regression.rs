@@ -455,10 +455,7 @@ fn options_from_wasm(
     })
 }
 
-fn snapshot(
-    engine: &SearchEngine<f64, BuiltinOpsF64, 3>,
-    pareto_k: usize,
-) -> SearchSnapshot {
+fn snapshot(engine: &SearchEngine<f64, BuiltinOpsF64, 3>, pareto_k: usize) -> SearchSnapshot {
     let best = summary_from_member(engine, engine.best());
 
     let mut pareto = engine.hall_of_fame().pareto_front();
