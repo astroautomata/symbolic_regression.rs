@@ -49,7 +49,7 @@ jobs:
   publish:
     name: Publish to crates.io
     needs: release-please
-    if: needs.release-please.outputs.created || (github.event.inputs.force_publish == 'true' && github.event.inputs.git_ref != '')
+    if: needs.release-please.outputs.created == 'true' || (github.event.inputs.force_publish == 'true' && github.event.inputs.git_ref != '')
     uses: ./.github/workflows/publish-crates.yml
     with:
       git_ref: ${{ github.event.inputs.git_ref || needs.release-please.outputs.tag_name }}
