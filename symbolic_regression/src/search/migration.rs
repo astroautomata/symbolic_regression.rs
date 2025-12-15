@@ -1,7 +1,7 @@
 use crate::member::{MemberId, PopMember};
 use crate::population::Population;
 use num_traits::Float;
-use rand::seq::SliceRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 use rand::Rng;
 use rand_distr::{Distribution, Poisson};
 use std::cmp::Ordering;

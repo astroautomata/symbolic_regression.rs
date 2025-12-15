@@ -22,7 +22,7 @@ include = [
 
 [dependencies]
 num-traits = "0.2"
-ndarray = "0.15"
+ndarray = "0.17"
 paste = "1"
 
 [dev-dependencies]

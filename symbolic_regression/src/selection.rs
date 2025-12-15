@@ -3,8 +3,8 @@ use crate::member::PopMember;
 use crate::options::Options;
 use crate::population::Population;
 use num_traits::Float;
-use rand::distributions::WeightedIndex;
-use rand::prelude::Distribution;
+use rand::distr::weighted::WeightedIndex;
+use rand::distr::Distribution;
 use rand::Rng;
 use std::cmp::Ordering;
 

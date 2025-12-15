@@ -34,7 +34,7 @@ where
         ((pop.len() as f64) / (ctx.options.tournament_selection_n as f64)).ceil() as usize;
 
     for _ in 0..n_evol_cycles {
-        if ctx.rng.gen::<f64>() > ctx.options.crossover_probability {
+        if ctx.rng.random::<f64>() > ctx.options.crossover_probability {
             let allstar = best_of_sample(ctx.rng, pop, ctx.stats, ctx.options);
             let (baby, accepted, tmp) = mutate::next_generation::<T, Ops, D, _>(
                 &allstar,

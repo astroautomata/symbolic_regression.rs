@@ -6,8 +6,8 @@ use dynamic_expressions::expr::{PNode, PostfixExpr};
 use dynamic_expressions::operators::scalar::ScalarOpSet;
 use dynamic_expressions::tree::{count_depth, subtree_range, subtree_sizes};
 use num_traits::Float;
-use rand::distributions::WeightedIndex;
-use rand::prelude::Distribution;
+use rand::distr::weighted::WeightedIndex;
+use rand::distr::Distribution;
 use rand::Rng;
 use rand_distr::{Normal, StandardNormal};
 
@@ -182,7 +182,7 @@ fn random_leaf<T: Float, R: Rng>(
     const_prob: f64,
     consts: &mut Vec<T>,
 ) -> PNode {
-    if rng.gen::<f64>() < const_prob {
+    if rng.random::<f64>() < const_prob {
         let val_f64: f64 = StandardNormal.sample(rng);
         let val = T::from(val_f64).unwrap();
         let idx: u16 = consts
@@ -193,7 +193,7 @@ fn random_leaf<T: Float, R: Rng>(
         PNode::Const { idx }
     } else {
         let f: u16 = rng
-            .gen_range(0..n_features)
+            .random_range(0..n_features)
             .try_into()
             .unwrap_or_else(|_| panic!("too many features to index in u16"));
         PNode::Var { feature: f }
@@ -230,7 +230,7 @@ pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
             .enumerate()
             .filter_map(|(i, n)| matches!(n, PNode::Var { .. } | PNode::Const { .. }).then_some(i))
             .collect();
-        let leaf_idx = leaf_positions[rng.gen_range(0..leaf_positions.len())];
+        let leaf_idx = leaf_positions[rng.random_range(0..leaf_positions.len())];
 
         let mut repl: Vec<PNode> = Vec::with_capacity(arity + 1);
         for _ in 0..arity {
@@ -298,7 +298,7 @@ fn mutate_constant_in_place<T: Float, Ops, const D: usize, R: Rng>(
     if idxs.is_empty() {
         return false;
     }
-    let node_i = idxs[rng.gen_range(0..idxs.len())];
+    let node_i = idxs[rng.random_range(0..idxs.len())];
     let PNode::Const { idx } = expr.nodes[node_i] else {
         return false;
     };
@@ -308,7 +308,7 @@ fn mutate_constant_in_place<T: Float, Ops, const D: usize, R: Rng>(
     let n = Normal::new(0.0, pf.max(0.0)).unwrap();
     let z: f64 = n.sample(rng);
     let mut mul = z.exp();
-    if rng.gen::<f64>() < options.probability_negate_constant {
+    if rng.random::<f64>() < options.probability_negate_constant {
         mul = -mul;
     }
     let m = T::from(mul).unwrap();
@@ -325,7 +325,7 @@ fn mutate_operator_in_place<T, Ops, const D: usize, R: Rng>(
     if idxs.is_empty() {
         return false;
     }
-    let i = idxs[rng.gen_range(0..idxs.len())];
+    let i = idxs[rng.random_range(0..idxs.len())];
     let PNode::Op { arity, op: old } = expr.nodes[i] else {
         return false;
     };
@@ -355,7 +355,7 @@ fn mutate_feature_in_place<T, Ops, const D: usize, R: Rng>(
     if idxs.is_empty() {
         return false;
     }
-    let node_i = idxs[rng.gen_range(0..idxs.len())];
+    let node_i = idxs[rng.random_range(0..idxs.len())];
     let PNode::Var { feature } = expr.nodes[node_i] else {
         return false;
     };
@@ -365,7 +365,7 @@ fn mutate_feature_in_place<T, Ops, const D: usize, R: Rng>(
     }
 
     for _ in 0..8 {
-        let new_feature = rng.gen_range(0..n_features);
+        let new_feature = rng.random_range(0..n_features);
         if new_feature != old {
             let new_u16: u16 = new_feature
                 .try_into()
@@ -391,7 +391,7 @@ fn swap_operands_in_place<T, Ops, const D: usize, R: Rng>(
         return false;
     }
     let sizes = subtree_sizes(&expr.nodes);
-    let root_idx = idxs[rng.gen_range(0..idxs.len())];
+    let root_idx = idxs[rng.random_range(0..idxs.len())];
     let PNode::Op { op, .. } = expr.nodes[root_idx] else {
         return false;
     };
@@ -420,7 +420,7 @@ fn rotate_tree_in_place<T, Ops, const D: usize, R: Rng>(
         return false;
     }
     let sizes = subtree_sizes(&expr.nodes);
-    let root_idx = idxs[rng.gen_range(0..idxs.len())];
+    let root_idx = idxs[rng.random_range(0..idxs.len())];
     let PNode::Op { op: op_root, .. } = expr.nodes[root_idx] else {
         return false;
     };
@@ -429,7 +429,7 @@ fn rotate_tree_in_place<T, Ops, const D: usize, R: Rng>(
     let right_root = child[1].1;
 
     // Choose rotation direction randomly; try both if needed.
-    for &dir in if rng.gen::<bool>() {
+    for &dir in if rng.random::<bool>() {
         &[0usize, 1usize][..]
     } else {
         &[1usize, 0usize][..]
@@ -494,14 +494,14 @@ fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
     if operators.total_ops_up_to(D) == 0 {
         return false;
     }
-    let root_idx = rng.gen_range(0..expr.nodes.len());
+    let root_idx = rng.random_range(0..expr.nodes.len());
     let sizes = subtree_sizes(&expr.nodes);
     let (start, end) = subtree_range(&sizes, root_idx);
     let old_sub: Vec<PNode> = expr.nodes[start..=end].to_vec();
 
     let arity = operators.sample_arity(rng, D);
     let op_id = operators.sample_op(rng, arity).op.id;
-    let carry_pos = rng.gen_range(0..arity);
+    let carry_pos = rng.random_range(0..arity);
 
     let mut new_sub: Vec<PNode> = Vec::new();
     for j in 0..arity {
@@ -540,7 +540,7 @@ fn append_or_prepend_random_op<T: Float, Ops, const D: usize, R: Rng>(
     }
     let arity = operators.sample_arity(rng, D);
     let op_id = operators.sample_op(rng, arity).op.id;
-    let carry_pos = rng.gen_range(0..arity);
+    let carry_pos = rng.random_range(0..arity);
 
     let old = expr.nodes.clone();
     let mut new_nodes: Vec<PNode> = Vec::new();
@@ -573,7 +573,7 @@ fn delete_random_op_in_place<T: Clone, Ops, const D: usize, R: Rng>(
     if idxs.is_empty() {
         return false;
     }
-    let root_idx = idxs[rng.gen_range(0..idxs.len())];
+    let root_idx = idxs[rng.random_range(0..idxs.len())];
     let PNode::Op { arity, .. } = expr.nodes[root_idx] else {
         return false;
     };
@@ -587,7 +587,7 @@ fn delete_random_op_in_place<T: Clone, Ops, const D: usize, R: Rng>(
         return false;
     }
     let child = child_ranges(&sizes, root_idx, a);
-    let keep = child[rng.gen_range(0..a)];
+    let keep = child[rng.random_range(0..a)];
     let kept_nodes: Vec<PNode> = expr.nodes[keep.0..=keep.1].to_vec();
     expr.nodes.splice(sub_start..=sub_end, kept_nodes);
     compress_constants(expr);
@@ -633,8 +633,8 @@ fn crossover_trees<T: Clone, Ops, const D: usize, R: Rng>(
 
     let a_sizes = subtree_sizes(&a.nodes);
     let b_sizes = subtree_sizes(&b.nodes);
-    let a_root = rng.gen_range(0..a.nodes.len());
-    let b_root = rng.gen_range(0..b.nodes.len());
+    let a_root = rng.random_range(0..a.nodes.len());
+    let b_root = rng.random_range(0..b.nodes.len());
     let (a_start, a_end) = subtree_range(&a_sizes, a_root);
     let (b_start, b_end) = subtree_range(&b_sizes, b_root);
 
@@ -788,7 +788,7 @@ where
         prob *= old_f / new_f;
     }
 
-    if prob < rng.gen::<f64>() {
+    if prob < rng.random::<f64>() {
         let mut reject =
             PopMember::from_expr(id, Some(member.id), birth, member.expr.clone(), n_features);
         reject.complexity = member.complexity;

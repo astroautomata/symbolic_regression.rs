@@ -23,16 +23,16 @@ include = [
 [dependencies]
 dynamic_expressions = "0.2.0"
 num-traits = "0.2"
-rand = "0.8"
-rand_distr = "0.4"
-ndarray = "0.15"
-ndarray-rand = "0.14"
+rand = "0.9"
+rand_distr = "0.5"
+ndarray = "0.17"
+ndarray-rand = "0.16"
 indicatif = { version = "0.18", optional = true }
 console = { version = "0.16", optional = true }
 anyhow = { version = "1", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 csv = { version = "1", optional = true }
-calamine = { version = "0.25", optional = true }
+calamine = { version = "0.32", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 

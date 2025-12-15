@@ -81,7 +81,7 @@ where
 
     if ctx.options.should_optimize_constants && ctx.options.optimizer_probability > 0.0 {
         for m in &mut pop.members {
-            if ctx.rng.gen::<f64>() < ctx.options.optimizer_probability {
+            if ctx.rng.random::<f64>() < ctx.options.optimizer_probability {
                 let (improved, evals) = optimize_constants::<T, Ops, D, _>(
                     ctx.rng,
                     m,

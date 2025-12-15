@@ -90,7 +90,7 @@ impl<const D: usize> Operators<D> {
         let max_arity = max_arity.min(D);
         let total: usize = (1..=max_arity).map(|a| self.nops(a)).sum();
         assert!(total > 0, "no operators available up to arity={max_arity}");
-        let mut r = rng.gen_range(0..total);
+        let mut r = rng.random_range(0..total);
         for arity in 1..=max_arity {
             let n = self.nops(arity);
             if r < n {
@@ -103,7 +103,7 @@ impl<const D: usize> Operators<D> {
 
     pub fn sample_op<R: Rng>(&self, rng: &mut R, arity: usize) -> &OpSpec {
         let v = &self.ops_by_arity[arity - 1];
-        let i = rng.gen_range(0..v.len());
+        let i = rng.random_range(0..v.len());
         &v[i]
     }
 
