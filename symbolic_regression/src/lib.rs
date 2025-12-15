@@ -22,7 +22,7 @@ pub mod bench;
 
 pub use dataset::Dataset;
 pub use hall_of_fame::HallOfFame;
-pub use loss::mse;
+pub use loss::{huber, mae, make_loss, mse, rmse, LossKind};
 pub use member::{MemberId, PopMember};
 pub use operator_library::OperatorLibrary;
 pub use operators::Operators;

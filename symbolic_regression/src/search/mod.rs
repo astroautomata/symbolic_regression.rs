@@ -253,6 +253,14 @@ where
         &self.pools.best
     }
 
+    pub fn dataset(&self) -> &Dataset<T> {
+        &self.dataset
+    }
+
+    pub fn options(&self) -> &Options<T, D> {
+        &self.options
+    }
+
     pub fn step(&mut self, n_cycles: usize) -> usize {
         let mut completed = 0usize;
         for _ in 0..n_cycles {
