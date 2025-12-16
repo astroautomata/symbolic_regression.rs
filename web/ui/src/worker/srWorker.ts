@@ -6,11 +6,11 @@ import type { WorkerFromWorkerMsg, WorkerToWorkerMsg } from "./protocol";
 let search: WasmSearch | null = null;
 let running = false;
 
-let snapshotIntervalMs = 200;
-let frontIntervalMs = 1000;
-let stepCycles = 10;
-let paretoK = 250;
-let frontK = 50;
+const SNAPSHOT_INTERVAL_MS = 200;
+const FRONT_INTERVAL_MS = 250;
+const STEP_CYCLES = 10;
+const PARETO_K = 10_000;
+const FRONT_K = 10_000;
 
 function post(msg: WorkerFromWorkerMsg): void {
   self.postMessage(msg);
@@ -31,16 +31,16 @@ async function runLoop(): Promise<void> {
   let lastFront = 0;
 
   while (running && !search.is_finished()) {
-    search.step(stepCycles);
+    search.step(STEP_CYCLES);
 
     const now = performance.now();
-    if (now - lastSnap >= snapshotIntervalMs) {
+    if (now - lastSnap >= SNAPSHOT_INTERVAL_MS) {
       const snap = search.step(0);
       post({ type: "snapshot", snap });
       lastSnap = now;
     }
-    if (now - lastFront >= frontIntervalMs) {
-      const front = search.best_equations(frontK);
+    if (now - lastFront >= FRONT_INTERVAL_MS) {
+      const front = search.best_equations(FRONT_K);
       post({ type: "front_update", front });
       lastFront = now;
     }
@@ -54,7 +54,7 @@ async function runLoop(): Promise<void> {
   }
 
   post({ type: "snapshot", snap: search.step(0) });
-  post({ type: "front_update", front: search.best_equations(frontK) });
+  post({ type: "front_update", front: search.best_equations(FRONT_K) });
   post({ type: "done" });
   running = false;
 }
@@ -65,10 +65,8 @@ self.onmessage = async (e: MessageEvent<WorkerToWorkerMsg>) => {
     if (msg.type === "init") {
       running = false;
       await init();
-      paretoK = msg.paretoK ?? paretoK;
-      frontK = msg.frontK ?? frontK;
       search = new WasmSearch(msg.csvText, msg.options as any, msg.unary as any, msg.binary as any, msg.ternary as any);
-      search.set_pareto_k(paretoK);
+      search.set_pareto_k(PARETO_K);
       const split = search.get_split_indices();
       post({ type: "ready", split });
       return;
@@ -87,22 +85,6 @@ self.onmessage = async (e: MessageEvent<WorkerToWorkerMsg>) => {
       return;
     }
 
-    if (msg.type === "set_snapshot_rate") {
-      snapshotIntervalMs = Math.max(10, msg.snapshotIntervalMs | 0);
-      return;
-    }
-
-    if (msg.type === "set_front_rate") {
-      frontIntervalMs = Math.max(50, msg.frontIntervalMs | 0);
-      return;
-    }
-
-    if (msg.type === "set_pareto_k") {
-      paretoK = Math.max(10, msg.paretoK | 0);
-      if (search) search.set_pareto_k(paretoK);
-      return;
-    }
-
     if (msg.type === "step") {
       if (!search) {
         post({ type: "error", error: "search not initialized" });
@@ -110,7 +92,7 @@ self.onmessage = async (e: MessageEvent<WorkerToWorkerMsg>) => {
       }
       search.step(Math.max(0, msg.cycles | 0));
       post({ type: "snapshot", snap: search.step(0) });
-      post({ type: "front_update", front: search.best_equations(frontK) });
+      post({ type: "front_update", front: search.best_equations(FRONT_K) });
       return;
     }
 
@@ -138,4 +120,3 @@ self.onmessage = async (e: MessageEvent<WorkerToWorkerMsg>) => {
     post({ type: "error", error: String(err) });
   }
 };
-

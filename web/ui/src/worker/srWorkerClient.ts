@@ -49,8 +49,6 @@ export class SrWorkerClient {
     unary: string[];
     binary: string[];
     ternary: string[];
-    paretoK?: number;
-    frontK?: number;
   }): void {
     this.post({ type: "init", ...args });
   }
@@ -69,18 +67,6 @@ export class SrWorkerClient {
 
   step(cycles: number): void {
     this.post({ type: "step", cycles });
-  }
-
-  setSnapshotRate(snapshotIntervalMs: number): void {
-    this.post({ type: "set_snapshot_rate", snapshotIntervalMs });
-  }
-
-  setFrontRate(frontIntervalMs: number): void {
-    this.post({ type: "set_front_rate", frontIntervalMs });
-  }
-
-  setParetoK(paretoK: number): void {
-    this.post({ type: "set_pareto_k", paretoK });
   }
 
   evaluate(requestId: string, memberId: string, which: "train" | "val"): void {

@@ -9,14 +9,11 @@ vi.mock("../../worker/srWorkerClient", () => {
   class SrWorkerClient {
     setHandlers() {}
     terminate() {}
-    setSnapshotRate() {}
-    setParetoK() {}
     init() {}
     start() {}
     pause() {}
     reset() {}
     step() {}
-    setFrontRate() {}
     evaluate() {}
   }
   return { SrWorkerClient };
@@ -153,4 +150,3 @@ describe("SearchSolutions fit plot", () => {
     expect(modes).not.toContain("lines");
   });
 });
-

@@ -7,23 +7,12 @@ export type WorkerInitMsg = {
   unary: string[];
   binary: string[];
   ternary: string[];
-  paretoK?: number;
-  frontK?: number;
 };
 
 export type WorkerStartMsg = { type: "start" };
 export type WorkerPauseMsg = { type: "pause" };
 export type WorkerResetMsg = { type: "reset" };
 export type WorkerStepMsg = { type: "step"; cycles: number };
-export type WorkerSetSnapshotRateMsg = {
-  type: "set_snapshot_rate";
-  snapshotIntervalMs: number;
-};
-export type WorkerSetFrontRateMsg = {
-  type: "set_front_rate";
-  frontIntervalMs: number;
-};
-export type WorkerSetParetoKMsg = { type: "set_pareto_k"; paretoK: number };
 export type WorkerEvaluateMsg = {
   type: "evaluate";
   memberId: string;
@@ -37,9 +26,6 @@ export type WorkerToWorkerMsg =
   | WorkerPauseMsg
   | WorkerResetMsg
   | WorkerStepMsg
-  | WorkerSetSnapshotRateMsg
-  | WorkerSetFrontRateMsg
-  | WorkerSetParetoKMsg
   | WorkerEvaluateMsg;
 
 export type WorkerReadyMsg = { type: "ready"; split: WasmSplitIndices };
