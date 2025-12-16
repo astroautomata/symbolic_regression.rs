@@ -8,7 +8,7 @@ export function ParetoPlotCard(props: {
   points: { id: string; complexity: number; loss: number }[];
   selectedId: string | null;
   best: EquationSummary | null;
-  selectEquation: (id: string) => void;
+  selectEquation: (sel: { id: string; complexity: number }) => void;
 }): React.ReactElement {
   return (
     <div className="card gridCell">
@@ -51,7 +51,7 @@ export function ParetoPlotCard(props: {
               const idx = ev.points?.[0]?.pointIndex;
               if (idx == null) return;
               const p = props.points[idx as number];
-              if (p) props.selectEquation(p.id);
+              if (p) props.selectEquation({ id: p.id, complexity: p.complexity });
             }}
           />
         )}
@@ -59,4 +59,3 @@ export function ParetoPlotCard(props: {
     </div>
   );
 }
-

@@ -65,7 +65,7 @@ export function useSearchController(Client: { new (): SrWorkerClientLike }) {
   const setRuntime = useSessionStore((s) => s.setRuntime);
   const setSnapshot = useSessionStore((s) => s.setSnapshot);
   const setFront = useSessionStore((s) => s.setFront);
-  const setSelectedId = useSessionStore((s) => s.setSelectedId);
+  const setSelection = useSessionStore((s) => s.setSelection);
   const setEvalResult = useSessionStore((s) => s.setEvalResult);
 
   const clientRef = useRef<SrWorkerClientLike | null>(null);
@@ -84,6 +84,7 @@ export function useSearchController(Client: { new (): SrWorkerClientLike }) {
     [parsed, xSelectedCol]
   );
   const split = runtime.split;
+  const selectedComplexity = runtime.selectedComplexity;
 
   const evalTrain = runtime.selectedId != null ? runtime.evalByKey[`${runtime.selectedId}:train`] : undefined;
   const evalVal = runtime.selectedId != null ? runtime.evalByKey[`${runtime.selectedId}:val`] : undefined;
@@ -112,7 +113,16 @@ export function useSearchController(Client: { new (): SrWorkerClientLike }) {
       onDone: () => setRuntime({ status: "done" }),
       onPaused: () => setRuntime({ status: "paused" }),
       onResetDone: () =>
-        setRuntime({ status: "idle", split: null, snapshot: null, front: [], selectedId: null, evalByKey: {}, error: null }),
+        setRuntime({
+          status: "idle",
+          split: null,
+          snapshot: null,
+          front: [],
+          selectedId: null,
+          selectedComplexity: null,
+          evalByKey: {},
+          error: null
+        }),
       onError: (err) => setRuntime({ status: "error", error: err })
     });
     return () => c.terminate();
@@ -122,7 +132,16 @@ export function useSearchController(Client: { new (): SrWorkerClientLike }) {
 
   const initSearch = () => {
     if (!clientRef.current || !options) return;
-    setRuntime({ status: "initializing", error: null, split: null, snapshot: null, front: [], selectedId: null, evalByKey: {} });
+    setRuntime({
+      status: "initializing",
+      error: null,
+      split: null,
+      snapshot: null,
+      front: [],
+      selectedId: null,
+      selectedComplexity: null,
+      evalByKey: {}
+    });
     clientRef.current.init({
       csvText,
       options,
@@ -139,16 +158,28 @@ export function useSearchController(Client: { new (): SrWorkerClientLike }) {
   const pause = () => clientRef.current?.pause();
   const reset = () => clientRef.current?.reset();
 
-  const selectEquation = (id: string) => {
-    setSelectedId(id);
+  const selectEquation = (sel: { id: string; complexity: number }) => {
+    setSelection(sel.id, sel.complexity);
     if (!clientRef.current) return;
-    const reqTrain = `${crypto.randomUUID()}:${id}:train`;
-    clientRef.current.evaluate(reqTrain, id, "train");
+    const reqTrain = `${crypto.randomUUID()}:${sel.id}:train`;
+    clientRef.current.evaluate(reqTrain, sel.id, "train");
     if (split && split.val.length > 0) {
-      const reqVal = `${crypto.randomUUID()}:${id}:val`;
-      clientRef.current.evaluate(reqVal, id, "val");
+      const reqVal = `${crypto.randomUUID()}:${sel.id}:val`;
+      clientRef.current.evaluate(reqVal, sel.id, "val");
     }
   };
+
+  useEffect(() => {
+    if (selectedComplexity == null) return;
+    if (runtime.selectedId != null && runtime.front.some((m) => m.id === runtime.selectedId)) return;
+    const match = runtime.front
+      .slice()
+      .reverse()
+      .find((m) => m.complexity === selectedComplexity);
+    if (!match) return;
+    selectEquation({ id: match.id, complexity: match.complexity });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtime.front, selectedComplexity]);
 
   const trainActual = split ? gatherByIndices(yAll, split.train) : yAll;
   const valActual = split ? gatherByIndices(yAll, split.val) : [];

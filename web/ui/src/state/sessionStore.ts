@@ -25,6 +25,7 @@ type SearchRuntime = {
   snapshot: SearchSnapshot | null;
   front: EquationSummary[];
   selectedId: string | null;
+  selectedComplexity: number | null;
   evalByKey: Record<string, WasmEvalResult>;
 };
 
@@ -57,7 +58,7 @@ type SessionState = {
   setRuntime: (patch: Partial<SearchRuntime>) => void;
   setSnapshot: (snap: SearchSnapshot) => void;
   setFront: (front: EquationSummary[]) => void;
-  setSelectedId: (id: string | null) => void;
+  setSelection: (id: string | null, complexity: number | null) => void;
   setEvalResult: (memberId: string, which: "train" | "val", result: WasmEvalResult) => void;
 };
 
@@ -206,6 +207,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     snapshot: null,
     front: [],
     selectedId: null,
+    selectedComplexity: null,
     evalByKey: {}
   },
 
@@ -343,9 +345,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       runtime: { ...s.runtime, front }
     })),
 
-  setSelectedId: (id) =>
+  setSelection: (id, complexity) =>
     set((s) => ({
-      runtime: { ...s.runtime, selectedId: id }
+      runtime: { ...s.runtime, selectedId: id, selectedComplexity: complexity }
     })),
 
   setEvalResult: (memberId, which, result) =>

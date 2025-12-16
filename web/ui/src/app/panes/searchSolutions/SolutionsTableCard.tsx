@@ -5,7 +5,7 @@ import { formatSci } from "./plotUtils";
 export function SolutionsTableCard(props: {
   front: EquationSummary[];
   selectedId: string | null;
-  selectEquation: (id: string) => void;
+  selectEquation: (sel: { id: string; complexity: number }) => void;
 }): React.ReactElement {
   return (
     <div className="card gridCell">
@@ -27,7 +27,7 @@ export function SolutionsTableCard(props: {
                 <tr
                   key={m.id}
                   className={m.id === props.selectedId ? "selectedRow" : ""}
-                  onClick={() => props.selectEquation(m.id)}
+                  onClick={() => props.selectEquation({ id: m.id, complexity: m.complexity })}
                   data-testid={`solution-row-${m.id}`}
                 >
                   <td className="mono">{m.complexity}</td>
@@ -41,4 +41,3 @@ export function SolutionsTableCard(props: {
     </div>
   );
 }
-
