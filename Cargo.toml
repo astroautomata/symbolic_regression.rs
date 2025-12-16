@@ -5,14 +5,3 @@ members = [
     "symbolic_regression",
     "web/wasm",
 ]
-
-[workspace.package]
-version = "0.3.0"
-
-[workspace.dependencies]
-dynamic_expressions = { version = "0.3.0", path = "dynamic_expressions", default-features = false }
-symbolic_regression = { version = "0.3.0", path = "symbolic_regression", default-features = false }
-
-[patch.crates-io]
-dynamic_expressions = { path = "dynamic_expressions" }
-symbolic_regression = { path = "symbolic_regression" }
