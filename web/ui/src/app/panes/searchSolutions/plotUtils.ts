@@ -30,13 +30,46 @@ export function usePrefersDark(): boolean {
 }
 
 export function plotLayoutBase(prefersDark: boolean) {
-  if (!prefersDark) return {};
+  const axisBase = prefersDark
+    ? {
+        gridcolor: "rgba(127,127,127,0.25)",
+        zerolinecolor: "rgba(127,127,127,0.25)",
+        tickcolor: "rgba(235,235,235,0.6)",
+        linecolor: "rgba(235,235,235,0.6)"
+      }
+    : {
+        gridcolor: "rgba(0,0,0,0.12)",
+        zerolinecolor: "rgba(0,0,0,0.18)",
+        tickcolor: "rgba(0,0,0,0.45)",
+        linecolor: "rgba(0,0,0,0.45)"
+      };
+
   return {
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { color: "rgba(235,235,235,0.95)" },
-    xaxis: { gridcolor: "rgba(127,127,127,0.25)", zerolinecolor: "rgba(127,127,127,0.25)" },
-    yaxis: { gridcolor: "rgba(127,127,127,0.25)", zerolinecolor: "rgba(127,127,127,0.25)" }
+    ...(prefersDark
+      ? {
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          font: { color: "rgba(235,235,235,0.95)" }
+        }
+      : {}),
+    xaxis: {
+      ...axisBase,
+      showline: true,
+      linewidth: 1,
+      mirror: true,
+      ticks: "outside",
+      showgrid: true,
+      zeroline: true
+    },
+    yaxis: {
+      ...axisBase,
+      showline: true,
+      linewidth: 1,
+      mirror: true,
+      ticks: "outside",
+      showgrid: true,
+      zeroline: true
+    }
   };
 }
 
@@ -49,4 +82,3 @@ export function sortXY(x: number[], y: number[]): { x: number[]; y: number[] } {
 export function copyToClipboard(text: string): void {
   void navigator.clipboard.writeText(text);
 }
-
