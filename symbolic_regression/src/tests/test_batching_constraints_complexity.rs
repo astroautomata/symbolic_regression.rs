@@ -10,6 +10,7 @@ use dynamic_expressions::operator_enum::scalar::{HasOp, OpId};
 use ndarray::{Array1, Array2};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use std::collections::HashSet;
 
 #[test]
 fn batch_resample_copies_rows_and_weights() {
@@ -44,6 +45,38 @@ fn batch_resample_copies_rows_and_weights() {
         }
         assert!(found, "batch row {i} was not copied from any full row");
     }
+}
+
+#[test]
+fn batch_size_can_exceed_full_rows_with_replacement() {
+    let n_rows = 10usize;
+    let n_features = 2usize;
+
+    let mut x = Vec::with_capacity(n_rows * n_features);
+    let mut y = Vec::with_capacity(n_rows);
+    for i in 0..n_rows {
+        x.push(i as f64);
+        x.push((i as f64) + 1000.0);
+        y.push((i as f64) + 10.0);
+    }
+    let x = Array2::from_shape_vec((n_rows, n_features), x).unwrap();
+    let y = Array1::from_vec(y);
+    let full_dataset = Dataset::with_weights_and_names(x, y, None, vec!["x0".into(), "x1".into()]);
+
+    let mut batch = Dataset::make_batch_buffer(&full_dataset, 50);
+    assert_eq!(batch.n_rows, 50);
+
+    let mut rng = StdRng::seed_from_u64(0);
+    batch.resample_from(&full_dataset, &mut rng);
+
+    let mut uniq: HashSet<(u64, u64, u64)> = HashSet::new();
+    for i in 0..batch.n_rows {
+        let a = batch.x[(i, 0)].to_bits();
+        let b = batch.x[(i, 1)].to_bits();
+        let c = batch.y[i].to_bits();
+        uniq.insert((a, b, c));
+    }
+    assert!(uniq.len() < batch.n_rows);
 }
 
 #[test]

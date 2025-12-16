@@ -88,7 +88,10 @@ impl<T: Float, Ops, const D: usize> PopState<T, Ops, D> {
     {
         let phase_dataset = if options.batching {
             let full_data = full_dataset.data;
-            let bs = options.batch_size.max(1).min(full_data.n_rows.max(1));
+            if full_data.n_rows == 0 {
+                panic!("Cannot batch from an empty dataset (n_rows = 0).");
+            }
+            let bs = options.batch_size.max(1);
             let needs_new = match self.batch_dataset.as_ref() {
                 None => true,
                 Some(b) => b.n_rows != bs || b.n_features != full_data.n_features,

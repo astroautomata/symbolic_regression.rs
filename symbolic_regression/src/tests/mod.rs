@@ -2,6 +2,7 @@ mod common;
 mod test_batching_constraints_complexity;
 mod test_compress_constants;
 mod test_constant_optimization_birth_reset;
+mod test_cost_normalization;
 mod test_equation_search_runs;
 mod test_frequency_in_tournament;
 mod test_loss;

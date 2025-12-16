@@ -10,6 +10,28 @@ pub trait LossFn<T: Float>: Send + Sync {
     }
 }
 
+pub fn loss_to_cost<T: Float>(
+    loss: T,
+    complexity: usize,
+    parsimony: f64,
+    use_baseline: bool,
+    baseline_loss: Option<T>,
+) -> T {
+    let floor = T::from(0.01).unwrap();
+
+    let denom = if use_baseline {
+        match baseline_loss {
+            Some(b) if b.is_finite() && b >= floor => b,
+            _ => floor,
+        }
+    } else {
+        floor
+    };
+
+    let parsimony = T::from(parsimony).unwrap_or_else(T::zero);
+    loss / denom + parsimony * T::from(complexity).unwrap_or_else(T::zero)
+}
+
 pub type LossObject<T> = Arc<dyn LossFn<T> + Send + Sync>;
 
 #[derive(Copy, Clone, Debug, PartialEq)]

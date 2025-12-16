@@ -1,6 +1,7 @@
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::complexity::compute_complexity;
 use crate::dataset::TaggedDataset;
+use crate::loss_functions::loss_to_cost;
 use crate::operators::Operators;
 use crate::options::{MutationWeights, Options};
 use crate::pop_member::{Evaluator, MemberId, PopMember};
@@ -904,18 +905,13 @@ where
         baby.rebuild_plan(n_features);
         baby.loss = member.loss;
         baby.complexity = compute_complexity::<T, Ops, D>(&baby.expr.nodes, options);
-
-        let mut cost = baby.loss;
-        if options.use_baseline {
-            if let Some(base) = dataset.baseline_loss {
-                let floor = T::from(0.01).unwrap();
-                let denom = if base > floor { base } else { floor };
-                cost = cost / denom;
-            }
-        }
-        let parsimony = T::from(options.parsimony).unwrap_or_else(T::zero);
-        cost = cost + parsimony * T::from(baby.complexity).unwrap_or_else(T::zero);
-        baby.cost = cost;
+        baby.cost = loss_to_cost(
+            baby.loss,
+            baby.complexity,
+            options.parsimony,
+            options.use_baseline,
+            dataset.baseline_loss,
+        );
         return (baby, true, 0.0);
     }
 

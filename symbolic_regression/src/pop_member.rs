@@ -1,5 +1,6 @@
 use crate::complexity::compute_complexity;
 use crate::dataset::TaggedDataset;
+use crate::loss_functions::loss_to_cost;
 use crate::options::Options;
 use dynamic_expressions::compile_plan;
 use dynamic_expressions::eval_plan_array_into;
@@ -133,21 +134,13 @@ where
         }
         self.loss = loss;
 
-        let mut cost = loss;
-        if options.use_baseline {
-            if let Some(baseline_loss) = dataset.baseline_loss {
-                let floor = T::from(0.01).unwrap();
-                let denom = if baseline_loss > floor {
-                    baseline_loss
-                } else {
-                    floor
-                };
-                cost = cost / denom;
-            }
-        }
-        let parsimony = T::from(options.parsimony).unwrap_or_else(T::zero);
-        cost = cost + parsimony * T::from(self.complexity).unwrap();
-        self.cost = cost;
+        self.cost = loss_to_cost(
+            loss,
+            self.complexity,
+            options.parsimony,
+            options.use_baseline,
+            dataset.baseline_loss,
+        );
         true
     }
 }

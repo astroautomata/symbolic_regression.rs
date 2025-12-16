@@ -112,9 +112,6 @@ impl<T: Float> Dataset<T> {
             }
             Some(w) => {
                 let sum_w = w.iter().copied().fold(T::zero(), |a, b| a + b);
-                if sum_w == T::zero() {
-                    return T::zero();
-                }
                 y.iter()
                     .copied()
                     .zip(w.iter().copied())
@@ -135,7 +132,10 @@ impl<T: Float> Dataset<T> {
     }
 
     pub fn make_batch_buffer(full: &Dataset<T>, batch_size: usize) -> Dataset<T> {
-        let batch_size = batch_size.max(1).min(full.n_rows.max(1));
+        if full.n_rows == 0 {
+            panic!("Cannot batch from an empty dataset (n_rows = 0).");
+        }
+        let batch_size = batch_size.max(1);
         let x = Array2::<T>::zeros((batch_size, full.n_features));
         let y = Array1::<T>::zeros(batch_size);
         let weights = full
@@ -154,6 +154,9 @@ impl<T: Float> Dataset<T> {
     }
 
     pub fn resample_from(&mut self, full: &Dataset<T>, rng: &mut impl Rng) {
+        if full.n_rows == 0 {
+            panic!("Cannot batch from an empty dataset (n_rows = 0).");
+        }
         assert_eq!(self.n_features, full.n_features);
         assert_eq!(self.x.dim().0, self.n_rows);
         assert_eq!(self.x.dim().1, self.n_features);
