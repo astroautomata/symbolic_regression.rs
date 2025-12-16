@@ -1,4 +1,4 @@
-use crate::loss::{huber, mae, make_loss, mse, rmse, LossKind};
+use crate::loss_functions::{huber, mae, make_loss, mse, rmse, LossKind};
 
 fn assert_close(a: f64, b: f64, tol: f64) {
     let d = (a - b).abs();

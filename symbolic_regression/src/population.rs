@@ -1,4 +1,4 @@
-use crate::member::PopMember;
+use crate::pop_member::PopMember;
 use num_traits::Float;
 
 pub struct Population<T: Float, Ops, const D: usize> {

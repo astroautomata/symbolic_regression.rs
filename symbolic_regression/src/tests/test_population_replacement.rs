@@ -1,7 +1,7 @@
 use super::common::{TestOps, D, T};
 use crate::dataset::TaggedDataset;
-use crate::member::{Evaluator, MemberId, PopMember};
 use crate::operator_library::OperatorLibrary;
+use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::population::Population;
 use crate::Options;
 use dynamic_expressions::expression::{Metadata, PostfixExpr};

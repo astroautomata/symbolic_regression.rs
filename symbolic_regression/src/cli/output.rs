@@ -1,3 +1,5 @@
+// CLI output formatting.
+
 use crate::cli::args::OutputFormat;
 use anyhow::{bail, Context};
 use dynamic_expressions::strings::{string_tree, StringTreeOptions};

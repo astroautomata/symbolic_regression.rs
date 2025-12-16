@@ -1,3 +1,5 @@
+// CLI entrypoint + option wiring.
+
 use crate::cli::args::Cli;
 use anyhow::Context;
 use clap::Parser;

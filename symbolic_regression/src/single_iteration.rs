@@ -1,11 +1,12 @@
+//! 
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::constant_optimization::{optimize_constants, OptimizeConstantsCtx};
 use crate::dataset::TaggedDataset;
 use crate::hall_of_fame::HallOfFame;
-use crate::member::Evaluator;
 use crate::options::Options;
+use crate::pop_member::Evaluator;
 use crate::population::Population;
-use crate::search::regularized_evolution::{reg_evol_cycle, RegEvolCtx};
+use crate::regularized_evolution::{reg_evol_cycle, RegEvolCtx};
 use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
 use dynamic_expressions::operator_registry::OpRegistry;
 use num_traits::{Float, FromPrimitive, ToPrimitive};

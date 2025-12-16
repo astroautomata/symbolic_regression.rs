@@ -1,21 +1,16 @@
-pub(crate) mod migration;
-pub(crate) mod progress;
-pub(crate) mod regularized_evolution;
-pub(crate) mod single_iteration;
-pub(crate) mod warmup;
-
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::dataset::{Dataset, TaggedDataset};
 use crate::hall_of_fame::HallOfFame;
-use crate::member::{Evaluator, MemberId, PopMember};
 use crate::mutate;
 use crate::options::Options;
+use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::population::Population;
+use crate::{migration, progress_bars, single_iteration, warmup};
 use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
 use dynamic_expressions::operator_registry::OpRegistry;
 use dynamic_expressions::strings::OpNames;
 use num_traits::Float;
-use progress::SearchProgress;
+use progress_bars::SearchProgress;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;

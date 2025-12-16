@@ -1,4 +1,4 @@
-use crate::loss::{mse, LossObject};
+use crate::loss_functions::{mse, LossObject};
 use crate::operators::Operators;
 use num_traits::Float;
 
@@ -180,8 +180,8 @@ macro_rules! __define_options {
                 dynamic_expressions::operator_enum::scalar::OpId,
                 i32,
             >,
-            pub op_constraints: crate::constraints::OpConstraints<D>,
-            pub nested_constraints: crate::constraints::NestedConstraints,
+            pub op_constraints: crate::check_constraints::OpConstraints<D>,
+            pub nested_constraints: crate::check_constraints::NestedConstraints,
         }
 
         impl<T: Float, const D: usize> Default for Options<T, D> {

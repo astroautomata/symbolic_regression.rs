@@ -1,6 +1,6 @@
 use crate::adaptive_parsimony::RunningSearchStatistics;
-use crate::member::PopMember;
 use crate::options::Options;
+use crate::pop_member::PopMember;
 use crate::population::Population;
 use num_traits::Float;
 use rand::distr::weighted::WeightedIndex;

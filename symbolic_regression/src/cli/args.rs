@@ -1,3 +1,5 @@
+// CLI argument parsing.
+
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 

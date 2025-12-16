@@ -1,11 +1,11 @@
 use super::common::{TestOps, D, T};
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::dataset::TaggedDataset;
-use crate::member::{Evaluator, MemberId, PopMember};
 use crate::mutate::{next_generation, NextGenerationCtx};
 use crate::operator_library::OperatorLibrary;
+use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::population::Population;
-use crate::search::regularized_evolution::{reg_evol_cycle, RegEvolCtx};
+use crate::regularized_evolution::{reg_evol_cycle, RegEvolCtx};
 use crate::{MutationWeights, Options};
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;

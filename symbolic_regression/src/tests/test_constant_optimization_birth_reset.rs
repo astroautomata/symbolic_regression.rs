@@ -1,8 +1,8 @@
 use super::common::{TestOps, D, T};
 use crate::constant_optimization::{optimize_constants, OptimizeConstantsCtx};
 use crate::dataset::TaggedDataset;
-use crate::member::{Evaluator, MemberId, PopMember};
 use crate::operator_library::OperatorLibrary;
+use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::Options;
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;

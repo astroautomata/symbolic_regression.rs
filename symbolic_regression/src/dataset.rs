@@ -2,7 +2,7 @@ use ndarray::{Array1, Array2};
 use num_traits::Float;
 use rand::Rng;
 
-use crate::loss::LossFn;
+use crate::loss_functions::LossFn;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {

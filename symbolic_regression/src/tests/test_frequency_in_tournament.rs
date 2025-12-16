@@ -1,7 +1,7 @@
 use super::common::{TestOps, D, T};
 use crate::adaptive_parsimony::RunningSearchStatistics;
-use crate::member::{MemberId, PopMember};
 use crate::operator_library::OperatorLibrary;
+use crate::pop_member::{MemberId, PopMember};
 use crate::population::Population;
 use crate::selection::best_of_sample;
 use crate::Options;

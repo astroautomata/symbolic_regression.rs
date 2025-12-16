@@ -1,6 +1,6 @@
-use crate::member::PopMember;
 use crate::mutate::check_constraints;
 use crate::options::Options;
+use crate::pop_member::PopMember;
 use num_traits::Float;
 
 pub struct HallOfFame<T: Float, Ops, const D: usize> {

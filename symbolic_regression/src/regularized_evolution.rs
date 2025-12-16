@@ -1,8 +1,8 @@
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::dataset::TaggedDataset;
-use crate::member::Evaluator;
 use crate::mutate::{self, CrossoverCtx, NextGenerationCtx};
 use crate::options::Options;
+use crate::pop_member::Evaluator;
 use crate::population::Population;
 use crate::selection::best_of_sample;
 use dynamic_expressions::operator_enum::scalar::ScalarOpSet;

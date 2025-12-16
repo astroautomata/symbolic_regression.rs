@@ -1,9 +1,9 @@
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::complexity::compute_complexity;
 use crate::dataset::TaggedDataset;
-use crate::member::{Evaluator, MemberId, PopMember};
 use crate::operators::Operators;
 use crate::options::{MutationWeights, Options};
+use crate::pop_member::{Evaluator, MemberId, PopMember};
 pub use dynamic_expressions::compress_constants;
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;

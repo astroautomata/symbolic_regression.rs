@@ -1,3 +1,5 @@
+// CLI operator list / parsing helpers.
+
 use crate::cli::args::Cli;
 use crate::Operators;
 use anyhow::{bail, Context};

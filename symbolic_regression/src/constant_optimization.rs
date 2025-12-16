@@ -1,8 +1,8 @@
 use crate::dataset::Dataset;
 use crate::dataset::TaggedDataset;
-use crate::member::{Evaluator, PopMember};
 use crate::optim::{bfgs_minimize, newton_1d_minimize, BackTracking, Objective, OptimOptions};
 use crate::options::Options;
+use crate::pop_member::{Evaluator, PopMember};
 use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
 use dynamic_expressions::{eval_grad_tree_array, eval_plan_array_into, EvalOptions, GradContext};
 use num_traits::{Float, FromPrimitive, ToPrimitive};

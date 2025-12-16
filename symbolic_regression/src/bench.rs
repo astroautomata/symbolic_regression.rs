@@ -1,7 +1,7 @@
 use crate::constant_optimization::{optimize_constants, OptimizeConstantsCtx};
 use crate::dataset::TaggedDataset;
-use crate::member::Evaluator;
 use crate::optim::{bfgs_minimize, BackTracking, EvalBudget, Objective, OptimOptions};
+use crate::pop_member::Evaluator;
 use crate::{Dataset, MemberId, OperatorLibrary, Options, PopMember};
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;

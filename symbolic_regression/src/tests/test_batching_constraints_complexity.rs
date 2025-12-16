@@ -1,4 +1,4 @@
-use crate::constraints::{NestedConstraints, OpConstraints};
+use crate::check_constraints::{NestedConstraints, OpConstraints};
 use crate::dataset::Dataset;
 use crate::mutate::check_constraints;
 use crate::{compute_complexity, Options};

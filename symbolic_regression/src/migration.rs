@@ -1,4 +1,4 @@
-use crate::member::{MemberId, PopMember};
+use crate::pop_member::{MemberId, PopMember};
 use crate::population::Population;
 use num_traits::Float;
 use rand::seq::{IndexedRandom, SliceRandom};

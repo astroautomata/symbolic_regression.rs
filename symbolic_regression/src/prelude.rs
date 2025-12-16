@@ -3,7 +3,7 @@
 pub use crate::dataset::Dataset;
 pub use crate::operators::Operators;
 pub use crate::options::{MutationWeights, Options};
-pub use crate::search::{equation_search, SearchResult};
+pub use crate::search_utils::{equation_search, SearchResult};
 
 // Re-export common `dynamic_expressions` types/functions so callers (and examples) don't need to
 // depend on `dynamic_expressions` directly.
