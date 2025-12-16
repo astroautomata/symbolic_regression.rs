@@ -1,0 +1,113 @@
+use dynamic_expressions::operator_enum::scalar::{
+    diff_nary, eval_nary, grad_nary, DiffKernelCtx, EvalKernelCtx, GradKernelCtx, OpId, ScalarOpSet,
+};
+use dynamic_expressions::operator_registry::{OpInfo, OpRegistry};
+use dynamic_expressions::strings::OpNames;
+use ndarray::{Array1, Array2};
+use symbolic_regression::{equation_search, Dataset, Operators, Options};
+
+#[derive(Copy, Clone, Debug, Default)]
+struct CustomOps;
+
+const SQUARE: OpId = OpId { arity: 1, id: 0 };
+
+const CUSTOM_REGISTRY: [OpInfo; 1] = [OpInfo {
+    op: SQUARE,
+    name: "square",
+    display: "square",
+    infix: None,
+    commutative: false,
+    associative: false,
+    complexity: 1.0,
+}];
+
+fn square_eval(args: &[f64; 1]) -> f64 {
+    args[0] * args[0]
+}
+
+fn square_partial(args: &[f64; 1], idx: usize) -> f64 {
+    match idx {
+        0 => 2.0 * args[0],
+        _ => unreachable!(),
+    }
+}
+
+impl ScalarOpSet<f64> for CustomOps {
+    fn eval(op: OpId, ctx: EvalKernelCtx<'_, '_, f64>) -> bool {
+        match (op.arity, op.id) {
+            (1, 0) => eval_nary::<1, f64>(square_eval, ctx.out, ctx.args, ctx.opts),
+            _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+        }
+    }
+
+    fn diff(op: OpId, ctx: DiffKernelCtx<'_, '_, f64>) -> bool {
+        match (op.arity, op.id) {
+            (1, 0) => diff_nary::<1, f64>(
+                square_eval,
+                square_partial,
+                ctx.out_val,
+                ctx.out_der,
+                ctx.args,
+                ctx.dargs,
+                ctx.opts,
+            ),
+            _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+        }
+    }
+
+    fn grad(op: OpId, ctx: GradKernelCtx<'_, '_, f64>) -> bool {
+        match (op.arity, op.id) {
+            (1, 0) => grad_nary::<1, f64>(square_eval, square_partial, ctx),
+            _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+        }
+    }
+}
+
+impl OpRegistry for CustomOps {
+    fn registry() -> &'static [OpInfo] {
+        &CUSTOM_REGISTRY
+    }
+}
+
+impl OpNames for CustomOps {
+    fn op_name(op: OpId) -> &'static str {
+        match (op.arity, op.id) {
+            (1, 0) => "square",
+            _ => "unknown_op",
+        }
+    }
+}
+
+#[test]
+fn custom_operator_is_used_in_end_to_end_search() {
+    let n_rows = 64usize;
+    let x: Vec<f64> = (0..n_rows).map(|i| (i as f64) * 0.1 - 3.0).collect();
+    let y: Vec<f64> = x.iter().map(|&v| v * v).collect();
+
+    let x = Array2::from_shape_vec((n_rows, 1), x).unwrap();
+    let y = Array1::from_vec(y);
+    let dataset = Dataset::new(x, y);
+
+    let mut options = Options::<f64, 1>::default();
+    options.seed = 0;
+    options.niterations = 1;
+    options.populations = 1;
+    options.population_size = 128;
+    options.ncycles_per_iteration = 5;
+    options.maxsize = 2;
+    options.maxdepth = 2;
+    options.progress = false;
+    options.should_optimize_constants = false;
+    options.annealing = false;
+    options.operators = Operators::<1>::from_names::<CustomOps>(&["square"]).unwrap();
+
+    let result = equation_search::<f64, CustomOps, 1>(&dataset, &options);
+
+    let eqn = dynamic_expressions::string_tree(&result.best.expr, Default::default());
+    assert_eq!(eqn, "square(x1)");
+    assert!(
+        result.best.loss <= 1e-12,
+        "best loss was {}",
+        result.best.loss
+    );
+}
