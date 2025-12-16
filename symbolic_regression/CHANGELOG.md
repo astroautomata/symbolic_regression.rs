@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.3.0...symbolic_regression-v0.4.0) (2025-12-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* move `compress_constants` to de
+
+### Features
+
+* add simplification utilities ([06f738c](https://github.com/MilesCranmer/symbolic_regression.rs/commit/06f738cece71f0a3923f3f2e520a8d418182ac17))
+* additional loss functions ([78e3da2](https://github.com/MilesCranmer/symbolic_regression.rs/commit/78e3da29110fc80f3b5caf72c5fca24ab3f94587))
+* batched dataset ([5483597](https://github.com/MilesCranmer/symbolic_regression.rs/commit/5483597ab8f4b5c8191028c638335a1d8499e402))
+* custom complexities ([c0f5b31](https://github.com/MilesCranmer/symbolic_regression.rs/commit/c0f5b31d51603d053fe994709122df5bcf3dc5ec))
+* move `compress_constants` to de ([2031494](https://github.com/MilesCranmer/symbolic_regression.rs/commit/203149490cb786b9fb95a6b8fb7c73b51bfc1c6a))
+* simplify by default ([8dd6332](https://github.com/MilesCranmer/symbolic_regression.rs/commit/8dd6332e4cc36d71006747bb1233852ef4704f9d))
+* wasm compatibility ([67c071f](https://github.com/MilesCranmer/symbolic_regression.rs/commit/67c071f5d8cbbdb3760e2293a42019e237a95290))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * dynamic_expressions bumped from 0.3.0 to 0.4.0
+
 ## [0.3.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.2.0...symbolic_regression-v0.3.0) (2025-12-15)
 
 
