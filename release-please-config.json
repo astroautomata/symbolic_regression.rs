@@ -22,6 +22,7 @@
       "include-v-in-tag": true
     },
     "web/wasm": {
+      "component": "symbolic_regression_wasm",
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
