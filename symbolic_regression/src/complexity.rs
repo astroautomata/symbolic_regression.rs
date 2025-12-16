@@ -2,15 +2,13 @@ use crate::options::Options;
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::operator_enum::scalar::OpId;
 use num_traits::Float;
+use std::collections::HashMap;
 
-pub fn compute_complexity<T: Float, Ops, const D: usize>(
+pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
     nodes: &[PNode],
     options: &Options<T, D>,
-) -> usize {
-    if options.uses_default_complexity() {
-        return nodes.len();
-    }
-
+    op_arg_limits: Option<&HashMap<OpId, [i32; D]>>,
+) -> Option<usize> {
     let mut st: Vec<i32> = Vec::with_capacity(nodes.len().min(256));
 
     for n in nodes {
@@ -28,11 +26,25 @@ pub fn compute_complexity<T: Float, Ops, const D: usize>(
             PNode::Const { .. } => st.push(options.complexity_of_constants.max(0)),
             PNode::Op { arity, op } => {
                 let a = arity as usize;
-                let mut sum: i32 = 0;
-                for _ in 0..a {
-                    sum = sum.saturating_add(st.pop().unwrap_or(0));
+                let mut child = [0_i32; D];
+                for j in (0..a).rev() {
+                    child[j] = st.pop().unwrap_or(0);
                 }
+
                 let oid = OpId { arity, id: op };
+                if let Some(limits) = op_arg_limits.and_then(|m| m.get(&oid)) {
+                    for j in 0..a {
+                        let lim = limits[j];
+                        if lim >= 0 && child[j] > lim {
+                            return None;
+                        }
+                    }
+                }
+
+                let mut sum: i32 = 0;
+                for j in 0..a {
+                    sum = sum.saturating_add(child[j]);
+                }
                 let base = options
                     .operator_complexity_overrides
                     .get(&oid)
@@ -44,7 +56,18 @@ pub fn compute_complexity<T: Float, Ops, const D: usize>(
     }
 
     if st.len() != 1 {
-        return 0;
+        return None;
     }
-    usize::try_from(st[0].max(0)).unwrap_or(usize::MAX)
+    Some(usize::try_from(st[0].max(0)).unwrap_or(usize::MAX))
+}
+
+pub fn compute_complexity<T: Float, Ops, const D: usize>(
+    nodes: &[PNode],
+    options: &Options<T, D>,
+) -> usize {
+    if options.uses_default_complexity() {
+        return nodes.len();
+    }
+
+    compute_custom_complexity_checked::<T, D>(nodes, options, None).unwrap_or(0)
 }

@@ -1,4 +1,5 @@
 use crate::adaptive_parsimony::RunningSearchStatistics;
+use crate::check_constraints::check_constraints;
 use crate::complexity::compute_complexity;
 use crate::dataset::TaggedDataset;
 use crate::loss_functions::loss_to_cost;
@@ -8,15 +9,14 @@ use crate::pop_member::{Evaluator, MemberId, PopMember};
 pub use dynamic_expressions::compress_constants;
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
-use dynamic_expressions::node_utils::{count_depth, subtree_range, subtree_sizes};
-use dynamic_expressions::operator_enum::scalar::{OpId, ScalarOpSet};
+use dynamic_expressions::node_utils::{subtree_range, subtree_sizes};
+use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
 use dynamic_expressions::operator_registry::OpRegistry;
 use num_traits::Float;
 use rand::distr::weighted::WeightedIndex;
 use rand::distr::Distribution;
 use rand::Rng;
 use rand_distr::{Normal, StandardNormal};
-use std::collections::HashMap;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MutationChoice {
@@ -56,174 +56,6 @@ pub struct CrossoverCtx<'a, T: Float, Ops, const D: usize, R: Rng> {
     pub next_id: &'a mut u64,
     pub next_birth: &'a mut u64,
     pub _ops: core::marker::PhantomData<Ops>,
-}
-
-pub fn check_constraints<T: Float, Ops, const D: usize>(
-    expr: &PostfixExpr<T, Ops, D>,
-    options: &Options<T, D>,
-    curmaxsize: usize,
-) -> bool {
-    if count_depth(&expr.nodes) > options.maxdepth {
-        return false;
-    }
-
-    if options.uses_default_complexity() {
-        if expr.nodes.len() > curmaxsize {
-            return false;
-        }
-
-        if !options.op_constraints.limits.is_empty() {
-            let sizes = subtree_sizes(&expr.nodes);
-            for (i, n) in expr.nodes.iter().enumerate() {
-                let PNode::Op { arity, op } = *n else {
-                    continue;
-                };
-                let oid = OpId { arity, id: op };
-                let Some(lims) = options.op_constraints.limits.get(&oid) else {
-                    continue;
-                };
-                let a = arity as usize;
-                let ranges = child_ranges(&sizes, i, a);
-                for j in 0..a {
-                    let lim = lims[j];
-                    if lim >= 0 {
-                        let (_start, end) = ranges[j];
-                        let child_sz = sizes[end] as i32;
-                        if child_sz > lim {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-        // Nested constraints are independent of complexity representation, so we keep them below.
-    } else {
-        // Complexity + operator argument constraints (single postfix pass).
-        let mut st: Vec<i32> = Vec::with_capacity(expr.nodes.len().min(256));
-        for n in &expr.nodes {
-            match *n {
-                PNode::Var { feature } => {
-                    let idx = feature as usize;
-                    let c = options
-                        .variable_complexities
-                        .as_ref()
-                        .and_then(|v| v.get(idx))
-                        .copied()
-                        .unwrap_or(options.complexity_of_variables);
-                    st.push(c.max(0));
-                }
-                PNode::Const { .. } => st.push(options.complexity_of_constants.max(0)),
-                PNode::Op { arity, op } => {
-                    let a = arity as usize;
-                    let mut child = [0_i32; D];
-                    for j in (0..a).rev() {
-                        child[j] = st.pop().unwrap_or(0);
-                    }
-
-                    let oid = OpId { arity, id: op };
-                    if let Some(lims) = options.op_constraints.limits.get(&oid) {
-                        for j in 0..a {
-                            let lim = lims[j];
-                            if lim >= 0 && child[j] > lim {
-                                return false;
-                            }
-                        }
-                    }
-
-                    let sum = child[..a]
-                        .iter()
-                        .copied()
-                        .fold(0_i32, |acc, v| acc.saturating_add(v));
-                    let base = options
-                        .operator_complexity_overrides
-                        .get(&oid)
-                        .copied()
-                        .unwrap_or(1);
-                    st.push(base.max(0).saturating_add(sum));
-                }
-            }
-        }
-        if st.len() != 1 {
-            return false;
-        }
-        let total = usize::try_from(st[0].max(0)).unwrap_or(usize::MAX);
-        if total > curmaxsize {
-            return false;
-        }
-    }
-
-    // Nested constraints: for each root operator, limit the maximum nesting of another operator
-    // inside its subtree (excluding the root itself if it matches the nested operator).
-    if options.nested_constraints.limits.is_empty() {
-        return true;
-    }
-
-    fn nestedness_vec<const D: usize>(nodes: &[PNode], target: OpId) -> Option<Vec<u16>> {
-        let mut st: Vec<u16> = Vec::with_capacity(nodes.len().min(256));
-        let mut out: Vec<u16> = Vec::with_capacity(nodes.len());
-        for n in nodes {
-            match *n {
-                PNode::Var { .. } | PNode::Const { .. } => {
-                    st.push(0);
-                    out.push(0);
-                }
-                PNode::Op { arity, op } => {
-                    let a = arity as usize;
-                    if st.len() < a {
-                        return None;
-                    }
-                    let mut m = 0u16;
-                    for _ in 0..a {
-                        m = m.max(st.pop().expect("checked"));
-                    }
-                    let self_is = (arity == target.arity && op == target.id) as u16;
-                    let v = m.saturating_add(self_is);
-                    st.push(v);
-                    out.push(v);
-                }
-            }
-        }
-        if st.len() != 1 {
-            return None;
-        }
-        Some(out)
-    }
-
-    let mut nested_cache: HashMap<OpId, Vec<u16>> = HashMap::new();
-    for rules in options.nested_constraints.limits.values() {
-        for (nested, _max) in rules {
-            if !nested_cache.contains_key(nested) {
-                let Some(v) = nestedness_vec::<D>(&expr.nodes, *nested) else {
-                    return false;
-                };
-                nested_cache.insert(*nested, v);
-            }
-        }
-    }
-
-    for (i, n) in expr.nodes.iter().enumerate() {
-        let PNode::Op { arity, op } = *n else {
-            continue;
-        };
-        let root = OpId { arity, id: op };
-        let Some(rules) = options.nested_constraints.limits.get(&root) else {
-            continue;
-        };
-        for (nested, max_n) in rules {
-            let mut v = nested_cache
-                .get(nested)
-                .and_then(|vv| vv.get(i).copied())
-                .unwrap_or(0);
-            if root == *nested && v > 0 {
-                v -= 1;
-            }
-            if v > (*max_n as u16) {
-                return false;
-            }
-        }
-    }
-
-    true
 }
 
 fn count_constants(nodes: &[PNode]) -> usize {

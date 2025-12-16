@@ -1,6 +1,6 @@
+use crate::check_constraints::check_constraints;
 use crate::check_constraints::{NestedConstraints, OpConstraints};
 use crate::dataset::Dataset;
-use crate::mutate::check_constraints;
 use crate::{compute_complexity, Options};
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
