@@ -400,12 +400,9 @@ fn rotate_tree_in_place<T, Ops, const D: usize, R: Rng>(
     let right_root = child[1].1;
 
     // Choose rotation direction randomly; try both if needed.
-    for &dir in if rng.random::<bool>() {
-        &[0usize, 1usize][..]
-    } else {
-        &[1usize, 0usize][..]
-    } {
-        if dir == 0 {
+    let rotation_direction = rng.random::<bool>();
+    for dir in [rotation_direction, !rotation_direction] {
+        if dir {
             // Left rotation candidate: (A op_root (B op_r C)) -> ((A op_root B) op_r C)
             if let PNode::Op { arity: 2, op: op_r } = expr.nodes[right_root] {
                 let sizes2 = subtree_sizes(&expr.nodes);
