@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.5.0...symbolic_regression-v0.6.0) (2025-12-17)
+## [0.6.0](https://github.com/astro-automata/symbolic_regression.rs/compare/symbolic_regression-v0.5.0...symbolic_regression-v0.6.0) (2025-12-17)
 
 
 ### ⚠ BREAKING CHANGES
@@ -9,9 +9,9 @@
 
 ### Bug Fixes
 
-* clippy warnings ([2e98667](https://github.com/MilesCranmer/symbolic_regression.rs/commit/2e98667b914877485e76813112eebea08fd99921))
-* clippy warnings ([dc189d5](https://github.com/MilesCranmer/symbolic_regression.rs/commit/dc189d5261a8f31e442b09bbe75a95714d0dcefa))
-* string format x{} is now 0-indexed ([9001971](https://github.com/MilesCranmer/symbolic_regression.rs/commit/9001971498bd5796a5b10c2f03e27f52c5535409))
+* clippy warnings ([2e98667](https://github.com/astro-automata/symbolic_regression.rs/commit/2e98667b914877485e76813112eebea08fd99921))
+* clippy warnings ([dc189d5](https://github.com/astro-automata/symbolic_regression.rs/commit/dc189d5261a8f31e442b09bbe75a95714d0dcefa))
+* string format x{} is now 0-indexed ([9001971](https://github.com/astro-automata/symbolic_regression.rs/commit/9001971498bd5796a5b10c2f03e27f52c5535409))
 
 
 ### Dependencies
@@ -20,7 +20,7 @@
   * dependencies
     * dynamic_expressions bumped from 0.5.0 to 0.6.0
 
-## [0.5.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.4.0...symbolic_regression-v0.5.0) (2025-12-16)
+## [0.5.0](https://github.com/astro-automata/symbolic_regression.rs/compare/symbolic_regression-v0.4.0...symbolic_regression-v0.5.0) (2025-12-16)
 
 
 ### ⚠ BREAKING CHANGES
@@ -31,14 +31,14 @@
 
 ### Features
 
-* better alignment to SymbolicRegression.jl cost/loss difference ([0b978ec](https://github.com/MilesCranmer/symbolic_regression.rs/commit/0b978ecfd99b304e857d1654bac46f910c484e5d))
-* set defaults back to SR.jl standard ([4926893](https://github.com/MilesCranmer/symbolic_regression.rs/commit/4926893b1fe0fb43f2baad1ff1fe5f2952ec1791))
+* better alignment to SymbolicRegression.jl cost/loss difference ([0b978ec](https://github.com/astro-automata/symbolic_regression.rs/commit/0b978ecfd99b304e857d1654bac46f910c484e5d))
+* set defaults back to SR.jl standard ([4926893](https://github.com/astro-automata/symbolic_regression.rs/commit/4926893b1fe0fb43f2baad1ff1fe5f2952ec1791))
 
 
 ### Code Refactoring
 
-* change symbolic regression structure to match julia layout ([0c0e4d7](https://github.com/MilesCranmer/symbolic_regression.rs/commit/0c0e4d7ba9f93bdc13c56cd403498a477a6010a0))
-* make dynamic_expressions have closer structure to DynamicExpressions.jl ([80e3b31](https://github.com/MilesCranmer/symbolic_regression.rs/commit/80e3b314f9fc6ee61e8ab19fadda70ff61af689c))
+* change symbolic regression structure to match julia layout ([0c0e4d7](https://github.com/astro-automata/symbolic_regression.rs/commit/0c0e4d7ba9f93bdc13c56cd403498a477a6010a0))
+* make dynamic_expressions have closer structure to DynamicExpressions.jl ([80e3b31](https://github.com/astro-automata/symbolic_regression.rs/commit/80e3b314f9fc6ee61e8ab19fadda70ff61af689c))
 
 
 ### Dependencies
@@ -47,7 +47,7 @@
   * dependencies
     * dynamic_expressions bumped from 0.4.0 to 0.5.0
 
-## [0.4.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.3.0...symbolic_regression-v0.4.0) (2025-12-16)
+## [0.4.0](https://github.com/astro-automata/symbolic_regression.rs/compare/symbolic_regression-v0.3.0...symbolic_regression-v0.4.0) (2025-12-16)
 
 
 ### ⚠ BREAKING CHANGES
@@ -56,13 +56,13 @@
 
 ### Features
 
-* add simplification utilities ([06f738c](https://github.com/MilesCranmer/symbolic_regression.rs/commit/06f738cece71f0a3923f3f2e520a8d418182ac17))
-* additional loss functions ([78e3da2](https://github.com/MilesCranmer/symbolic_regression.rs/commit/78e3da29110fc80f3b5caf72c5fca24ab3f94587))
-* batched dataset ([5483597](https://github.com/MilesCranmer/symbolic_regression.rs/commit/5483597ab8f4b5c8191028c638335a1d8499e402))
-* custom complexities ([c0f5b31](https://github.com/MilesCranmer/symbolic_regression.rs/commit/c0f5b31d51603d053fe994709122df5bcf3dc5ec))
-* move `compress_constants` to de ([2031494](https://github.com/MilesCranmer/symbolic_regression.rs/commit/203149490cb786b9fb95a6b8fb7c73b51bfc1c6a))
-* simplify by default ([8dd6332](https://github.com/MilesCranmer/symbolic_regression.rs/commit/8dd6332e4cc36d71006747bb1233852ef4704f9d))
-* wasm compatibility ([67c071f](https://github.com/MilesCranmer/symbolic_regression.rs/commit/67c071f5d8cbbdb3760e2293a42019e237a95290))
+* add simplification utilities ([06f738c](https://github.com/astro-automata/symbolic_regression.rs/commit/06f738cece71f0a3923f3f2e520a8d418182ac17))
+* additional loss functions ([78e3da2](https://github.com/astro-automata/symbolic_regression.rs/commit/78e3da29110fc80f3b5caf72c5fca24ab3f94587))
+* batched dataset ([5483597](https://github.com/astro-automata/symbolic_regression.rs/commit/5483597ab8f4b5c8191028c638335a1d8499e402))
+* custom complexities ([c0f5b31](https://github.com/astro-automata/symbolic_regression.rs/commit/c0f5b31d51603d053fe994709122df5bcf3dc5ec))
+* move `compress_constants` to de ([2031494](https://github.com/astro-automata/symbolic_regression.rs/commit/203149490cb786b9fb95a6b8fb7c73b51bfc1c6a))
+* simplify by default ([8dd6332](https://github.com/astro-automata/symbolic_regression.rs/commit/8dd6332e4cc36d71006747bb1233852ef4704f9d))
+* wasm compatibility ([67c071f](https://github.com/astro-automata/symbolic_regression.rs/commit/67c071f5d8cbbdb3760e2293a42019e237a95290))
 
 
 ### Dependencies
@@ -71,7 +71,7 @@
   * dependencies
     * dynamic_expressions bumped from 0.3.0 to 0.4.0
 
-## [0.3.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.2.0...symbolic_regression-v0.3.0) (2025-12-15)
+## [0.3.0](https://github.com/astro-automata/symbolic_regression.rs/compare/symbolic_regression-v0.2.0...symbolic_regression-v0.3.0) (2025-12-15)
 
 
 ### ⚠ BREAKING CHANGES
@@ -81,17 +81,17 @@
 
 ### deps
 
-* upgrade core deps ([3b57512](https://github.com/MilesCranmer/symbolic_regression.rs/commit/3b57512637955c6fab0e5fe2c65b8f93455d94b1))
+* upgrade core deps ([3b57512](https://github.com/astro-automata/symbolic_regression.rs/commit/3b57512637955c6fab0e5fe2c65b8f93455d94b1))
 
 
 ### Features
 
-* add command line interface ([77f4b5e](https://github.com/MilesCranmer/symbolic_regression.rs/commit/77f4b5eda8d072f89915db6b5f0eddcce9138538))
-* more ergonomic CLI ([8475acd](https://github.com/MilesCranmer/symbolic_regression.rs/commit/8475acdda6059db82b08a2a20054882b2721f32f))
-* more robust BFGS ([258d599](https://github.com/MilesCranmer/symbolic_regression.rs/commit/258d599fb5741205eafe5742598442c536960055))
-* use operator registry from sr ([52ff642](https://github.com/MilesCranmer/symbolic_regression.rs/commit/52ff6425ab7ff90b071083e44105533455a90d7d))
+* add command line interface ([77f4b5e](https://github.com/astro-automata/symbolic_regression.rs/commit/77f4b5eda8d072f89915db6b5f0eddcce9138538))
+* more ergonomic CLI ([8475acd](https://github.com/astro-automata/symbolic_regression.rs/commit/8475acdda6059db82b08a2a20054882b2721f32f))
+* more robust BFGS ([258d599](https://github.com/astro-automata/symbolic_regression.rs/commit/258d599fb5741205eafe5742598442c536960055))
+* use operator registry from sr ([52ff642](https://github.com/astro-automata/symbolic_regression.rs/commit/52ff6425ab7ff90b071083e44105533455a90d7d))
 
-## [0.2.0](https://github.com/MilesCranmer/symbolic_regression.rs/compare/symbolic_regression-v0.1.0...symbolic_regression-v0.2.0) (2025-12-14)
+## [0.2.0](https://github.com/astro-automata/symbolic_regression.rs/compare/symbolic_regression-v0.1.0...symbolic_regression-v0.2.0) (2025-12-14)
 
 
 ### ⚠ BREAKING CHANGES
@@ -100,9 +100,9 @@
 
 ### Features
 
-* create dynamic_expressions.rs and symbolic_regression.rs ([de3803a](https://github.com/MilesCranmer/symbolic_regression.rs/commit/de3803a65eb5b8b7b1892b0ba299ae92b07de98a))
+* create dynamic_expressions.rs and symbolic_regression.rs ([de3803a](https://github.com/astro-automata/symbolic_regression.rs/commit/de3803a65eb5b8b7b1892b0ba299ae92b07de98a))
 
 
 ### Code Refactoring
 
-* DRY principles and better hierarchy ([fcce381](https://github.com/MilesCranmer/symbolic_regression.rs/commit/fcce3812e00acb0f55309c878d8f03b9b1064088))
+* DRY principles and better hierarchy ([fcce381](https://github.com/astro-automata/symbolic_regression.rs/commit/fcce3812e00acb0f55309c878d8f03b9b1064088))
