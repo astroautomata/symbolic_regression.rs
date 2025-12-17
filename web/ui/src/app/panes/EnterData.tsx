@@ -1,12 +1,14 @@
-import React from "react";
-import { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import Plot from "react-plotly.js";
 import { useSessionStore } from "../../state/sessionStore";
+import { formatSci, plotLayoutBase, usePrefersDark } from "./searchSolutions/plotUtils";
 
 function clampInt(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v | 0));
 }
 
 export function EnterData(): React.ReactElement {
+  const prefersDark = usePrefersDark();
   const csvText = useSessionStore((s) => s.csvText);
   const setCsvText = useSessionStore((s) => s.setCsvText);
   const parsed = useSessionStore((s) => s.parsed);
@@ -15,6 +17,9 @@ export function EnterData(): React.ReactElement {
   const parseCsv = useSessionStore((s) => s.parseCsv);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+
+  const headers = parsed?.headers ?? [];
+  const rows = parsed?.rows ?? [];
 
   const nCols = parsed?.headers.length ?? 0;
   const colOptions = useMemo(() => {
@@ -25,6 +30,61 @@ export function EnterData(): React.ReactElement {
   const yCol = options?.y_column ?? null;
   const wCol = options?.weights_column ?? null;
   const xCols = options?.x_columns ?? null;
+
+  const yColIdx = options?.y_column ?? (headers.length > 0 ? headers.length - 1 : 0);
+  const xColsForPlot = options?.x_columns ?? [];
+  const xColsForPlotKey = xColsForPlot.join(",");
+  const [inspectX, setInspectX] = useState<number>(() => (xColsForPlot.length > 0 ? xColsForPlot[0] : 0));
+
+  useEffect(() => {
+    if (xColsForPlot.length === 0) return;
+    if (!xColsForPlot.includes(inspectX)) setInspectX(xColsForPlot[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [xColsForPlotKey, inspectX]);
+
+  const scatter = useMemo(() => {
+    if (!parsed || xColsForPlot.length === 0) return { x: [], y: [] };
+    const x: number[] = [];
+    const y: number[] = [];
+    for (const r of rows) {
+      const xv = r[inspectX];
+      const yv = r[yColIdx];
+      if (!Number.isFinite(xv) || !Number.isFinite(yv)) continue;
+      x.push(xv);
+      y.push(yv);
+    }
+    return { x, y };
+  }, [parsed, rows, inspectX, yColIdx, xColsForPlotKey]);
+
+  const columnSummary = useMemo(() => {
+    if (!parsed) return [] as { name: string; mean: number; std: number; min: number; max: number }[];
+    const nCols2 = headers.length;
+    const sum = Array.from({ length: nCols2 }, () => 0);
+    const sumsq = Array.from({ length: nCols2 }, () => 0);
+    const min = Array.from({ length: nCols2 }, () => Infinity);
+    const max = Array.from({ length: nCols2 }, () => -Infinity);
+    const count = Array.from({ length: nCols2 }, () => 0);
+
+    for (const r of rows) {
+      for (let j = 0; j < nCols2; j++) {
+        const v = r[j];
+        if (!Number.isFinite(v)) continue;
+        sum[j] += v;
+        sumsq[j] += v * v;
+        count[j] += 1;
+        if (v < min[j]) min[j] = v;
+        if (v > max[j]) max[j] = v;
+      }
+    }
+
+    return headers.map((name, j) => {
+      const n = count[j] ?? 0;
+      const mu = n > 0 ? sum[j]! / n : NaN;
+      const var0 = n > 0 ? sumsq[j]! / n - mu * mu : NaN;
+      const std = Number.isFinite(var0) && var0 >= 0 ? Math.sqrt(var0) : NaN;
+      return { name: name ?? `col_${j}`, mean: mu, std, min: min[j]!, max: max[j]! };
+    });
+  }, [parsed, headers, rows]);
 
   const onFile = async (f: File | null) => {
     if (!f) return;
@@ -192,26 +252,116 @@ export function EnterData(): React.ReactElement {
         )}
       </div>
 
+      <div className="grid2">
+        <div className="card gridCell">
+          <div className="cardTitle">Preview</div>
+          {!parsed ? (
+            <div className="muted">No preview yet.</div>
+          ) : (
+            <div className="tableWrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    {parsed.headers.slice(0, 12).map((h, i) => (
+                      <th key={i}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.rows.slice(0, 12).map((r, i) => (
+                    <tr key={i}>
+                      {r.slice(0, 12).map((v, j) => (
+                        <td key={j}>{Number.isFinite(v) ? v.toFixed(4) : String(v)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card gridCell">
+          <div className="cardTitle">X vs y</div>
+          {!parsed ? (
+            <div className="muted">Parse a CSV to see plots.</div>
+          ) : xColsForPlot.length === 0 ? (
+            <div className="muted">Select one or more X columns above.</div>
+          ) : (
+            <>
+              <div className="row" style={{ marginBottom: 8 }}>
+                <label className="field" style={{ minWidth: 260 }}>
+                  <div className="label">x column</div>
+                  <select value={inspectX} onChange={(e) => setInspectX(Number(e.target.value))}>
+                    {xColsForPlot.map((j) => (
+                      <option key={j} value={j}>
+                        {headers[j] ?? `col_${j}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="plotWrap">
+                <Plot
+                  data={[
+                    {
+                      x: scatter.x,
+                      y: scatter.y,
+                      type: "scatter",
+                      mode: "markers",
+                      marker: { size: 6, opacity: 0.7 }
+                    } as any
+                  ]}
+                  layout={{
+                    ...plotLayoutBase(prefersDark),
+                    autosize: true,
+                    margin: { l: 50, r: 20, t: 10, b: 50 },
+                    xaxis: { ...(plotLayoutBase(prefersDark) as any).xaxis, title: headers[inspectX] ?? `col_${inspectX}` },
+                    yaxis: { ...(plotLayoutBase(prefersDark) as any).yaxis, title: headers[yColIdx] ?? `col_${yColIdx}` }
+                  }}
+                  style={{ width: "100%", height: "100%" }}
+                  config={{ displayModeBar: false, responsive: true }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="card">
-        <div className="cardTitle">Preview</div>
+        <div className="cardTitle">Column summary</div>
         {!parsed ? (
-          <div className="muted">No preview yet.</div>
+          <div className="muted">Parse a CSV to compute column summary statistics.</div>
         ) : (
-          <div className="tableWrap">
-            <table className="table">
+          <div className="tableWrap" style={{ maxHeight: 320 }}>
+            <table className="table fixed">
               <thead>
                 <tr>
-                  {parsed.headers.slice(0, 12).map((h, i) => (
-                    <th key={i}>{h}</th>
-                  ))}
+                  <th style={{ width: 180 }}>column</th>
+                  <th className="num" style={{ width: 120 }}>
+                    mean
+                  </th>
+                  <th className="num" style={{ width: 120 }}>
+                    std
+                  </th>
+                  <th className="num" style={{ width: 120 }}>
+                    min
+                  </th>
+                  <th className="num" style={{ width: 120 }}>
+                    max
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {parsed.rows.slice(0, 12).map((r, i) => (
-                  <tr key={i}>
-                    {r.slice(0, 12).map((v, j) => (
-                      <td key={j}>{Number.isFinite(v) ? v.toFixed(4) : String(v)}</td>
-                    ))}
+                {columnSummary.map((s) => (
+                  <tr key={s.name}>
+                    <td className="mono monoEllipsis" title={s.name}>
+                      {s.name}
+                    </td>
+                    <td className="mono num">{formatSci(s.mean)}</td>
+                    <td className="mono num">{formatSci(s.std)}</td>
+                    <td className="mono num">{formatSci(s.min)}</td>
+                    <td className="mono num">{formatSci(s.max)}</td>
                   </tr>
                 ))}
               </tbody>

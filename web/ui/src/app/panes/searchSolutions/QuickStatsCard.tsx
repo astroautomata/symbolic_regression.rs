@@ -1,6 +1,6 @@
 import React from "react";
 import type { EquationSummary, WasmEvalResult } from "../../../types/srTypes";
-import { copyToClipboard } from "./plotUtils";
+import { copyToClipboard, formatSci } from "./plotUtils";
 import { MetricsTable } from "./MetricsTable";
 
 export function QuickStatsCard(props: {
@@ -16,11 +16,14 @@ export function QuickStatsCard(props: {
         <div className="muted">Select a solution to compute metrics.</div>
       ) : (
         <>
-          <div className="mono bigEq" data-testid="selected-equation">
-            {props.selectedSummary.equation}
+          <div className="eqHeader">
+            <div className="mono monoWrap bigEq" data-testid="selected-equation">
+              {props.selectedSummary.equation}
+            </div>
+            <button onClick={() => copyToClipboard(props.selectedSummary!.equation)}>Copy</button>
           </div>
-          <div className="row">
-            <button onClick={() => copyToClipboard(props.selectedSummary!.equation)}>Copy equation</button>
+          <div className="smallText muted">
+            complexity {props.selectedSummary.complexity} • loss {formatSci(props.selectedSummary.loss)}
           </div>
           <div className="subTitle">Train</div>
           {props.evalTrain ? (

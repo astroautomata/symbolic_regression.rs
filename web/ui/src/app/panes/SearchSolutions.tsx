@@ -1,4 +1,5 @@
 import React from "react";
+import { useSessionStore } from "../../state/sessionStore";
 import { SrWorkerClient } from "../../worker/srWorkerClient";
 import { ControlsCard } from "./searchSolutions/ControlsCard";
 import { ParetoPlotCard } from "./searchSolutions/ParetoPlotCard";
@@ -11,6 +12,8 @@ import { useSearchController } from "./searchSolutions/useSearchController";
 export function SearchSolutions(): React.ReactElement {
   const prefersDark = usePrefersDark();
   const c = useSearchController(SrWorkerClient);
+  const options = useSessionStore((s) => s.options);
+  const setOptionsPatch = useSessionStore((s) => s.setOptionsPatch);
 
   return (
     <div className="pane">
@@ -19,10 +22,10 @@ export function SearchSolutions(): React.ReactElement {
         status={c.runtime.status}
         error={c.runtime.error}
         snap={c.snap}
-        cyclesPerSecond={c.runtime.cyclesPerSecond}
-        fitMode={c.fitMode}
-        setFitMode={c.setFitMode}
-        canCurve1d={c.canCurve1d}
+        evalsPerSecond={c.runtime.evalsPerSecond}
+        niterations={options?.niterations ?? null}
+        setNiterations={(n) => setOptionsPatch({ niterations: n })}
+        canEditNiterations={c.runtime.status === "idle" || c.runtime.status === "error"}
         initSearch={c.initSearch}
         start={c.start}
         pause={c.pause}

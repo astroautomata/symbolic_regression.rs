@@ -10,6 +10,9 @@ export function ParetoPlotCard(props: {
   best: EquationSummary | null;
   selectEquation: (sel: { id: string; complexity: number }) => void;
 }): React.ReactElement {
+  const selectedFill = "#ff7c7c"; // visible in both light/dark
+  const selectedLine = props.prefersDark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.55)";
+
   return (
     <div className="card gridCell">
       <div className="cardTitle">Pareto front</div>
@@ -27,10 +30,10 @@ export function ParetoPlotCard(props: {
                 mode: "markers",
                 marker: {
                   size: props.points.map((p) => (p.id === props.selectedId ? 12 : 7)),
-                  color: props.points.map((p) => (p.id === props.selectedId ? "#ffffff" : "rgba(100, 150, 255, 0.7)")),
+                  color: props.points.map((p) => (p.id === props.selectedId ? selectedFill : "rgba(100, 150, 255, 0.7)")),
                   line: props.points.map((p) =>
                     p.id === props.selectedId
-                      ? { width: 2, color: "rgba(0,0,0,0.5)" }
+                      ? { width: 2, color: selectedLine }
                       : props.best && p.id === props.best.id
                         ? { width: 2, color: "#ffd200" }
                         : { width: 0, color: "rgba(0,0,0,0)" }

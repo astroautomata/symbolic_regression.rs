@@ -73,7 +73,6 @@ export function ModelingTask(): React.ReactElement {
   const binaryOps = useSessionStore((s) => s.binaryOps);
   const ternaryOps = useSessionStore((s) => s.ternaryOps);
   const toggleOp = useSessionStore((s) => s.toggleOp);
-  const applyPreset = useSessionStore((s) => s.applyPreset);
 
   const grouped = useMemo(() => groupByArity(registry), [registry]);
 
@@ -91,11 +90,6 @@ export function ModelingTask(): React.ReactElement {
     <div className="pane">
       <div className="card">
         <div className="cardTitle">Operators</div>
-        <div className="row">
-          <button onClick={() => applyPreset("basic")}>Preset: Basic</button>
-          <button onClick={() => applyPreset("trig")}>Preset: Trig</button>
-          <button onClick={() => applyPreset("explog")}>Preset: Exp/Log</button>
-        </div>
 
         <div className="opGroups">
           <OperatorsGroup
@@ -146,16 +140,6 @@ export function ModelingTask(): React.ReactElement {
         <div className="muted">All fields map 1:1 to `symbolic_regression::Options` (plus a few web-only ones).</div>
 
         <div className="row">
-          <label className="field">
-            <div className="label">niterations</div>
-            <input
-              type="number"
-              min={1}
-              value={options.niterations}
-              onChange={(e) => setOptionsPatch({ niterations: Number(e.target.value) })}
-              data-testid="opt-niterations"
-            />
-          </label>
           <label className="field">
             <div className="label">maxsize</div>
             <input type="number" min={1} value={options.maxsize} onChange={(e) => setOptionsPatch({ maxsize: Number(e.target.value) })} />
@@ -338,27 +322,27 @@ export function ModelingTask(): React.ReactElement {
                 <input type="number" step={0.001} value={options.alpha} onChange={(e) => setOptionsPatch({ alpha: Number(e.target.value) })} />
               </label>
             </section>
-          </div>
-        </details>
 
-        <details className="details">
-          <summary>Mutation weights (expert)</summary>
-          <div className="grid2">
-            {Object.entries(options.mutation_weights).map(([k, v]) => (
-              <label key={k} className="field">
-                <div className="label">{k}</div>
-                <input
-                  type="number"
-                  step={0.0001}
-                  value={v}
-                  onChange={(e) =>
-                    setOptionsPatch({
-                      mutation_weights: { ...options.mutation_weights, [k]: Number(e.target.value) } as any
-                    })
-                  }
-                />
-              </label>
-            ))}
+            <section className="section fullWidth">
+              <div className="subTitle">Mutation weights</div>
+              <div className="mutationWeightsGrid">
+                {Object.entries(options.mutation_weights).map(([k, v]) => (
+                  <label key={k} className="field">
+                    <div className="label">{k}</div>
+                    <input
+                      type="number"
+                      step={0.0001}
+                      value={v}
+                      onChange={(e) =>
+                        setOptionsPatch({
+                          mutation_weights: { ...options.mutation_weights, [k]: Number(e.target.value) } as any
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
           </div>
         </details>
       </div>

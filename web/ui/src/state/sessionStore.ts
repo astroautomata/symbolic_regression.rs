@@ -12,7 +12,7 @@ import type {
   WasmSplitIndices
 } from "../types/srTypes";
 
-export type TabKey = "data" | "clean" | "task" | "search";
+export type TabKey = "data" | "configure" | "run";
 
 type ParsedDataset = {
   headers: string[];
@@ -24,7 +24,7 @@ type SearchRuntime = {
   error: string | null;
   split: WasmSplitIndices | null;
   snapshot: SearchSnapshot | null;
-  cyclesPerSecond: number | null;
+  evalsPerSecond: number | null;
   front: EquationSummary[];
   selectedId: string | null;
   selectedComplexity: number | null;
@@ -92,7 +92,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     error: null,
     split: null,
     snapshot: null,
-    cyclesPerSecond: null,
+    evalsPerSecond: null,
     front: [],
     selectedId: null,
     selectedComplexity: null,

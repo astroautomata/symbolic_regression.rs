@@ -39,6 +39,12 @@ body {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.tabSep {
+  opacity: 0.45;
+  user-select: none;
 }
 
 .tab {
@@ -60,6 +66,9 @@ body {
   flex: 1;
   overflow: auto;
   padding: 14px;
+}
+
+.mainInner {
   max-width: 1400px;
   width: 100%;
   margin: 0 auto;
@@ -184,11 +193,30 @@ select option {
   gap: 10px 14px;
 }
 
+.section.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.mutationWeightsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 14px;
+}
+
 .grid4 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 360px 360px;
+  /*
+    Keep plots reasonably sized, but allow the bottom row (metrics) to grow.
+    This avoids metrics being cut off when the selected equation wraps.
+  */
+  grid-template-rows: 360px minmax(360px, auto);
   gap: 14px;
+}
+
+.grid4 .gridCell {
+  /* Allow inner scroll areas to actually scroll instead of forcing the grid row to grow. */
+  min-height: 0;
 }
 
 .gridCell {
@@ -210,6 +238,11 @@ select option {
   font-size: 13px;
 }
 
+/* Fixed-layout tables make truncation / ellipsis reliable. */
+.table.fixed {
+  table-layout: fixed;
+}
+
 .table thead th {
   position: sticky;
   top: 0;
@@ -217,6 +250,10 @@ select option {
   border-bottom: 1px solid rgba(127, 127, 127, 0.25);
   text-align: left;
   padding: 8px 10px;
+}
+
+.table thead th.num {
+  text-align: right;
 }
 
 .table td {
@@ -233,12 +270,39 @@ select option {
   background: rgba(255, 209, 102, 0.15);
 }
 
+/*
+  Monospace helpers:
+  - .mono: default monospace without forcing wrap (good for numbers)
+  - .monoWrap: wraps long expressions
+  - .monoEllipsis: single-line truncation (good for tables)
+*/
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.monoWrap {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.monoEllipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.equationCell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bigEq {
@@ -259,12 +323,13 @@ select option {
 }
 
 .statusChip {
-  margin-left: auto;
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid rgba(127, 127, 127, 0.2);
   background: rgba(127, 127, 127, 0.1);
   font-size: 12px;
+  cursor: default;
+  user-select: none;
 }
 
 .statusLine {
@@ -272,6 +337,54 @@ select option {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* Controls header: keep buttons grouped and status aligned. */
+.controlsBar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toolbarField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.itersInput {
+  min-width: 120px;
+  width: 120px;
+  padding: 8px 10px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.plotWrap {
+  flex: 1;
+  min-height: 260px;
+}
+
+/* Quick-stats: keep the copy button aligned with the equation box. */
+.eqHeader {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.eqHeader .bigEq {
+  flex: 1;
 }
 
 .errorText {

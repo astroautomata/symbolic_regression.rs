@@ -11,11 +11,12 @@ export function SolutionsTableCard(props: {
     <div className="card gridCell">
       <div className="cardTitle">Current solutions</div>
       <div className="tableWrap">
-        <table className="table" data-testid="solutions-table">
+        <table className="table fixed" data-testid="solutions-table">
           <thead>
             <tr>
-              <th>size</th>
-              <th>loss</th>
+              <th className="num" style={{ width: 120 }}>
+                loss
+              </th>
               <th>equation</th>
             </tr>
           </thead>
@@ -30,9 +31,10 @@ export function SolutionsTableCard(props: {
                   onClick={() => props.selectEquation({ id: m.id, complexity: m.complexity })}
                   data-testid={`solution-row-${m.id}`}
                 >
-                  <td className="mono">{m.complexity}</td>
-                  <td className="mono">{formatSci(m.loss)}</td>
-                  <td className="mono">{m.equation}</td>
+                  <td className="mono num">{formatSci(m.loss)}</td>
+                  <td className="mono equationCell" title={m.equation}>
+                    {m.equation}
+                  </td>
                 </tr>
               ))}
           </tbody>
