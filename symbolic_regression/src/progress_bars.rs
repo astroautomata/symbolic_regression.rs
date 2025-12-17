@@ -357,8 +357,8 @@ mod imp {
                 .expect("header should contain Equation");
 
             let stats = format!("{:<10}  {:<10.3e}  ", 5_u32, 1.234_f64);
-            let row = format!("{stats}x1");
-            let eq_row_start = row.find("x1").expect("row should contain equation");
+            let row = format!("{stats}x0");
+            let eq_row_start = row.find("x0").expect("row should contain equation");
 
             assert_eq!(
                 eq_header_start, eq_row_start,

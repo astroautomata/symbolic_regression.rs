@@ -17,7 +17,7 @@ pub fn default_string_variable(feature: u16, names: Option<&[String]>) -> String
             return name.clone();
         }
     }
-    format!("x{}", u32::from(feature) + 1)
+    format!("x{}", u32::from(feature))
 }
 
 pub fn default_string_constant<T: fmt::Display>(v: &T) -> String {

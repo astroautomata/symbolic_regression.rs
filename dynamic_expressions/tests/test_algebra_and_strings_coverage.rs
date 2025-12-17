@@ -91,7 +91,7 @@ fn algebra_overloads_and_string_paths_are_exercised() {
     // Exercise default variable naming when metadata doesn't provide names.
     let anon = common::var(0) + common::var(1);
     let s = string_tree(&anon, StringTreeOptions::default());
-    assert_eq!(s, "x1 + x2");
+    assert_eq!(s, "x0 + x1");
 
     // Exercise `Sub<T>` output via a manual check.
     let ex = common::var(0) - 3.2;

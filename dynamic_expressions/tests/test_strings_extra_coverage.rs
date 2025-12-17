@@ -14,5 +14,5 @@ fn default_string_variable_uses_provided_name() {
 fn default_string_variable_falls_back_when_name_missing() {
     let names: Vec<String> = vec![];
     let out = default_string_variable(black_box(0), Some(black_box(names.as_slice())));
-    assert_eq!(out, "x1");
+    assert_eq!(out, "x0");
 }

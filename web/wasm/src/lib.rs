@@ -820,7 +820,7 @@ fn build_full_dataset(
     let variable_names: Vec<String> = if opts.has_headers && headers.len() == n_cols {
         x_cols.iter().map(|&c| headers[c].clone()).collect()
     } else {
-        (0..n_features).map(|i| format!("x{}", i + 1)).collect()
+        (0..n_features).map(|i| format!("x{}", i)).collect()
     };
 
     let dataset = Dataset::with_weights_and_names(x, y, None, variable_names.clone());
