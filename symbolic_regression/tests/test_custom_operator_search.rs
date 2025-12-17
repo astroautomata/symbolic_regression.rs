@@ -107,7 +107,7 @@ fn custom_operator_is_used_in_end_to_end_search() {
     let result = equation_search::<f64, CustomOps, 1>(&dataset, &options);
 
     let eqn = dynamic_expressions::string_tree(&result.best.expr, Default::default());
-    assert_eq!(eqn, "square(x1)");
+    assert_eq!(eqn, "square(x0)");
     assert!(
         result.best.loss <= 1e-12,
         "best loss was {}",
