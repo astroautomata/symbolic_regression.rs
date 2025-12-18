@@ -174,7 +174,7 @@ pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
     assert!(target_size >= 1);
     let mut nodes: Vec<PNode> = Vec::with_capacity(target_size);
     let mut consts: Vec<T> = Vec::new();
-    nodes.push(random_leaf::<T, R>(rng, n_features, &mut consts));
+    nodes.push(random_leaf(rng, n_features, &mut consts));
 
     while nodes.len() < target_size
         && operators.total_ops_up_to(D.min(target_size - nodes.len())) > 0
@@ -193,7 +193,7 @@ pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
 
         let mut repl: Vec<PNode> = Vec::with_capacity(arity + 1);
         for _ in 0..arity {
-            repl.push(random_leaf::<T, R>(rng, n_features, &mut consts));
+            repl.push(random_leaf(rng, n_features, &mut consts));
         }
         repl.push(PNode::Op {
             arity: arity as u8,
@@ -286,7 +286,7 @@ fn mutate_operator_in_place<T, Ops, const D: usize, R: Rng>(
         return false;
     };
     let a = arity as usize;
-    if operators.nops(a) <= 1 {
+    if operators.nops(a) == 0 {
         return false;
     }
 
@@ -489,7 +489,7 @@ fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
         if j == carry_pos {
             new_sub.extend_from_slice(&old_sub);
         } else {
-            new_sub.push(random_leaf::<T, R>(rng, n_features, &mut expr.consts));
+            new_sub.push(random_leaf(rng, n_features, &mut expr.consts));
         }
     }
     new_sub.push(PNode::Op {
@@ -523,7 +523,7 @@ pub(crate) fn prepend_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
         if j == carry_pos {
             new_nodes.extend_from_slice(&old);
         } else {
-            new_nodes.push(random_leaf::<T, R>(rng, n_features, &mut expr.consts));
+            new_nodes.push(random_leaf(rng, n_features, &mut expr.consts));
         }
     }
     new_nodes.push(PNode::Op {
@@ -564,7 +564,7 @@ pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
 
     let mut replace_with: Vec<PNode> = Vec::with_capacity(arity + 1);
     for _ in 0..arity {
-        replace_with.push(random_leaf::<T, R>(rng, n_features, &mut expr.consts));
+        replace_with.push(random_leaf(rng, n_features, &mut expr.consts));
     }
     replace_with.push(PNode::Op {
         arity: arity as u8,
@@ -741,10 +741,7 @@ where
             }
             MutationChoice::DeleteNode => delete_random_op_in_place(rng, &mut tree),
             MutationChoice::Simplify => {
-                let _ = dynamic_expressions::simplify_in_place::<T, Ops, D>(
-                    &mut tree,
-                    &evaluator.eval_opts,
-                );
+                let _ = dynamic_expressions::simplify_in_place(&mut tree, &evaluator.eval_opts);
                 return_immediately = true;
                 true
             }
@@ -752,8 +749,7 @@ where
                 // Match SymbolicRegression.jl: sample a *uniform* random size in 1:curmaxsize.
                 let max_size = curmaxsize.max(1).min(options.maxsize.max(1));
                 let target_size = rng.random_range(1..=max_size);
-                tree =
-                    random_expr::<T, Ops, D, _>(rng, &options.operators, n_features, target_size);
+                tree = random_expr(rng, &options.operators, n_features, target_size);
                 true
             }
             MutationChoice::DoNothing => true,
@@ -787,7 +783,7 @@ where
         let mut baby = PopMember::from_expr(id, Some(member.id), birth, tree, n_features);
         baby.rebuild_plan(n_features);
         baby.loss = member.loss;
-        baby.complexity = compute_complexity::<T, Ops, D>(&baby.expr.nodes, options);
+        baby.complexity = compute_complexity(&baby.expr.nodes, options);
         baby.cost = loss_to_cost(
             baby.loss,
             baby.complexity,
@@ -867,7 +863,7 @@ where
     let max_tries = 10;
     let mut tries = 0;
     loop {
-        let (c1_expr, c2_expr) = crossover_trees::<T, Ops, D, _>(rng, &member1.expr, &member2.expr);
+        let (c1_expr, c2_expr) = crossover_trees(rng, &member1.expr, &member2.expr);
         tries += 1;
         if check_constraints(&c1_expr, options, curmaxsize)
             && check_constraints(&c2_expr, options, curmaxsize)

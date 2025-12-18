@@ -1,6 +1,7 @@
 // CLI entrypoint + option wiring.
 
 use crate::cli::args::Cli;
+use crate::cli::output::{print_front, write_results, TargetResult};
 use anyhow::Context;
 use clap::Parser;
 
@@ -27,12 +28,12 @@ pub fn run() -> anyhow::Result<()> {
     cli.options.apply_to(&mut options);
     validate_options(&options)?;
 
-    let mut results: Vec<super::output::TargetResult<T, Ops, D>> = Vec::new();
+    let mut results: Vec<TargetResult<T, Ops, D>> = Vec::new();
     for (target_name, dataset) in datasets {
         let res = crate::equation_search::<T, Ops, D>(&dataset, &options);
         let front = res.hall_of_fame.pareto_front();
-        super::output::print_front::<T, Ops, D>(&target_name, &dataset, &front, cli.pretty);
-        results.push(super::output::TargetResult {
+        print_front(&target_name, &dataset, &front, cli.pretty);
+        results.push(TargetResult {
             target: target_name,
             front,
             variable_names: dataset.variable_names,
@@ -40,7 +41,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     if let Some(path) = &cli.output {
-        super::output::write_results(path, cli.format, &results)
+        write_results(path, cli.format, &results)
             .with_context(|| format!("failed to write output to {}", path.display()))?;
     }
 

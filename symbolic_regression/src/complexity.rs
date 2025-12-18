@@ -63,7 +63,7 @@ pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
     Some(st[0])
 }
 
-pub fn compute_complexity<T: Float, Ops, const D: usize>(
+pub fn compute_complexity<T: Float, const D: usize>(
     nodes: &[PNode],
     options: &Options<T, D>,
 ) -> usize {

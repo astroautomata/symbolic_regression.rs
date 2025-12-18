@@ -61,7 +61,7 @@ pub fn check_constraints<T: Float, Ops, const D: usize>(
             return false;
         }
     } else {
-        let Some(total) = complexity::compute_custom_complexity_checked::<T, D>(
+        let Some(total) = complexity::compute_custom_complexity_checked(
             &expr.nodes,
             options,
             Some(&options.op_constraints.limits),
