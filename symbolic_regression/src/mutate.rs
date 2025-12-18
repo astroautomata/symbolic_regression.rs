@@ -146,13 +146,8 @@ pub fn sample_mutation<R: Rng>(rng: &mut R, weights: &MutationWeights) -> Mutati
     choices[dist.sample(rng)].0
 }
 
-fn random_leaf<T: Float, R: Rng>(
-    rng: &mut R,
-    n_features: usize,
-    const_prob: f64,
-    consts: &mut Vec<T>,
-) -> PNode {
-    if rng.random::<f64>() < const_prob {
+fn random_leaf<T: Float, R: Rng>(rng: &mut R, n_features: usize, consts: &mut Vec<T>) -> PNode {
+    if rng.random::<bool>() {
         let val_f64: f64 = StandardNormal.sample(rng);
         let val = T::from(val_f64).unwrap();
         let idx: u16 = consts
@@ -175,17 +170,11 @@ pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
     operators: &Operators<D>,
     n_features: usize,
     target_size: usize,
-    const_prob: f64,
 ) -> PostfixExpr<T, Ops, D> {
     assert!(target_size >= 1);
     let mut nodes: Vec<PNode> = Vec::with_capacity(target_size);
     let mut consts: Vec<T> = Vec::new();
-    nodes.push(random_leaf::<T, R>(
-        rng,
-        n_features,
-        const_prob,
-        &mut consts,
-    ));
+    nodes.push(random_leaf::<T, R>(rng, n_features, &mut consts));
 
     while nodes.len() < target_size
         && operators.total_ops_up_to(D.min(target_size - nodes.len())) > 0
@@ -204,12 +193,7 @@ pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
 
         let mut repl: Vec<PNode> = Vec::with_capacity(arity + 1);
         for _ in 0..arity {
-            repl.push(random_leaf::<T, R>(
-                rng,
-                n_features,
-                const_prob,
-                &mut consts,
-            ));
+            repl.push(random_leaf::<T, R>(rng, n_features, &mut consts));
         }
         repl.push(PNode::Op {
             arity: arity as u8,
@@ -298,21 +282,19 @@ fn mutate_operator_in_place<T, Ops, const D: usize, R: Rng>(
         return false;
     }
     let i = idxs[rng.random_range(0..idxs.len())];
-    let PNode::Op { arity, op: old } = expr.nodes[i] else {
+    let PNode::Op { arity, .. } = expr.nodes[i] else {
         return false;
     };
     let a = arity as usize;
     if operators.nops(a) <= 1 {
         return false;
     }
-    for _ in 0..8 {
-        let new_op = operators.sample_op(rng, a).op.id;
-        if new_op != old {
-            expr.nodes[i] = PNode::Op { arity, op: new_op };
-            return true;
-        }
-    }
-    false
+
+    // Match SymbolicRegression.jl: sample uniformly among all operators of the same arity,
+    // including the current one (i.e., this mutation can be a no-op).
+    let new_op = operators.sample_op(rng, a).op.id;
+    expr.nodes[i] = PNode::Op { arity, op: new_op };
+    true
 }
 
 fn mutate_feature_in_place<T, Ops, const D: usize, R: Rng>(
@@ -486,7 +468,6 @@ fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
     expr: &mut PostfixExpr<T, Ops, D>,
     operators: &Operators<D>,
     n_features: usize,
-    const_prob: f64,
 ) -> bool {
     if expr.nodes.is_empty() {
         return false;
@@ -508,12 +489,7 @@ fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
         if j == carry_pos {
             new_sub.extend_from_slice(&old_sub);
         } else {
-            new_sub.push(random_leaf::<T, R>(
-                rng,
-                n_features,
-                const_prob,
-                &mut expr.consts,
-            ));
+            new_sub.push(random_leaf::<T, R>(rng, n_features, &mut expr.consts));
         }
     }
     new_sub.push(PNode::Op {
@@ -525,12 +501,11 @@ fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
     true
 }
 
-fn append_or_prepend_random_op<T: Float, Ops, const D: usize, R: Rng>(
+pub(crate) fn prepend_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
     rng: &mut R,
     expr: &mut PostfixExpr<T, Ops, D>,
     operators: &Operators<D>,
     n_features: usize,
-    const_prob: f64,
 ) -> bool {
     if expr.nodes.is_empty() {
         return false;
@@ -548,12 +523,7 @@ fn append_or_prepend_random_op<T: Float, Ops, const D: usize, R: Rng>(
         if j == carry_pos {
             new_nodes.extend_from_slice(&old);
         } else {
-            new_nodes.push(random_leaf::<T, R>(
-                rng,
-                n_features,
-                const_prob,
-                &mut expr.consts,
-            ));
+            new_nodes.push(random_leaf::<T, R>(rng, n_features, &mut expr.consts));
         }
     }
     new_nodes.push(PNode::Op {
@@ -563,6 +533,60 @@ fn append_or_prepend_random_op<T: Float, Ops, const D: usize, R: Rng>(
     expr.nodes = new_nodes;
     compress_constants(expr);
     true
+}
+
+pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
+    rng: &mut R,
+    expr: &mut PostfixExpr<T, Ops, D>,
+    operators: &Operators<D>,
+    n_features: usize,
+) -> bool {
+    if expr.nodes.is_empty() {
+        return false;
+    }
+    if operators.total_ops_up_to(D) == 0 {
+        return false;
+    }
+
+    let leaf_positions: Vec<usize> = expr
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, n)| matches!(n, PNode::Var { .. } | PNode::Const { .. }).then_some(i))
+        .collect();
+    if leaf_positions.is_empty() {
+        return false;
+    }
+    let leaf_idx = leaf_positions[rng.random_range(0..leaf_positions.len())];
+
+    let arity = operators.sample_arity(rng, D);
+    let op_id = operators.sample_op(rng, arity).op.id;
+
+    let mut replace_with: Vec<PNode> = Vec::with_capacity(arity + 1);
+    for _ in 0..arity {
+        replace_with.push(random_leaf::<T, R>(rng, n_features, &mut expr.consts));
+    }
+    replace_with.push(PNode::Op {
+        arity: arity as u8,
+        op: op_id,
+    });
+
+    expr.nodes.splice(leaf_idx..=leaf_idx, replace_with);
+    compress_constants(expr);
+    true
+}
+
+fn add_node_in_place<T: Float, Ops, const D: usize, R: Rng>(
+    rng: &mut R,
+    expr: &mut PostfixExpr<T, Ops, D>,
+    operators: &Operators<D>,
+    n_features: usize,
+) -> bool {
+    if rng.random::<bool>() {
+        append_random_op_in_place(rng, expr, operators, n_features)
+    } else {
+        prepend_random_op_in_place(rng, expr, operators, n_features)
+    }
 }
 
 fn delete_random_op_in_place<T: Clone, Ops, const D: usize, R: Rng>(
@@ -710,10 +734,10 @@ where
             MutationChoice::SwapOperands => swap_operands_in_place(rng, &mut tree),
             MutationChoice::RotateTree => rotate_tree_in_place(rng, &mut tree),
             MutationChoice::AddNode => {
-                append_or_prepend_random_op(rng, &mut tree, &options.operators, n_features, 0.2)
+                add_node_in_place(rng, &mut tree, &options.operators, n_features)
             }
             MutationChoice::InsertNode => {
-                insert_random_op_in_place(rng, &mut tree, &options.operators, n_features, 0.2)
+                insert_random_op_in_place(rng, &mut tree, &options.operators, n_features)
             }
             MutationChoice::DeleteNode => delete_random_op_in_place(rng, &mut tree),
             MutationChoice::Simplify => {
@@ -728,13 +752,8 @@ where
                 // Match SymbolicRegression.jl: sample a *uniform* random size in 1:curmaxsize.
                 let max_size = curmaxsize.max(1).min(options.maxsize.max(1));
                 let target_size = rng.random_range(1..=max_size);
-                tree = random_expr::<T, Ops, D, _>(
-                    rng,
-                    &options.operators,
-                    n_features,
-                    target_size,
-                    0.2,
-                );
+                tree =
+                    random_expr::<T, Ops, D, _>(rng, &options.operators, n_features, target_size);
                 true
             }
             MutationChoice::DoNothing => true,

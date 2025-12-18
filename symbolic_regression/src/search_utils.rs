@@ -670,7 +670,6 @@ where
                 &options.operators,
                 dataset.n_features,
                 nlength,
-                0.2,
             );
             let mut m = PopMember::from_expr(
                 MemberId(next_id),
