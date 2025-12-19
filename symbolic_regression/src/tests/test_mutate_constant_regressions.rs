@@ -1,4 +1,4 @@
-use crate::mutate::mutate_constant_in_place;
+use crate::mutation_functions::mutate_constant_in_place;
 use crate::Options;
 use dynamic_expressions::expression::Metadata;
 use dynamic_expressions::expression::PostfixExpr;

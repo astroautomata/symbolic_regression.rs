@@ -1,4 +1,4 @@
-use crate::mutate::rotate_tree_in_place;
+use crate::mutation_functions::rotate_tree_in_place;
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::node_utils::is_valid_postfix;

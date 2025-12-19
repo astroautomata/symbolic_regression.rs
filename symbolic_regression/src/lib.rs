@@ -7,6 +7,7 @@ pub(crate) mod hall_of_fame;
 pub(crate) mod loss_functions;
 pub(crate) mod migration;
 pub(crate) mod mutate;
+pub(crate) mod mutation_functions;
 pub(crate) mod operator_library;
 pub mod operators;
 pub(crate) mod optim;

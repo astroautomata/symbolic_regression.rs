@@ -4,20 +4,18 @@ use crate::complexity::compute_complexity;
 use crate::constant_optimization::{optimize_constants, OptimizeConstantsCtx};
 use crate::dataset::TaggedDataset;
 use crate::loss_functions::loss_to_cost;
-use crate::operators::Operators;
+use crate::mutation_functions;
 use crate::options::{MutationWeights, Options};
 use crate::pop_member::{Evaluator, MemberId, PopMember};
 pub use dynamic_expressions::compress_constants;
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
-use dynamic_expressions::node_utils::{subtree_range, subtree_sizes};
 use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
 use dynamic_expressions::operator_registry::OpRegistry;
 use num_traits::Float;
 use rand::distr::weighted::WeightedIndex;
 use rand::distr::Distribution;
 use rand::Rng;
-use rand_distr::StandardNormal;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MutationChoice {
@@ -147,600 +145,170 @@ pub fn sample_mutation<R: Rng>(rng: &mut R, weights: &MutationWeights) -> Mutati
     choices[dist.sample(rng)].0
 }
 
-fn random_leaf<T: Float, R: Rng>(rng: &mut R, n_features: usize, consts: &mut Vec<T>) -> PNode {
-    if rng.random::<bool>() {
-        let val_f64: f64 = StandardNormal.sample(rng);
-        let val = T::from(val_f64).unwrap();
-        let idx: u16 = consts
-            .len()
-            .try_into()
-            .unwrap_or_else(|_| panic!("too many constants to index in u16"));
-        consts.push(val);
-        PNode::Const { idx }
-    } else {
-        let f: u16 = rng
-            .random_range(0..n_features)
-            .try_into()
-            .unwrap_or_else(|_| panic!("too many features to index in u16"));
-        PNode::Var { feature: f }
-    }
+struct MutationOutcome<T: Float, Ops, const D: usize> {
+    expr: PostfixExpr<T, Ops, D>,
+    mutated: bool,
+    evals: f64,
+    return_immediately: bool,
 }
 
-pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    operators: &Operators<D>,
-    n_features: usize,
-    target_size: usize,
-) -> PostfixExpr<T, Ops, D> {
-    assert!(target_size >= 1);
-    let mut nodes: Vec<PNode> = Vec::with_capacity(target_size);
-    let mut consts: Vec<T> = Vec::new();
-    nodes.push(random_leaf(rng, n_features, &mut consts));
-
-    while nodes.len() < target_size
-        && operators.total_ops_up_to(D.min(target_size - nodes.len())) > 0
+impl MutationChoice {
+    fn apply<
+        T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive,
+        Ops,
+        const D: usize,
+        R: Rng,
+    >(
+        self,
+        rng: &mut R,
+        member: &PopMember<T, Ops, D>,
+        mut expr: PostfixExpr<T, Ops, D>,
+        dataset: TaggedDataset<'_, T>,
+        temperature: f64,
+        curmaxsize: usize,
+        options: &Options<T, D>,
+        evaluator: &mut Evaluator<T, D>,
+    ) -> MutationOutcome<T, Ops, D>
+    where
+        Ops: ScalarOpSet<T> + OpRegistry,
     {
-        let rem = target_size - nodes.len();
-        let max_arity = rem.min(D);
-        let arity = operators.sample_arity(rng, max_arity);
-        let op_id = operators.sample_op(rng, arity).op.id;
-
-        let leaf_positions: Vec<usize> = nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, n)| matches!(n, PNode::Var { .. } | PNode::Const { .. }).then_some(i))
-            .collect();
-        let leaf_idx = leaf_positions[rng.random_range(0..leaf_positions.len())];
-
-        let mut repl: Vec<PNode> = Vec::with_capacity(arity + 1);
-        for _ in 0..arity {
-            repl.push(random_leaf(rng, n_features, &mut consts));
-        }
-        repl.push(PNode::Op {
-            arity: arity as u8,
-            op: op_id,
-        });
-        nodes.splice(leaf_idx..=leaf_idx, repl);
-    }
-
-    PostfixExpr::new(nodes, consts, Default::default())
-}
-
-/// Match SymbolicRegression.jl `gen_random_tree(nlength, ...)`:
-/// start from a placeholder `init_value(T)` leaf (0 for numeric types), then
-/// do `n_append_ops` rounds of `append_random_op`, which expands a random leaf
-/// by replacing it with an operator node and fresh random leaf children.
-///
-/// Note: final node count is generally larger than `n_append_ops`.
-pub fn random_expr_append_ops<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    operators: &Operators<D>,
-    n_features: usize,
-    n_append_ops: usize,
-    max_size: usize,
-) -> PostfixExpr<T, Ops, D> {
-    let max_size = max_size.max(1);
-    let mut expr = PostfixExpr::<T, Ops, D>::zero();
-
-    for _ in 0..n_append_ops {
-        let rem = max_size.saturating_sub(expr.nodes.len());
-        if rem == 0 {
-            break;
-        }
-        let max_arity = rem.min(D);
-        if operators.total_ops_up_to(max_arity) == 0 {
-            break;
-        }
-        let arity = operators.sample_arity(rng, max_arity);
-        let op_id = operators.sample_op(rng, arity).op.id;
-
-        let leaf_positions: Vec<usize> = expr
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, n)| matches!(n, PNode::Var { .. } | PNode::Const { .. }).then_some(i))
-            .collect();
-        if leaf_positions.is_empty() {
-            break;
-        }
-        let leaf_idx = leaf_positions[rng.random_range(0..leaf_positions.len())];
-
-        let mut repl: Vec<PNode> = Vec::with_capacity(arity + 1);
-        for _ in 0..arity {
-            repl.push(random_leaf(rng, n_features, &mut expr.consts));
-        }
-        repl.push(PNode::Op {
-            arity: arity as u8,
-            op: op_id,
-        });
-        expr.nodes.splice(leaf_idx..=leaf_idx, repl);
-    }
-
-    compress_constants(&mut expr);
-    expr
-}
-
-fn op_indices(nodes: &[PNode]) -> Vec<usize> {
-    nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(i, n)| matches!(n, PNode::Op { .. }).then_some(i))
-        .collect()
-}
-
-fn const_node_indices(nodes: &[PNode]) -> Vec<usize> {
-    nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(i, n)| matches!(n, PNode::Const { .. }).then_some(i))
-        .collect()
-}
-
-fn var_node_indices(nodes: &[PNode]) -> Vec<usize> {
-    nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(i, n)| matches!(n, PNode::Var { .. }).then_some(i))
-        .collect()
-}
-
-fn child_ranges(sizes: &[usize], root_idx: usize, arity: usize) -> Vec<(usize, usize)> {
-    let mut out = vec![(0usize, 0usize); arity];
-    let mut end: isize = root_idx as isize - 1;
-    for k in (0..arity).rev() {
-        let end_u = usize::try_from(end).expect("invalid postfix (child end underflow)");
-        let sz = sizes[end_u];
-        let start_u = end_u + 1 - sz;
-        out[k] = (start_u, end_u);
-        end = start_u as isize - 1;
-    }
-    out
-}
-
-pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    temperature: f64,
-    options: &Options<T, D>,
-) -> bool {
-    let idxs = const_node_indices(&expr.nodes);
-    if idxs.is_empty() {
-        return false;
-    }
-    let node_i = idxs[rng.random_range(0..idxs.len())];
-    let PNode::Const { idx } = expr.nodes[node_i] else {
-        return false;
-    };
-    let ci = usize::from(idx);
-
-    // Follows SymbolicRegression.jl's `mutate_factor`.
-    let pf = options.perturbation_factor * temperature.max(0.0);
-    let max_change = pf + 1.1;
-    let exponent: f64 = rng.random::<f64>();
-    let mut mul = max_change.powf(exponent);
-    let make_const_bigger: bool = rng.random();
-    mul = if make_const_bigger { mul } else { 1.0 / mul };
-    if rng.random::<f64>() > options.probability_negate_constant {
-        mul = -mul;
-    }
-    expr.consts[ci] = expr.consts[ci] * T::from(mul).unwrap();
-    true
-}
-
-fn mutate_operator_in_place<T, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
-) -> bool {
-    let idxs = op_indices(&expr.nodes);
-    if idxs.is_empty() {
-        return false;
-    }
-    let i = idxs[rng.random_range(0..idxs.len())];
-    let PNode::Op { arity, .. } = expr.nodes[i] else {
-        return false;
-    };
-    let a = arity as usize;
-    if operators.nops(a) == 0 {
-        return false;
-    }
-
-    // Match SymbolicRegression.jl: sample uniformly among all operators of the same arity,
-    // including the current one (i.e., this mutation can be a no-op).
-    let new_op = operators.sample_op(rng, a).op.id;
-    expr.nodes[i] = PNode::Op { arity, op: new_op };
-    true
-}
-
-fn mutate_feature_in_place<T, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    n_features: usize,
-) -> bool {
-    if n_features <= 1 {
-        return false;
-    }
-    let idxs = var_node_indices(&expr.nodes);
-    if idxs.is_empty() {
-        return false;
-    }
-    let node_i = idxs[rng.random_range(0..idxs.len())];
-    let PNode::Var { feature } = expr.nodes[node_i] else {
-        return false;
-    };
-    let old = usize::from(feature);
-    if old >= n_features {
-        return false;
-    }
-
-    for _ in 0..8 {
-        let new_feature = rng.random_range(0..n_features);
-        if new_feature != old {
-            let new_u16: u16 = new_feature
-                .try_into()
-                .unwrap_or_else(|_| panic!("too many features to index in u16"));
-            expr.nodes[node_i] = PNode::Var { feature: new_u16 };
-            return true;
-        }
-    }
-    false
-}
-
-fn swap_operands_in_place<T, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-) -> bool {
-    let idxs: Vec<usize> = expr
-        .nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(i, n)| matches!(n, PNode::Op { arity: 2, .. }).then_some(i))
-        .collect();
-    if idxs.is_empty() {
-        return false;
-    }
-    let sizes = subtree_sizes(&expr.nodes);
-    let root_idx = idxs[rng.random_range(0..idxs.len())];
-    let PNode::Op { op, .. } = expr.nodes[root_idx] else {
-        return false;
-    };
-    let (sub_start, sub_end) = subtree_range(&sizes, root_idx);
-    let child = child_ranges(&sizes, root_idx, 2);
-    let mut new_sub: Vec<PNode> = Vec::with_capacity(sub_end + 1 - sub_start);
-    new_sub.extend_from_slice(&expr.nodes[child[1].0..=child[1].1]);
-    new_sub.extend_from_slice(&expr.nodes[child[0].0..=child[0].1]);
-    new_sub.push(PNode::Op { arity: 2, op });
-    expr.nodes.splice(sub_start..=sub_end, new_sub);
-    true
-}
-
-pub(crate) fn rotate_tree_in_place<T, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-) -> bool {
-    // Match SymbolicRegression.jl's `randomly_rotate_tree!`:
-    // pick a random rotation root where some child is an operator, then
-    // rotate along a random internal edge (root -> pivot) using a random grandchild.
-    let sizes = subtree_sizes(&expr.nodes);
-    let mut valid_roots: Vec<usize> = Vec::new();
-    for (i, n) in expr.nodes.iter().enumerate() {
-        let PNode::Op { arity, .. } = *n else {
-            continue;
-        };
-        let a = arity as usize;
-        if a == 0 {
-            continue;
-        }
-        let children = child_ranges(&sizes, i, a);
-        if children
-            .iter()
-            .any(|c| matches!(expr.nodes[c.1], PNode::Op { .. }))
-        {
-            valid_roots.push(i);
-        }
-    }
-    if valid_roots.is_empty() {
-        return false;
-    }
-
-    let root_idx = valid_roots[rng.random_range(0..valid_roots.len())];
-    let PNode::Op {
-        arity: root_arity_u8,
-        op: op_root,
-    } = expr.nodes[root_idx]
-    else {
-        return false;
-    };
-    let root_arity = root_arity_u8 as usize;
-    if root_arity == 0 {
-        return false;
-    }
-    let root_children = child_ranges(&sizes, root_idx, root_arity);
-
-    let pivot_positions: Vec<usize> = root_children
-        .iter()
-        .enumerate()
-        .filter_map(|(j, c)| matches!(expr.nodes[c.1], PNode::Op { .. }).then_some(j))
-        .collect();
-    if pivot_positions.is_empty() {
-        return false;
-    }
-
-    let pivot_pos = pivot_positions[rng.random_range(0..pivot_positions.len())];
-    let pivot_root_idx = root_children[pivot_pos].1;
-    let PNode::Op {
-        arity: pivot_arity_u8,
-        op: op_pivot,
-    } = expr.nodes[pivot_root_idx]
-    else {
-        return false;
-    };
-    let pivot_arity = pivot_arity_u8 as usize;
-    if pivot_arity == 0 {
-        return false;
-    }
-    let pivot_children = child_ranges(&sizes, pivot_root_idx, pivot_arity);
-
-    let grandchild_pos = rng.random_range(0..pivot_arity);
-    let grandchild = pivot_children[grandchild_pos];
-
-    let (sub_start, sub_end) = subtree_range(&sizes, root_idx);
-
-    // Build the rotated version of the old root, with its `pivot_pos` child replaced by `grandchild`.
-    let mut rotated_root: Vec<PNode> = Vec::with_capacity(sub_end + 1 - sub_start);
-    for (j, c) in root_children.iter().enumerate() {
-        if j == pivot_pos {
-            rotated_root.extend_from_slice(&expr.nodes[grandchild.0..=grandchild.1]);
-        } else {
-            rotated_root.extend_from_slice(&expr.nodes[c.0..=c.1]);
-        }
-    }
-    rotated_root.push(PNode::Op {
-        arity: root_arity_u8,
-        op: op_root,
-    });
-
-    // Build the new subtree rooted at `pivot`, replacing its `grandchild_pos` with `rotated_root`.
-    let mut new_sub: Vec<PNode> = Vec::with_capacity(sub_end + 1 - sub_start);
-    for (k, c) in pivot_children.iter().enumerate() {
-        if k == grandchild_pos {
-            new_sub.extend_from_slice(&rotated_root);
-        } else {
-            new_sub.extend_from_slice(&expr.nodes[c.0..=c.1]);
-        }
-    }
-    new_sub.push(PNode::Op {
-        arity: pivot_arity_u8,
-        op: op_pivot,
-    });
-
-    expr.nodes.splice(sub_start..=sub_end, new_sub);
-    true
-}
-
-fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
-    n_features: usize,
-) -> bool {
-    if expr.nodes.is_empty() {
-        return false;
-    }
-    if operators.total_ops_up_to(D) == 0 {
-        return false;
-    }
-    let root_idx = rng.random_range(0..expr.nodes.len());
-    let sizes = subtree_sizes(&expr.nodes);
-    let (start, end) = subtree_range(&sizes, root_idx);
-    let old_sub: Vec<PNode> = expr.nodes[start..=end].to_vec();
-
-    let arity = operators.sample_arity(rng, D);
-    let op_id = operators.sample_op(rng, arity).op.id;
-    let carry_pos = rng.random_range(0..arity);
-
-    let mut new_sub: Vec<PNode> = Vec::new();
-    for j in 0..arity {
-        if j == carry_pos {
-            new_sub.extend_from_slice(&old_sub);
-        } else {
-            new_sub.push(random_leaf(rng, n_features, &mut expr.consts));
-        }
-    }
-    new_sub.push(PNode::Op {
-        arity: arity as u8,
-        op: op_id,
-    });
-    expr.nodes.splice(start..=end, new_sub);
-    compress_constants(expr);
-    true
-}
-
-pub(crate) fn prepend_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
-    n_features: usize,
-) -> bool {
-    if expr.nodes.is_empty() {
-        return false;
-    }
-    if operators.total_ops_up_to(D) == 0 {
-        return false;
-    }
-    let arity = operators.sample_arity(rng, D);
-    let op_id = operators.sample_op(rng, arity).op.id;
-    let carry_pos = rng.random_range(0..arity);
-
-    let old = expr.nodes.clone();
-    let mut new_nodes: Vec<PNode> = Vec::new();
-    for j in 0..arity {
-        if j == carry_pos {
-            new_nodes.extend_from_slice(&old);
-        } else {
-            new_nodes.push(random_leaf(rng, n_features, &mut expr.consts));
-        }
-    }
-    new_nodes.push(PNode::Op {
-        arity: arity as u8,
-        op: op_id,
-    });
-    expr.nodes = new_nodes;
-    compress_constants(expr);
-    true
-}
-
-pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
-    n_features: usize,
-) -> bool {
-    if expr.nodes.is_empty() {
-        return false;
-    }
-    if operators.total_ops_up_to(D) == 0 {
-        return false;
-    }
-
-    let leaf_positions: Vec<usize> = expr
-        .nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(i, n)| matches!(n, PNode::Var { .. } | PNode::Const { .. }).then_some(i))
-        .collect();
-    if leaf_positions.is_empty() {
-        return false;
-    }
-    let leaf_idx = leaf_positions[rng.random_range(0..leaf_positions.len())];
-
-    let arity = operators.sample_arity(rng, D);
-    let op_id = operators.sample_op(rng, arity).op.id;
-
-    let mut replace_with: Vec<PNode> = Vec::with_capacity(arity + 1);
-    for _ in 0..arity {
-        replace_with.push(random_leaf(rng, n_features, &mut expr.consts));
-    }
-    replace_with.push(PNode::Op {
-        arity: arity as u8,
-        op: op_id,
-    });
-
-    expr.nodes.splice(leaf_idx..=leaf_idx, replace_with);
-    compress_constants(expr);
-    true
-}
-
-fn add_node_in_place<T: Float, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
-    n_features: usize,
-) -> bool {
-    if rng.random::<bool>() {
-        append_random_op_in_place(rng, expr, operators, n_features)
-    } else {
-        prepend_random_op_in_place(rng, expr, operators, n_features)
-    }
-}
-
-fn delete_random_op_in_place<T: Clone, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    expr: &mut PostfixExpr<T, Ops, D>,
-) -> bool {
-    let idxs = op_indices(&expr.nodes);
-    if idxs.is_empty() {
-        return false;
-    }
-    let root_idx = idxs[rng.random_range(0..idxs.len())];
-    let PNode::Op { arity, .. } = expr.nodes[root_idx] else {
-        return false;
-    };
-    let a = arity as usize;
-    if a == 0 {
-        return false;
-    }
-    let sizes = subtree_sizes(&expr.nodes);
-    let (sub_start, sub_end) = subtree_range(&sizes, root_idx);
-    if sub_start == sub_end {
-        return false;
-    }
-    let child = child_ranges(&sizes, root_idx, a);
-    let keep = child[rng.random_range(0..a)];
-    let kept_nodes: Vec<PNode> = expr.nodes[keep.0..=keep.1].to_vec();
-    expr.nodes.splice(sub_start..=sub_end, kept_nodes);
-    compress_constants(expr);
-    true
-}
-
-fn crossover_trees<T: Clone, Ops, const D: usize, R: Rng>(
-    rng: &mut R,
-    a: &PostfixExpr<T, Ops, D>,
-    b: &PostfixExpr<T, Ops, D>,
-) -> (PostfixExpr<T, Ops, D>, PostfixExpr<T, Ops, D>) {
-    fn remap_subtree_consts<T: Clone>(
-        donor_nodes: &[PNode],
-        donor_consts: &[T],
-        dst_consts: &mut Vec<T>,
-    ) -> Vec<PNode> {
-        let mut map: Vec<Option<u16>> = vec![None; donor_consts.len()];
-        let mut out: Vec<PNode> = Vec::with_capacity(donor_nodes.len());
-        for n in donor_nodes {
-            match *n {
-                PNode::Const { idx } => {
-                    let old = usize::from(idx);
-                    let new_idx = match map[old] {
-                        Some(v) => v,
-                        None => {
-                            let v: u16 = dst_consts
-                                .len()
-                                .try_into()
-                                .unwrap_or_else(|_| panic!("too many constants to index in u16"));
-                            dst_consts.push(donor_consts[old].clone());
-                            map[old] = Some(v);
-                            v
-                        }
-                    };
-                    out.push(PNode::Const { idx: new_idx });
+        let n_features = dataset.n_features;
+        match self {
+            MutationChoice::MutateConstant => MutationOutcome {
+                mutated: mutation_functions::mutate_constant_in_place(
+                    rng,
+                    &mut expr,
+                    temperature,
+                    options,
+                ),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::MutateOperator => MutationOutcome {
+                mutated: mutation_functions::mutate_operator_in_place(
+                    rng,
+                    &mut expr,
+                    &options.operators,
+                ),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::MutateFeature => MutationOutcome {
+                mutated: mutation_functions::mutate_feature_in_place(rng, &mut expr, n_features),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::SwapOperands => MutationOutcome {
+                mutated: mutation_functions::swap_operands_in_place(rng, &mut expr),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::RotateTree => MutationOutcome {
+                mutated: mutation_functions::rotate_tree_in_place(rng, &mut expr),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::AddNode => MutationOutcome {
+                mutated: mutation_functions::add_node_in_place(
+                    rng,
+                    &mut expr,
+                    &options.operators,
+                    n_features,
+                ),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::InsertNode => MutationOutcome {
+                mutated: mutation_functions::insert_random_op_in_place(
+                    rng,
+                    &mut expr,
+                    &options.operators,
+                    n_features,
+                ),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::DeleteNode => MutationOutcome {
+                mutated: mutation_functions::delete_random_op_in_place(rng, &mut expr),
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::Simplify => {
+                let _ = dynamic_expressions::simplify_in_place(&mut expr, &evaluator.eval_opts);
+                MutationOutcome {
+                    mutated: true,
+                    expr,
+                    evals: 0.0,
+                    return_immediately: true,
                 }
-                PNode::Var { feature } => out.push(PNode::Var { feature }),
-                PNode::Op { arity, op } => out.push(PNode::Op { arity, op }),
+            }
+            MutationChoice::Randomize => {
+                // Match SymbolicRegression.jl: sample a *uniform* random size in 1:curmaxsize.
+                let max_size = curmaxsize.max(1).min(options.maxsize.max(1));
+                let target_size = rng.random_range(1..=max_size);
+                MutationOutcome {
+                    mutated: true,
+                    expr: mutation_functions::random_expr(
+                        rng,
+                        &options.operators,
+                        n_features,
+                        target_size,
+                    ),
+                    evals: 0.0,
+                    return_immediately: false,
+                }
+            }
+            MutationChoice::DoNothing => MutationOutcome {
+                mutated: true,
+                expr,
+                evals: 0.0,
+                return_immediately: false,
+            },
+            MutationChoice::Optimize => {
+                // Match SymbolicRegression.jl: `:optimize` is a mutation that runs constant
+                // optimization without structural changes.
+                let mut tmp = PopMember::from_expr(MemberId(0), None, 0, expr, n_features);
+                // Avoid consuming global birth counters: the caller already assigns birth/id.
+                let orig_birth = tmp.birth;
+                let mut dummy_next_birth = orig_birth;
+
+                // Preserve cached plan/loss/cost as the starting point.
+                tmp.plan = member.plan.clone();
+                tmp.complexity = member.complexity;
+                tmp.loss = member.loss;
+                tmp.cost = member.cost;
+
+                let mut grad_ctx = dynamic_expressions::GradContext::new(dataset.n_rows);
+                let (_improved, evals) = optimize_constants(
+                    rng,
+                    &mut tmp,
+                    OptimizeConstantsCtx {
+                        dataset,
+                        options,
+                        evaluator,
+                        grad_ctx: &mut grad_ctx,
+                        next_birth: &mut dummy_next_birth,
+                    },
+                );
+                tmp.birth = orig_birth;
+
+                MutationOutcome {
+                    mutated: true,
+                    expr: tmp.expr,
+                    evals,
+                    return_immediately: false,
+                }
             }
         }
-        out
     }
-
-    let a_sizes = subtree_sizes(&a.nodes);
-    let b_sizes = subtree_sizes(&b.nodes);
-    let a_root = rng.random_range(0..a.nodes.len());
-    let b_root = rng.random_range(0..b.nodes.len());
-    let (a_start, a_end) = subtree_range(&a_sizes, a_root);
-    let (b_start, b_end) = subtree_range(&b_sizes, b_root);
-
-    let a_sub = &a.nodes[a_start..=a_end];
-    let b_sub = &b.nodes[b_start..=b_end];
-
-    let mut child_a_nodes: Vec<PNode> =
-        Vec::with_capacity(a.nodes.len() - a_sub.len() + b_sub.len());
-    child_a_nodes.extend_from_slice(&a.nodes[..a_start]);
-    let mut child_a_consts = a.consts.clone();
-    let b_sub_remap = remap_subtree_consts(b_sub, &b.consts, &mut child_a_consts);
-    child_a_nodes.extend_from_slice(&b_sub_remap);
-    child_a_nodes.extend_from_slice(&a.nodes[a_end + 1..]);
-
-    let mut child_b_nodes: Vec<PNode> =
-        Vec::with_capacity(b.nodes.len() - b_sub.len() + a_sub.len());
-    child_b_nodes.extend_from_slice(&b.nodes[..b_start]);
-    let mut child_b_consts = b.consts.clone();
-    let a_sub_remap = remap_subtree_consts(a_sub, &a.consts, &mut child_b_consts);
-    child_b_nodes.extend_from_slice(&a_sub_remap);
-    child_b_nodes.extend_from_slice(&b.nodes[b_end + 1..]);
-
-    let mut child_a = PostfixExpr::new(child_a_nodes, child_a_consts, a.meta.clone());
-    let mut child_b = PostfixExpr::new(child_b_nodes, child_b_consts, b.meta.clone());
-    compress_constants(&mut child_a);
-    compress_constants(&mut child_b);
-    (child_a, child_b)
 }
 
 pub fn next_generation<
@@ -783,83 +351,25 @@ where
     let mut evals = 0.0f64;
 
     for _ in 0..max_attempts {
-        tree = member.expr.clone();
-        let (mutated, tmp_evals) = match choice {
-            MutationChoice::MutateConstant => (
-                mutate_constant_in_place(rng, &mut tree, temperature, options),
-                0.0,
-            ),
-            MutationChoice::MutateOperator => (
-                mutate_operator_in_place(rng, &mut tree, &options.operators),
-                0.0,
-            ),
-            MutationChoice::MutateFeature => {
-                (mutate_feature_in_place(rng, &mut tree, n_features), 0.0)
-            }
-            MutationChoice::SwapOperands => (swap_operands_in_place(rng, &mut tree), 0.0),
-            MutationChoice::RotateTree => (rotate_tree_in_place(rng, &mut tree), 0.0),
-            MutationChoice::AddNode => (
-                add_node_in_place(rng, &mut tree, &options.operators, n_features),
-                0.0,
-            ),
-            MutationChoice::InsertNode => (
-                insert_random_op_in_place(rng, &mut tree, &options.operators, n_features),
-                0.0,
-            ),
-            MutationChoice::DeleteNode => (delete_random_op_in_place(rng, &mut tree), 0.0),
-            MutationChoice::Simplify => {
-                let _ = dynamic_expressions::simplify_in_place(&mut tree, &evaluator.eval_opts);
-                return_immediately = true;
-                (true, 0.0)
-            }
-            MutationChoice::Randomize => {
-                // Match SymbolicRegression.jl: sample a *uniform* random size in 1:curmaxsize.
-                let max_size = curmaxsize.max(1).min(options.maxsize.max(1));
-                let target_size = rng.random_range(1..=max_size);
-                tree = random_expr(rng, &options.operators, n_features, target_size);
-                (true, 0.0)
-            }
-            MutationChoice::DoNothing => (true, 0.0),
-            MutationChoice::Optimize => {
-                // Match SymbolicRegression.jl: `:optimize` is a mutation that runs constant
-                // optimization without structural changes.
-                let mut tmp = PopMember::from_expr(MemberId(0), None, 0, tree, n_features);
-                // Avoid consuming global birth counters: the caller already assigns birth/id.
-                let orig_birth = tmp.birth;
-                let mut dummy_next_birth = orig_birth;
-
-                // Preserve cached plan/loss/cost as the starting point.
-                tmp.plan = member.plan.clone();
-                tmp.complexity = member.complexity;
-                tmp.loss = member.loss;
-                tmp.cost = member.cost;
-
-                let mut grad_ctx = dynamic_expressions::GradContext::new(dataset.n_rows);
-                let (_improved, evals) = optimize_constants(
-                    rng,
-                    &mut tmp,
-                    OptimizeConstantsCtx {
-                        dataset,
-                        options,
-                        evaluator,
-                        grad_ctx: &mut grad_ctx,
-                        next_birth: &mut dummy_next_birth,
-                    },
-                );
-                tmp.birth = orig_birth;
-
-                tree = tmp.expr;
-                (true, evals)
-            }
-        };
-        evals += tmp_evals;
-
-        if !mutated {
+        let outcome = choice.apply(
+            rng,
+            member,
+            member.expr.clone(),
+            dataset,
+            temperature,
+            curmaxsize,
+            options,
+            evaluator,
+        );
+        evals += outcome.evals;
+        if !outcome.mutated {
             continue;
         }
+        tree = outcome.expr;
         compress_constants(&mut tree);
         if check_constraints(&tree, options, curmaxsize) {
             successful = true;
+            return_immediately = outcome.return_immediately;
             break;
         }
     }
@@ -963,7 +473,8 @@ where
     let max_tries = 10;
     let mut tries = 0;
     loop {
-        let (c1_expr, c2_expr) = crossover_trees(rng, &member1.expr, &member2.expr);
+        let (c1_expr, c2_expr) =
+            mutation_functions::crossover_trees(rng, &member1.expr, &member2.expr);
         tries += 1;
         if check_constraints(&c1_expr, options, curmaxsize)
             && check_constraints(&c2_expr, options, curmaxsize)

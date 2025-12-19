@@ -3,7 +3,6 @@ use crate::check_constraints::check_constraints;
 use crate::dataset::{Dataset, TaggedDataset};
 use crate::hall_of_fame::HallOfFame;
 use crate::loss_functions::baseline_loss_from_zero_expression;
-use crate::mutate;
 use crate::options::Options;
 use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::population::Population;
@@ -660,7 +659,7 @@ where
         let nlength = 3usize;
         let mut members = Vec::with_capacity(options.population_size);
         for _ in 0..options.population_size {
-            let expr = mutate::random_expr_append_ops(
+            let expr = crate::mutation_functions::random_expr_append_ops(
                 &mut rng,
                 &options.operators,
                 dataset.n_features,
