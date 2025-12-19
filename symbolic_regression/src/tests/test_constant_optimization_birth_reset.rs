@@ -19,14 +19,6 @@ fn var(feature: u16) -> PostfixExpr<T, TestOps, D> {
     )
 }
 
-fn constant(value: T) -> PostfixExpr<T, TestOps, D> {
-    PostfixExpr::new(
-        vec![PNode::Const { idx: 0 }],
-        vec![value],
-        Metadata::default(),
-    )
-}
-
 #[test]
 fn optimize_constants_resets_birth_on_improvement() {
     let n_rows = 128;
@@ -51,7 +43,8 @@ fn optimize_constants_resets_birth_on_improvement() {
         ..Default::default()
     };
 
-    let expr = (constant(0.0) * var(0)) + constant(0.0);
+    let zero = PostfixExpr::<T, TestOps, D>::zero();
+    let expr = (zero.clone() * var(0)) + zero;
     let mut member = PopMember::from_expr(MemberId(0), None, 0, expr, dataset.n_features);
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::<T, D>::new(dataset.n_rows);
