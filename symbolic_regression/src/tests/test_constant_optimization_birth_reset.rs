@@ -1,6 +1,7 @@
 use super::common::{TestOps, D, T};
 use crate::constant_optimization::{optimize_constants, OptimizeConstantsCtx};
 use crate::dataset::TaggedDataset;
+use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::operator_library::OperatorLibrary;
 use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::Options;
@@ -54,7 +55,12 @@ fn optimize_constants_resets_birth_on_improvement() {
     let mut member = PopMember::from_expr(MemberId(0), None, 0, expr, dataset.n_features);
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::<T, D>::new(dataset.n_rows);
-    let full_dataset = TaggedDataset::new(&dataset, options.loss.as_ref(), options.use_baseline);
+    let baseline_loss = if options.use_baseline {
+        baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let _ = member.evaluate(&full_dataset, &options, &mut evaluator);
 
     let mut rng = StdRng::seed_from_u64(0);

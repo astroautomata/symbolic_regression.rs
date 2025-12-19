@@ -1,6 +1,7 @@
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::dataset::{Dataset, TaggedDataset};
 use crate::hall_of_fame::HallOfFame;
+use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::mutate;
 use crate::options::Options;
 use crate::pop_member::{Evaluator, MemberId, PopMember};
@@ -185,7 +186,12 @@ where
         + Sync,
     Ops: ScalarOpSet<T> + OpNames + OpRegistry + Send + Sync,
 {
-    let full_dataset = TaggedDataset::new(dataset, options.loss.as_ref(), options.use_baseline);
+    let baseline_loss = if options.use_baseline {
+        baseline_loss_from_zero_expression::<T, Ops, D>(dataset, options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(dataset, baseline_loss);
 
     let counters = SearchCounters {
         total_cycles: options.niterations * options.populations,
@@ -253,7 +259,7 @@ where
 {
     pub fn new(dataset: Dataset<T>, options: Options<T, D>) -> Self {
         let baseline_loss = if options.use_baseline {
-            dataset.baseline_loss(options.loss.as_ref())
+            baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, options.loss.as_ref())
         } else {
             None
         };
@@ -268,10 +274,7 @@ where
 
         let mut progress = SearchProgress::new(&options, counters.total_cycles);
 
-        let full_dataset = TaggedDataset {
-            data: &dataset,
-            baseline_loss,
-        };
+        let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
         let pools = init_populations(full_dataset, &options, &mut hall);
         progress.set_initial_evals(pools.total_evals);
 
@@ -295,10 +298,7 @@ where
     }
 
     fn full_dataset_tagged(&self) -> TaggedDataset<'_, T> {
-        TaggedDataset {
-            data: &self.dataset,
-            baseline_loss: self.baseline_loss,
-        }
+        TaggedDataset::new(&self.dataset, self.baseline_loss)
     }
 
     pub fn total_cycles(&self) -> usize {

@@ -1,5 +1,6 @@
 use super::common::{TestOps, D, T};
 use crate::dataset::TaggedDataset;
+use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::operator_library::OperatorLibrary;
 use crate::pop_member::{Evaluator, MemberId, PopMember};
 use crate::population::Population;
@@ -27,7 +28,12 @@ fn population_replaces_by_oldest_birth() {
         ..Default::default()
     };
     let mut evaluator = Evaluator::<T, D>::new(1);
-    let full_dataset = TaggedDataset::new(&dataset, options.loss.as_ref(), options.use_baseline);
+    let baseline_loss = if options.use_baseline {
+        baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
 
     let mut m1 = PopMember::from_expr(MemberId(1), None, 10, leaf_expr(0), 1);
     let mut m2 = PopMember::from_expr(MemberId(2), None, 20, leaf_expr(0), 1);

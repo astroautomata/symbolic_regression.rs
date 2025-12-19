@@ -1,6 +1,7 @@
 use super::common::{TestOps, D, T};
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::dataset::TaggedDataset;
+use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::mutate::{condition_mutation_weights, next_generation, NextGenerationCtx};
 use crate::operator_library::OperatorLibrary;
 use crate::operators::{OpSpec, Operators};
@@ -54,7 +55,12 @@ fn randomize_mutation_can_succeed_below_size_3() {
     };
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
-    let full_dataset = TaggedDataset::new(&dataset, options.loss.as_ref(), options.use_baseline);
+    let baseline_loss = if options.use_baseline {
+        baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
     let mut parent = PopMember::from_expr(MemberId(0), None, 0, leaf_expr(0), dataset.n_features);
@@ -205,7 +211,12 @@ fn add_node_includes_append_at_leaf_move() {
     );
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
-    let full_dataset = TaggedDataset::new(&dataset, options.loss.as_ref(), options.use_baseline);
+    let baseline_loss = if options.use_baseline {
+        baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
     let mut parent = PopMember::from_expr(MemberId(0), None, 0, expr, dataset.n_features);
@@ -313,7 +324,12 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
     );
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
-    let full_dataset = TaggedDataset::new(&dataset, options.loss.as_ref(), options.use_baseline);
+    let baseline_loss = if options.use_baseline {
+        baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
     let mut parent = PopMember::from_expr(MemberId(0), None, 0, expr, dataset.n_features);

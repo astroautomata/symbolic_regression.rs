@@ -2,8 +2,6 @@ use ndarray::{Array1, Array2};
 use num_traits::Float;
 use rand::Rng;
 
-use crate::loss_functions::LossFn;
-
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {
     pub data: &'a Dataset<T>,
@@ -11,12 +9,7 @@ pub struct TaggedDataset<'a, T: Float> {
 }
 
 impl<'a, T: Float> TaggedDataset<'a, T> {
-    pub fn new(data: &'a Dataset<T>, loss: &dyn LossFn<T>, use_baseline: bool) -> Self {
-        let baseline_loss = if use_baseline {
-            data.baseline_loss(loss)
-        } else {
-            None
-        };
+    pub fn new(data: &'a Dataset<T>, baseline_loss: Option<T>) -> Self {
         Self {
             data,
             baseline_loss,
@@ -119,15 +112,6 @@ impl<T: Float> Dataset<T> {
                     .fold(T::zero(), |a, b| a + b)
                     / sum_w
             }
-        }
-    }
-
-    pub fn baseline_loss(&self, loss: &dyn LossFn<T>) -> Option<T> {
-        let base = loss.loss_const(self.avg_y, self.y_slice(), self.weights_slice());
-        if base.is_finite() {
-            Some(base)
-        } else {
-            None
         }
     }
 

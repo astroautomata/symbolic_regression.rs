@@ -1,13 +1,49 @@
 use num_traits::Float;
 use std::sync::Arc;
 
+use crate::dataset::Dataset;
+use dynamic_expressions::compile_plan;
+use dynamic_expressions::eval_plan_array_into;
+use dynamic_expressions::expression::PostfixExpr;
+use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
+use dynamic_expressions::EvalOptions;
+
 pub trait LossFn<T: Float>: Send + Sync {
     fn loss(&self, yhat: &[T], y: &[T], w: Option<&[T]>) -> T;
     fn dloss_dyhat(&self, yhat: &[T], y: &[T], w: Option<&[T]>, out: &mut [T]);
-    fn loss_const(&self, yhat_const: T, y: &[T], w: Option<&[T]>) -> T {
-        let yhat = vec![yhat_const; y.len()];
-        self.loss(&yhat, y, w)
+}
+
+pub fn baseline_loss_from_zero_expression<T: Float, Ops, const D: usize>(
+    dataset: &Dataset<T>,
+    loss: &dyn LossFn<T>,
+) -> Option<T>
+where
+    Ops: ScalarOpSet<T>,
+{
+    let expr: PostfixExpr<T, Ops, D> = PostfixExpr::zero();
+    let plan = compile_plan(&expr.nodes, dataset.n_features, expr.consts.len());
+
+    let mut yhat = vec![T::zero(); dataset.n_rows];
+    let mut scratch: Vec<Vec<T>> = Vec::new();
+
+    let eval_opts = EvalOptions {
+        check_finite: true,
+        early_exit: true,
+    };
+    let ok = eval_plan_array_into(
+        &mut yhat,
+        &plan,
+        &expr,
+        dataset.x.view(),
+        &mut scratch,
+        &eval_opts,
+    );
+    if !ok {
+        return None;
     }
+
+    let base = loss.loss(&yhat, dataset.y_slice(), dataset.weights_slice());
+    base.is_finite().then_some(base)
 }
 
 pub fn loss_to_cost<T: Float>(
@@ -145,35 +181,6 @@ impl<T: Float, L: PointwiseLoss<T> + Send + Sync> LossFn<T> for MeanLoss<L> {
                 {
                     *o = (*wi) * inv * self.0.point_dloss_dyhat(*a, *b);
                 }
-            }
-        }
-    }
-
-    fn loss_const(&self, yhat_const: T, y: &[T], w: Option<&[T]>) -> T {
-        match w {
-            None => {
-                if y.is_empty() {
-                    return T::zero();
-                }
-                let n = T::from(y.len()).unwrap();
-                y.iter()
-                    .copied()
-                    .map(|b| self.0.point_loss(yhat_const, b))
-                    .fold(T::zero(), |acc, v| acc + v)
-                    / n
-            }
-            Some(w) => {
-                assert_eq!(w.len(), y.len());
-                let sum_w = w.iter().copied().fold(T::zero(), |a, b| a + b);
-                if sum_w == T::zero() {
-                    return T::zero();
-                }
-                y.iter()
-                    .copied()
-                    .zip(w.iter().copied())
-                    .map(|(b, wi)| wi * self.0.point_loss(yhat_const, b))
-                    .fold(T::zero(), |acc, v| acc + v)
-                    / sum_w
             }
         }
     }
@@ -383,10 +390,6 @@ impl<T: Float> LossFn<T> for Rmse {
                 }
             }
         }
-    }
-
-    fn loss_const(&self, yhat_const: T, y: &[T], w: Option<&[T]>) -> T {
-        mse::<T>().loss_const(yhat_const, y, w).sqrt()
     }
 }
 

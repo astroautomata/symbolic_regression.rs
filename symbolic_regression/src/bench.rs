@@ -1,5 +1,6 @@
 use crate::constant_optimization::{optimize_constants, OptimizeConstantsCtx};
 use crate::dataset::TaggedDataset;
+use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::optim::{bfgs_minimize, BackTracking, EvalBudget, Objective, OptimOptions};
 use crate::pop_member::Evaluator;
 use crate::{Dataset, MemberId, OperatorLibrary, Options, PopMember};
@@ -122,11 +123,12 @@ pub fn run_constant_opt_linear(env: &ConstantOptLinearEnv) -> (bool, f64, Vec<f6
     let mut member = PopMember::from_expr(MemberId(0), None, 0, expr, env.dataset.n_features);
     let mut evaluator = Evaluator::new(env.dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::new(env.dataset.n_rows);
-    let full_dataset = TaggedDataset::new(
-        &env.dataset,
-        env.options.loss.as_ref(),
-        env.options.use_baseline,
-    );
+    let baseline_loss = if env.options.use_baseline {
+        baseline_loss_from_zero_expression::<T, Ops, D>(&env.dataset, env.options.loss.as_ref())
+    } else {
+        None
+    };
+    let full_dataset = TaggedDataset::new(&env.dataset, baseline_loss);
     let _ = member.evaluate(&full_dataset, &env.options, &mut evaluator);
 
     let mut rng = StdRng::seed_from_u64(0);
