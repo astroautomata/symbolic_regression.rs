@@ -59,7 +59,7 @@ jobs:
           mkdir -p ./cache
 
       - name: Run benchmarks (dynamic_expressions)
-        run: cargo bench -p dynamic_expressions --bench eval | tee output-dynamic-expressions.txt
+        run: cargo bench -p dynamic_expressions --bench eval -- --output-format bencher | tee output-dynamic-expressions.txt
 
       - name: Store benchmark result (dynamic_expressions)
         uses: benchmark-action/github-action-benchmark@v1
@@ -73,7 +73,7 @@ jobs:
           save-data-file: ${{ github.event_name == 'push' }}
 
       - name: Run benchmarks (symbolic_regression)
-        run: cargo bench -p symbolic_regression --bench optim --features bench | tee output-symbolic-regression.txt
+        run: cargo bench -p symbolic_regression --bench optim --features bench -- --output-format bencher | tee output-symbolic-regression.txt
 
       - name: Store benchmark result (symbolic_regression)
         uses: benchmark-action/github-action-benchmark@v1
