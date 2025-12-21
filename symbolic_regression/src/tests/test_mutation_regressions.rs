@@ -27,7 +27,7 @@ fn leaf_expr(feature: u16) -> PostfixExpr<T, TestOps, D> {
 #[test]
 fn randomize_mutation_can_succeed_below_size_3() {
     let dataset = crate::Dataset::new(
-        Array2::from_shape_vec((1, 2), vec![0.0, 0.0]).unwrap(),
+        Array2::from_shape_vec((1, 1), vec![0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
     let mut options = Options::<T, D> {
@@ -157,7 +157,7 @@ fn contains_contiguous_slice<T: PartialEq>(haystack: &[T], needle: &[T]) -> bool
 #[test]
 fn add_node_includes_append_at_leaf_move() {
     let dataset = crate::Dataset::new(
-        Array2::from_shape_vec((1, 2), vec![0.0, 0.0]).unwrap(),
+        Array2::from_shape_vec((2, 1), vec![0.0, 0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
 
@@ -269,7 +269,7 @@ fn add_node_includes_append_at_leaf_move() {
 #[test]
 fn mutate_operator_can_be_a_noop_and_still_succeeds() {
     let dataset = crate::Dataset::new(
-        Array2::from_shape_vec((1, 2), vec![0.0, 0.0]).unwrap(),
+        Array2::from_shape_vec((2, 1), vec![0.0, 0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
 

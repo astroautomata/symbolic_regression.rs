@@ -858,11 +858,7 @@ pub mod scalar {
         }
 
         #[inline]
-        fn eval_unary_loop<T: Float, F: Fn(T) -> T>(
-            out: &mut [T],
-            arg: ArgView<'_, T>,
-            eval: F,
-        ) {
+        fn eval_unary_loop<T: Float, F: Fn(T) -> T>(out: &mut [T], arg: ArgView<'_, T>, eval: F) {
             match arg {
                 ArgView::Slice(s) => {
                     for (outv, &av) in out.iter_mut().zip(s.iter()) {
