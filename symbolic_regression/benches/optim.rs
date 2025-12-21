@@ -31,13 +31,15 @@ fn make_ops_utils() -> Operators<D> {
 }
 
 fn make_search_options(seed: u64) -> Options<T, D> {
-    let mut options = Options::<T, D>::default();
-    options.seed = seed;
-    options.niterations = 30;
-    options.populations = 1;
-    options.population_size = 64;
-    options.operators = make_ops_search();
-    options.progress = false;
+    let mut options = Options::<T, D> {
+        seed,
+        niterations: 30,
+        populations: 1,
+        population_size: 64,
+        operators: make_ops_search(),
+        progress: false,
+        ..Default::default()
+    };
     options.mutation_weights.swap_operands = 0.0;
     options.mutation_weights.form_connection = 0.0;
     options.mutation_weights.break_connection = 0.0;
@@ -45,10 +47,11 @@ fn make_search_options(seed: u64) -> Options<T, D> {
 }
 
 fn make_utils_options() -> Options<T, D> {
-    let mut options = Options::<T, D>::default();
-    options.operators = make_ops_utils();
-    options.progress = false;
-    options
+    Options::<T, D> {
+        operators: make_ops_utils(),
+        progress: false,
+        ..Default::default()
+    }
 }
 
 fn make_dataset(seed: u64, n_rows: usize, n_features: usize) -> Dataset<T> {
@@ -347,14 +350,30 @@ fn bench_utils(c: &mut Criterion) {
         options.op_constraints.set_op_arg_constraint(sin, 0, 12);
         options.op_constraints.set_op_arg_constraint(cos, 0, 5);
 
-        options.nested_constraints.add_nested_constraint(add, div, 1);
-        options.nested_constraints.add_nested_constraint(add, add, 2);
-        options.nested_constraints.add_nested_constraint(sin, sin, 0);
-        options.nested_constraints.add_nested_constraint(sin, cos, 2);
-        options.nested_constraints.add_nested_constraint(cos, sin, 0);
-        options.nested_constraints.add_nested_constraint(cos, cos, 0);
-        options.nested_constraints.add_nested_constraint(cos, add, 1);
-        options.nested_constraints.add_nested_constraint(cos, sub, 1);
+        options
+            .nested_constraints
+            .add_nested_constraint(add, div, 1);
+        options
+            .nested_constraints
+            .add_nested_constraint(add, add, 2);
+        options
+            .nested_constraints
+            .add_nested_constraint(sin, sin, 0);
+        options
+            .nested_constraints
+            .add_nested_constraint(sin, cos, 2);
+        options
+            .nested_constraints
+            .add_nested_constraint(cos, sin, 0);
+        options
+            .nested_constraints
+            .add_nested_constraint(cos, cos, 0);
+        options
+            .nested_constraints
+            .add_nested_constraint(cos, add, 1);
+        options
+            .nested_constraints
+            .add_nested_constraint(cos, sub, 1);
 
         let mut rng = StdRng::seed_from_u64(13);
         let trees: Vec<_> = (0..10)
