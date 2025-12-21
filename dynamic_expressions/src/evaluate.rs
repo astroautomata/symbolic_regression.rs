@@ -56,8 +56,6 @@ impl<T: Float, const D: usize> EvalContext<T, D> {
             self.plan_nodes_len = expr.nodes.len();
             self.plan_n_consts = expr.consts.len();
             self.plan_n_features = x_columns.nrows();
-        } else if let Some(plan) = &self.plan {
-            assert_eq!(build_node_hash(&expr.nodes), plan.hash);
         }
         let n_slots = self.plan.as_ref().unwrap().n_slots;
         self.ensure_scratch(n_slots);
@@ -72,10 +70,17 @@ impl<T: Float, const D: usize> EvalContext<T, D> {
         T: Float,
         Ops: ScalarOpSet<T>,
     {
-        self.plan.is_none()
+        if self.plan.is_none()
             || self.plan_nodes_len != expr.nodes.len()
             || self.plan_n_consts != expr.consts.len()
             || self.plan_n_features != x_columns.nrows()
+        {
+            return true;
+        }
+        let Some(plan) = &self.plan else {
+            return true;
+        };
+        plan.hash != build_node_hash(&expr.nodes)
     }
 
     fn ensure_scratch(&mut self, n_slots: usize) {

@@ -30,6 +30,7 @@ rustc-hash = "2.1.1"
 rstest = "0.26"
 approx = "0.5"
 criterion = "0.8"
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
 
 [[bench]]
 name = "eval"
