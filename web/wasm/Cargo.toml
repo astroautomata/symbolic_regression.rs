@@ -43,9 +43,3 @@ optional = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-rayon = "1"
-
-[package.metadata.wasm-pack.profile.release]
-# Skip wasm-opt during CI/test builds to avoid downloading binaryen in
-# constrained or offline environments. This keeps the threaded wasm
-# artifact available without extra network dependencies.
-wasm-opt = false
