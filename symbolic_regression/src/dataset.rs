@@ -146,7 +146,7 @@ impl<T: Float> Dataset<T> {
         for i in 0..self.n_rows {
             let idx = rng.random_range(0..full.n_rows);
             for f in 0..self.n_features {
-                self.x[[f, i]] = full.x[[f, idx]];
+                self.x[(f, i)] = full.x[(f, idx)];
             }
             self.y[i] = full.y[idx];
             if let (Some(dst), Some(src)) = (self.weights.as_mut(), full.weights.as_ref()) {
