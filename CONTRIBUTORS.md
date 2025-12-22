@@ -12,6 +12,7 @@
   - `use std::fs; fs::read_to_string(...); fs::write(...);`
 - Avoid importing free functions from std or other crates unless they are "domain verbs" used repeatedly.
   - Prefer `std::mem::replace(...)` over `use std::mem::replace; replace(...)`.
+- Exception: consistently import `ndarray::Array1` and `ndarray::Array2` (even if single-use), to keep data-shape types easy to spot.
 - Traits should be imported when needed for method resolution (common with `Iterator`, `Read`, `Write`, etc.).
 - Macros should be imported explicitly.
 - Never import constructors as bare names (no `use Type::new;`, no `use default;`).
@@ -20,3 +21,4 @@
   - std first, then external crates, then `crate::...`, separated by blank lines.
 - If a name collision is likely (e.g., many `Error`, `Result`, `Context`), qualify the name.
 - When in doubt: choose the option that makes it easiest to answer "where did this come from?" while keeping the code readable.
+- Prefer `dynamic_expressions::operators` (and `operators::...`) for operator wrappers; avoid introducing a generic `math` module name.

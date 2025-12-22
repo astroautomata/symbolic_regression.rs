@@ -15,26 +15,26 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --all
+        entry: cargo +nightly-2025-12-19 fmt --all
         language: system
         pass_filenames: false
 
       - id: cargo-check
         name: cargo check
-        entry: cargo check --workspace --all-targets
+        entry: cargo +nightly-2025-12-19 check --workspace --all-targets
         language: system
         pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy (deny warnings)
-        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        entry: cargo +nightly-2025-12-19 clippy --workspace --all-targets --all-features -- -D warnings
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: cargo-test
         name: cargo test
-        entry: cargo test --workspace
+        entry: cargo +nightly-2025-12-19 test --workspace
         language: system
         pass_filenames: false
         stages: [pre-push]
