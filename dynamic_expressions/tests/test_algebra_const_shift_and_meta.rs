@@ -1,7 +1,6 @@
 mod common;
 
-use common::{assert_close_vec, make_x, var, TestOps};
-use dynamic_expressions::{eval_tree_array, EvalOptions};
+use common::{TestOps, assert_close_vec, make_x, var};
 
 #[test]
 fn combining_constant_exprs_shifts_const_indices_and_merges_metadata() {
@@ -14,16 +13,13 @@ fn combining_constant_exprs_shifts_const_indices_and_merges_metadata() {
 
     let expr = a + b;
     assert_eq!(expr.consts.len(), 2);
-    assert_eq!(
-        expr.meta.variable_names,
-        vec!["u".to_string(), "v".to_string()]
-    );
+    assert_eq!(expr.meta.variable_names, vec!["u".to_string(), "v".to_string()]);
 
-    let opts = EvalOptions {
+    let opts = dynamic_expressions::EvalOptions {
         check_finite: true,
         early_exit: true,
     };
-    let (y, ok) = eval_tree_array::<f64, TestOps, 3>(&expr, x_view, &opts);
+    let (y, ok) = dynamic_expressions::eval_tree_array::<f64, TestOps, 3>(&expr, x_view, &opts);
     assert!(ok);
 
     let n_rows = x_view.ncols();

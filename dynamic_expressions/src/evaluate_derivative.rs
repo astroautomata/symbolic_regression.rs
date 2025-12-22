@@ -1,12 +1,11 @@
-use crate::compile::{compile_plan, EvalPlan};
-use crate::evaluate::{resolve_der_src, resolve_grad_src, resolve_val_src, EvalOptions};
-use crate::expression::PostfixExpr;
-use crate::node::Src;
-use crate::operator_enum::scalar::{
-    DiffKernelCtx, GradKernelCtx, GradRef, OpId, ScalarOpSet, SrcRef,
-};
 use ndarray::{Array2, ArrayView2};
 use num_traits::Float;
+
+use crate::compile::{EvalPlan, compile_plan};
+use crate::evaluate::{EvalOptions, resolve_der_src, resolve_grad_src, resolve_val_src};
+use crate::expression::PostfixExpr;
+use crate::node::Src;
+use crate::operator_enum::scalar::{DiffKernelCtx, GradKernelCtx, GradRef, OpId, ScalarOpSet, SrcRef};
 
 #[derive(Debug)]
 pub struct DiffContext<T: Float, const D: usize> {
@@ -118,11 +117,7 @@ where
         || ctx.plan_n_consts != expr.consts.len()
         || ctx.plan_n_features != n_features;
     if needs_recompile {
-        ctx.plan = Some(compile_plan::<D>(
-            &expr.nodes,
-            n_features,
-            expr.consts.len(),
-        ));
+        ctx.plan = Some(compile_plan::<D>(&expr.nodes, n_features, expr.consts.len()));
         ctx.plan_nodes_len = expr.nodes.len();
         ctx.plan_n_consts = expr.consts.len();
         ctx.plan_n_features = n_features;
@@ -171,14 +166,7 @@ where
                 val_before,
                 val_after,
             );
-            *dst_da = resolve_der_src(
-                instr.args[j],
-                direction,
-                dst_slot,
-                der_before,
-                der_after,
-                n_rows,
-            );
+            *dst_da = resolve_der_src(instr.args[j], direction, dst_slot, der_before, der_after, n_rows);
         }
 
         let ok = Ops::diff(
@@ -208,11 +196,7 @@ where
             let end = start + n_rows;
             out.copy_from_slice(&x_data[start..end]);
             for v in &mut der {
-                *v = if f as usize == direction {
-                    T::one()
-                } else {
-                    T::zero()
-                };
+                *v = if f as usize == direction { T::one() } else { T::zero() };
             }
         }
         Src::Const(c) => {
@@ -252,22 +236,14 @@ where
     assert_eq!(ctx.n_rows, x_columns.ncols());
 
     let n_rows = x_columns.ncols();
-    let n_dir = if variable {
-        x_columns.nrows()
-    } else {
-        expr.consts.len()
-    };
+    let n_dir = if variable { x_columns.nrows() } else { expr.consts.len() };
 
     let needs_recompile = ctx.plan.is_none()
         || ctx.plan_nodes_len != expr.nodes.len()
         || ctx.plan_n_consts != expr.consts.len()
         || ctx.plan_n_features != x_columns.nrows();
     if needs_recompile {
-        ctx.plan = Some(compile_plan::<D>(
-            &expr.nodes,
-            x_columns.nrows(),
-            expr.consts.len(),
-        ));
+        ctx.plan = Some(compile_plan::<D>(&expr.nodes, x_columns.nrows(), expr.consts.len()));
         ctx.plan_nodes_len = expr.nodes.len();
         ctx.plan_n_consts = expr.consts.len();
         ctx.plan_n_features = x_columns.nrows();
@@ -318,14 +294,7 @@ where
                 val_before,
                 val_after,
             );
-            *dst_ga = resolve_grad_src(
-                instr.args[j],
-                variable,
-                dst_slot,
-                grad_before,
-                grad_after,
-                grad_stride,
-            );
+            *dst_ga = resolve_grad_src(instr.args[j], variable, dst_slot, grad_before, grad_after, grad_stride);
         }
 
         let ok = Ops::grad(

@@ -1,9 +1,10 @@
-use crate::compile::{build_node_hash, compile_plan, EvalPlan};
+use ndarray::{Array2, ArrayView2};
+use num_traits::Float;
+
+use crate::compile::{EvalPlan, build_node_hash, compile_plan};
 use crate::expression::PostfixExpr;
 use crate::node::Src;
 use crate::operator_enum::scalar::{EvalKernelCtx, GradRef, OpId, ScalarOpSet, SrcRef};
-use ndarray::{Array2, ArrayView2};
-use num_traits::Float;
 
 #[derive(Copy, Clone, Debug)]
 pub struct EvalOptions {
@@ -48,11 +49,7 @@ impl<T: Float, const D: usize> EvalContext<T, D> {
         Ops: ScalarOpSet<T>,
     {
         if self.needs_recompile(expr, x_columns) {
-            self.plan = Some(compile_plan::<D>(
-                &expr.nodes,
-                x_columns.nrows(),
-                expr.consts.len(),
-            ));
+            self.plan = Some(compile_plan::<D>(&expr.nodes, x_columns.nrows(), expr.consts.len()));
             self.plan_nodes_len = expr.nodes.len();
             self.plan_n_consts = expr.consts.len();
             self.plan_n_features = x_columns.nrows();
@@ -61,11 +58,7 @@ impl<T: Float, const D: usize> EvalContext<T, D> {
         self.ensure_scratch(n_slots);
     }
 
-    fn needs_recompile<Ops>(
-        &self,
-        expr: &PostfixExpr<T, Ops, D>,
-        x_columns: ArrayView2<'_, T>,
-    ) -> bool
+    fn needs_recompile<Ops>(&self, expr: &PostfixExpr<T, Ops, D>, x_columns: ArrayView2<'_, T>) -> bool
     where
         T: Float,
         Ops: ScalarOpSet<T>,
@@ -224,22 +217,15 @@ where
     T: Float,
     Ops: ScalarOpSet<T>,
 {
-    assert!(
-        x_columns.is_standard_layout(),
-        "X columns must be contiguous"
-    );
-    let x_data = x_columns
-        .as_slice()
-        .expect("X columns must be contiguous in memory");
+    assert!(x_columns.is_standard_layout(), "X columns must be contiguous");
+    let x_data = x_columns.as_slice().expect("X columns must be contiguous in memory");
     let n_rows = x_columns.ncols();
     assert_eq!(out.len(), n_rows);
 
     if scratch.nrows() != plan.n_slots || scratch.ncols() != n_rows {
         *scratch = Array2::zeros((plan.n_slots, n_rows));
     }
-    let scratch_data = scratch
-        .as_slice_mut()
-        .expect("scratch buffer must stay contiguous");
+    let scratch_data = scratch.as_slice_mut().expect("scratch buffer must stay contiguous");
 
     let mut complete = true;
     let slot_stride = n_rows;
@@ -253,15 +239,7 @@ where
 
         let mut args_refs: [SrcRef<'_, T>; D] = core::array::from_fn(|_| SrcRef::Const(T::zero()));
         for (j, dst) in args_refs.iter_mut().take(arity).enumerate() {
-            *dst = resolve_val_src(
-                instr.args[j],
-                x_data,
-                n_rows,
-                &expr.consts,
-                dst_slot,
-                before,
-                after,
-            );
+            *dst = resolve_val_src(instr.args[j], x_data, n_rows, &expr.consts, dst_slot, before, after);
         }
 
         let ok = Ops::eval(
@@ -328,9 +306,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use ndarray::Array2;
+
     use super::*;
     use crate::operator_enum::scalar::SrcRef;
-    use ndarray::Array2;
 
     #[test]
     fn slot_slice_panics_if_src_references_dst() {

@@ -29,7 +29,7 @@ rustc-hash = "2.1.1"
 [dev-dependencies]
 rstest = "0.26"
 approx = "0.5"
-criterion = "0.8"
+criterion = "0.7"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
 
 [[bench]]
