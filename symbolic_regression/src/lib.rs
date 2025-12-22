@@ -1,3 +1,9 @@
+#[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
+compile_error!(
+    "symbolic_regression requires wasm threads/atomics when targeting wasm32. \
+Build with RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals'."
+);
+
 pub(crate) mod adaptive_parsimony;
 pub(crate) mod check_constraints;
 pub(crate) mod complexity;

@@ -44,14 +44,6 @@ impl SearchCounters {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-struct SearchTask<T: Float, Ops, const D: usize> {
-    pop_idx: usize,
-    curmaxsize: usize,
-    stats: RunningSearchStatistics,
-    pop_state: PopState<T, Ops, D>,
-}
-
 struct SearchTaskResult<T: Float, Ops, const D: usize> {
     pop_idx: usize,
     curmaxsize: usize,
@@ -134,7 +126,6 @@ struct PopPools<T: Float, Ops, const D: usize> {
     total_evals: u64,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 struct EquationSearchState<'a, T: Float, Ops, const D: usize> {
     full_dataset: TaggedDataset<'a, T>,
     options: &'a Options<T, D>,
@@ -160,19 +151,9 @@ where
         + Sync,
     Ops: ScalarOpSet<T> + OpNames + OpRegistry + Send + Sync,
 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let engine = SearchEngine::new(dataset.clone(), options.clone());
-        engine.run_to_completion()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        equation_search_parallel(dataset, options)
-    }
+    equation_search_parallel(dataset, options)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn equation_search_parallel<T, Ops, const D: usize>(
     dataset: &Dataset<T>,
     options: &Options<T, D>,
@@ -209,11 +190,22 @@ where
 
     let order_rng = StdRng::seed_from_u64(options.seed ^ 0x9e37_79b9_7f4a_7c15);
 
-    let n_workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .min(pools.pops.len())
-        .max(1);
+    let pool_threads = rayon::current_num_threads();
+    // If we're already running inside Rayon, reserve the current worker thread for orchestration.
+    // (Blocking it on `result_rx.recv()` would otherwise reduce the pool capacity by one.)
+    let in_rayon_pool = rayon::current_thread_index().is_some();
+    let usable_threads = if in_rayon_pool {
+        pool_threads.saturating_sub(1)
+    } else {
+        pool_threads
+    };
+
+    assert!(
+        usable_threads > 0,
+        "equation_search_parallel requires at least 2 Rayon threads when called from inside the Rayon pool"
+    );
+
+    let n_workers = usable_threads.min(pools.pops.len()).max(1);
 
     let mut state = EquationSearchState {
         full_dataset,
@@ -227,7 +219,9 @@ where
         order_rng,
     };
 
-    std::thread::scope(|scope| run_scoped_search(scope, &mut state));
+    rayon::scope(|scope| {
+        run_scoped_search(scope, &mut state);
+    });
     state.progress.finish();
 
     SearchResult {
@@ -536,11 +530,11 @@ fn apply_task_result<T, Ops, const D: usize>(
     progress.on_cycle_complete(hall, pools.total_evals, cycles_remaining);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn run_scoped_search<'scope, 'env, T, Ops, const D: usize>(
-    scope: &'scope std::thread::Scope<'scope, 'env>,
+    scope: &rayon::Scope<'scope>,
     state: &mut EquationSearchState<'env, T, Ops, D>,
 ) where
+    'env: 'scope,
     T: Float
         + num_traits::FromPrimitive
         + num_traits::ToPrimitive
@@ -553,28 +547,6 @@ fn run_scoped_search<'scope, 'env, T, Ops, const D: usize>(
     let options = state.options;
 
     let (result_tx, result_rx) = std::sync::mpsc::channel::<SearchTaskResult<T, Ops, D>>();
-    let mut task_txs: Vec<std::sync::mpsc::Sender<SearchTask<T, Ops, D>>> = Vec::new();
-
-    for _ in 0..state.n_workers {
-        let (task_tx, task_rx) = std::sync::mpsc::channel::<SearchTask<T, Ops, D>>();
-        task_txs.push(task_tx);
-        let result_tx = result_tx.clone();
-        scope.spawn(move || {
-            while let Ok(task) = task_rx.recv() {
-                let SearchTask {
-                    pop_idx,
-                    curmaxsize,
-                    stats,
-                    pop_state,
-                } = task;
-
-                let res =
-                    execute_task(full_dataset, options, pop_idx, curmaxsize, stats, pop_state);
-                let _ = result_tx.send(res);
-            }
-        });
-    }
-    drop(result_tx);
 
     for _iter in 0..options.niterations {
         let mut task_order: Vec<usize> = (0..state.pools.pops.len()).collect();
@@ -582,7 +554,6 @@ fn run_scoped_search<'scope, 'env, T, Ops, const D: usize>(
 
         let mut next_task = 0usize;
         let mut in_flight = 0usize;
-        let mut worker_cursor = 0usize;
 
         while next_task < task_order.len() || in_flight > 0 {
             while in_flight < state.n_workers && next_task < task_order.len() {
@@ -603,16 +574,18 @@ fn run_scoped_search<'scope, 'env, T, Ops, const D: usize>(
                 let mut stats_snapshot = state.stats.clone();
                 stats_snapshot.normalize();
 
-                let task = SearchTask {
-                    pop_idx,
-                    curmaxsize,
-                    stats: stats_snapshot,
-                    pop_state: st,
-                };
-
-                let tx = &task_txs[worker_cursor % state.n_workers];
-                worker_cursor += 1;
-                tx.send(task).expect("worker task channel closed");
+                let result_tx = result_tx.clone();
+                scope.spawn(move |_| {
+                    let res = execute_task(
+                        full_dataset,
+                        options,
+                        pop_idx,
+                        curmaxsize,
+                        stats_snapshot,
+                        st,
+                    );
+                    let _ = result_tx.send(res);
+                });
                 in_flight += 1;
             }
 
@@ -631,8 +604,6 @@ fn run_scoped_search<'scope, 'env, T, Ops, const D: usize>(
             );
         }
     }
-
-    drop(task_txs);
 }
 
 fn init_populations<T, Ops, const D: usize>(

@@ -23,6 +23,14 @@ pub fn start() {
     console_error_panic_hook::set_once();
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn init_thread_pool(num_threads: usize) -> Result<(), JsValue> {
+    wasm_bindgen_futures::JsFuture::from(wasm_bindgen_rayon::init_thread_pool(num_threads))
+        .await
+        .map(|_| ())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WasmOpInfo {
     pub arity: u8,
