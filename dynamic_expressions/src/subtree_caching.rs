@@ -181,6 +181,7 @@ fn expr_nodes_signature(nodes: &[PNode]) -> u64 {
     h ^= nodes.len() as u64;
     h = h.wrapping_mul(PRIME);
     for n in nodes.iter().copied() {
+        #[rustfmt::skip]
         let v: u64 = match n {
             PNode::Var { feature } => /* (0u64 << 48) | */ feature as u64,
             PNode::Const { idx } => (1u64 << 48) | (idx as u64),
