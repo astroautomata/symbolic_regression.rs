@@ -1,10 +1,9 @@
-use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use std::mem;
 
 use ndarray::{Array1, Array2};
-use num_traits::Float;
+use num_traits::{Float, ToPrimitive};
 use rand::Rng;
+use rustc_hash::FxHasher;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {
@@ -42,15 +41,15 @@ pub struct Dataset<T: Float> {
 }
 
 impl<T: Float> Dataset<T> {
-    fn hash_slice(hasher: &mut DefaultHasher, slice: &[T]) {
-        let len_bytes = mem::size_of_val(slice);
-        // SAFETY: The slice is contiguous and we only hash raw bytes.
-        let bytes = unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, len_bytes) };
-        hasher.write(bytes);
+    fn hash_slice(hasher: &mut FxHasher, slice: &[T]) {
+        for value in slice {
+            let bits = value.to_bits();
+            hasher.write_u64(bits.to_u64().expect("float bits should fit in u64"));
+        }
     }
 
     fn compute_x_key(x: &Array2<T>, y: &Array1<T>, weights: Option<&Array1<T>>) -> u64 {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FxHasher::default();
         hasher.write_usize(x.nrows());
         hasher.write_usize(x.ncols());
         let x_data = x.as_slice().expect("x is contiguous");
