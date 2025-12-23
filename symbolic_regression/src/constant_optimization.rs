@@ -13,142 +13,180 @@ use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize, newton_
 use crate::options::Options;
 use crate::pop_member::{Evaluator, PopMember};
 
-#[allow(clippy::too_many_arguments)]
-fn eval_loss_and_grad<T: Float + AddAssign, Ops, const D: usize>(
-    plan: &dynamic_expressions::EvalPlan<D>,
-    expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
-    dataset: &Dataset<T>,
-    options: &Options<T, D>,
-    evaluator: &mut Evaluator<T, D>,
-    grad_ctx: &mut GradContext<T, D>,
-    subtree_cache: &mut SubtreeCache<T>,
-    dataset_key: u64,
-    dy_dc_buf: &mut [T],
-    eval_opts: &EvalOptions,
-    dloss_dyhat: &mut [T],
-    grad_out: &mut [f64],
-) -> Option<f64>
-where
-    Ops: scalar::ScalarOpSet<T>,
-{
-    let n_params = expr.consts.len();
-    let n_rows = dataset.n_rows;
-    debug_assert_eq!(grad_out.len(), n_params);
-    debug_assert_eq!(dloss_dyhat.len(), n_rows);
-    debug_assert_eq!(dy_dc_buf.len(), n_params * n_rows);
-
-    // Value + gradient (w.r.t. constants) into preallocated buffers.
-    let x = dataset.x.view();
-    let ok = eval_grad_plan_array_into_cached(
-        &mut evaluator.yhat,
-        dy_dc_buf,
-        plan,
-        expr,
-        x,
-        // variable=
-        false,
-        grad_ctx,
-        eval_opts,
-        subtree_cache,
-        dataset_key,
-    );
-    if !ok {
-        return None;
-    }
-    if evaluator.yhat.iter().any(|v| !v.is_finite()) {
-        return None;
-    }
-
-    let loss = options.loss.loss(
-        &evaluator.yhat,
-        dataset.y.as_slice().unwrap(),
-        dataset.weights.as_ref().and_then(|w| w.as_slice()),
-    );
-    if !loss.is_finite() {
-        return None;
-    }
-
-    options.loss.dloss_dyhat(
-        &evaluator.yhat,
-        dataset.y.as_slice().unwrap(),
-        dataset.weights.as_ref().and_then(|w| w.as_slice()),
-        dloss_dyhat,
-    );
-
-    for (ci, gout) in grad_out.iter_mut().enumerate() {
-        if ci >= n_params {
-            break;
-        }
-        let base = ci * n_rows;
-        let acc = dloss_dyhat
-            .iter()
-            .copied()
-            .zip(dy_dc_buf[base..base + n_rows].iter().copied())
-            .fold(T::zero(), |a, (dl, dc)| a + dl * dc);
-        *gout = acc.to_f64().unwrap_or(f64::INFINITY);
-    }
-
-    Some(loss.to_f64().unwrap_or(f64::INFINITY))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn eval_loss_only<T: Float, Ops, const D: usize>(
-    plan: &dynamic_expressions::EvalPlan<D>,
-    expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
-    dataset: &Dataset<T>,
-    options: &Options<T, D>,
-    evaluator: &mut Evaluator<T, D>,
-    subtree_cache: &mut SubtreeCache<T>,
-    dataset_key: u64,
-    eval_opts: &EvalOptions,
-) -> Option<f64>
-where
-    Ops: scalar::ScalarOpSet<T>,
-{
-    let ok = eval_plan_array_into_cached(
-        &mut evaluator.yhat,
-        plan,
-        expr,
-        dataset.x.view(),
-        &mut evaluator.scratch,
-        eval_opts,
-        subtree_cache,
-        dataset_key,
-    );
-    if !ok {
-        return None;
-    }
-
-    let loss = options.loss.loss(
-        &evaluator.yhat,
-        dataset.y.as_slice().unwrap(),
-        dataset.weights.as_ref().and_then(|w| w.as_slice()),
-    );
-    if !loss.is_finite() {
-        return None;
-    }
-    Some(loss.to_f64().unwrap_or(f64::INFINITY))
-}
-
-struct ConstObjective<'a, T: Float, Ops, const D: usize>
-where
-    Ops: scalar::ScalarOpSet<T>,
-{
-    plan: &'a dynamic_expressions::EvalPlan<D>,
-    expr: &'a mut dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
+struct EvalWorkspace<'a, T: Float + AddAssign, const D: usize> {
     dataset: &'a Dataset<T>,
     options: &'a Options<T, D>,
     evaluator: &'a mut Evaluator<T, D>,
-    subtree_cache: &'a mut SubtreeCache<T>,
-    dataset_key: u64,
     grad_ctx: &'a mut GradContext<T, D>,
-    dy_dc_buf: &'a mut [T],
-    eval_opts: &'a EvalOptions,
-    dloss_dyhat: &'a mut [T],
+    subtree_cache: SubtreeCache<T>,
+    dataset_key: u64,
+    eval_opts: EvalOptions,
+    dloss_dyhat: Vec<T>,
+    dy_dc_buf: Vec<T>,
 }
 
-impl<'a, T: Float + FromPrimitive + ToPrimitive + AddAssign, Ops, const D: usize> Objective
-    for ConstObjective<'a, T, Ops, D>
+impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
+    fn new(
+        dataset: &'a Dataset<T>,
+        options: &'a Options<T, D>,
+        evaluator: &'a mut Evaluator<T, D>,
+        grad_ctx: &'a mut GradContext<T, D>,
+        n_params: usize,
+    ) -> Self {
+        let eval_opts = EvalOptions {
+            check_finite: true,
+            early_exit: true,
+        };
+
+        Self {
+            dataset,
+            options,
+            evaluator,
+            grad_ctx,
+            subtree_cache: SubtreeCache::<T>::new(dataset.n_rows, 32 * 1024 * 1024),
+            dataset_key: dataset.x_key,
+            eval_opts,
+            dloss_dyhat: vec![T::zero(); dataset.n_rows],
+            dy_dc_buf: vec![T::zero(); dataset.n_rows * n_params],
+        }
+    }
+
+    fn loss_only<Ops>(
+        &mut self,
+        plan: &dynamic_expressions::EvalPlan<D>,
+        expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
+    ) -> Option<f64>
+    where
+        Ops: scalar::ScalarOpSet<T>,
+    {
+        let ok = eval_plan_array_into_cached(
+            &mut self.evaluator.yhat,
+            plan,
+            expr,
+            self.dataset.x.view(),
+            &mut self.evaluator.scratch,
+            &self.eval_opts,
+            &mut self.subtree_cache,
+            self.dataset_key,
+        );
+        if !ok {
+            return None;
+        }
+
+        let loss = self.options.loss.loss(
+            &self.evaluator.yhat,
+            self.dataset.y.as_slice().unwrap(),
+            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+        );
+        if !loss.is_finite() {
+            return None;
+        }
+
+        Some(loss.to_f64().unwrap_or(f64::INFINITY))
+    }
+
+    fn loss_and_grad<Ops>(
+        &mut self,
+        plan: &dynamic_expressions::EvalPlan<D>,
+        expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
+        grad_out: &mut [f64],
+    ) -> Option<f64>
+    where
+        Ops: scalar::ScalarOpSet<T>,
+    {
+        let n_params = expr.consts.len();
+        let n_rows = self.dataset.n_rows;
+        debug_assert_eq!(grad_out.len(), n_params);
+        debug_assert_eq!(self.dloss_dyhat.len(), n_rows);
+        debug_assert_eq!(self.dy_dc_buf.len(), n_params * n_rows);
+
+        let x = self.dataset.x.view();
+        let ok = eval_grad_plan_array_into_cached(
+            &mut self.evaluator.yhat,
+            &mut self.dy_dc_buf,
+            plan,
+            expr,
+            x,
+            false,
+            self.grad_ctx,
+            &self.eval_opts,
+            &mut self.subtree_cache,
+            self.dataset_key,
+        );
+        if !ok {
+            return None;
+        }
+        if self.evaluator.yhat.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+
+        let loss = self.options.loss.loss(
+            &self.evaluator.yhat,
+            self.dataset.y.as_slice().unwrap(),
+            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+        );
+        if !loss.is_finite() {
+            return None;
+        }
+
+        self.options.loss.dloss_dyhat(
+            &self.evaluator.yhat,
+            self.dataset.y.as_slice().unwrap(),
+            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+            &mut self.dloss_dyhat,
+        );
+
+        for (ci, gout) in grad_out.iter_mut().enumerate() {
+            if ci >= n_params {
+                break;
+            }
+            let base = ci * n_rows;
+            let acc = self
+                .dloss_dyhat
+                .iter()
+                .copied()
+                .zip(self.dy_dc_buf[base..base + n_rows].iter().copied())
+                .fold(T::zero(), |a, (dl, dc)| a + dl * dc);
+            *gout = acc.to_f64().unwrap_or(f64::INFINITY);
+        }
+
+        Some(loss.to_f64().unwrap_or(f64::INFINITY))
+    }
+
+    fn optimize_from_start<Ops>(
+        &mut self,
+        start: &[f64],
+        n_params: usize,
+        member: &mut PopMember<T, Ops, D>,
+        optim_opts: OptimOptions,
+        ls: BackTracking,
+    ) -> Option<crate::optim::OptimResult>
+    where
+        T: FromPrimitive,
+        Ops: scalar::ScalarOpSet<T>,
+    {
+        let mut obj = ConstObjective {
+            plan: &member.plan,
+            expr: &mut member.expr,
+            workspace: self,
+        };
+
+        if n_params == 1 {
+            newton_1d_minimize(start[0], &mut obj, optim_opts, ls)
+        } else {
+            bfgs_minimize(start, &mut obj, optim_opts, ls)
+        }
+    }
+}
+
+struct ConstObjective<'plan, 'expr, 'work, 'data, T: Float + AddAssign, Ops, const D: usize> {
+    plan: &'plan dynamic_expressions::EvalPlan<D>,
+    expr: &'expr mut dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
+    workspace: &'work mut EvalWorkspace<'data, T, D>,
+}
+
+impl<'plan, 'expr, 'work, 'data, T: Float + FromPrimitive + AddAssign, Ops, const D: usize> Objective
+    for ConstObjective<'plan, 'expr, 'work, 'data, T, Ops, D>
 where
     Ops: scalar::ScalarOpSet<T>,
 {
@@ -157,16 +195,7 @@ where
         for (dst, &src) in self.expr.consts.iter_mut().zip(x.iter()) {
             *dst = T::from_f64(src)?;
         }
-        eval_loss_only(
-            self.plan,
-            self.expr,
-            self.dataset,
-            self.options,
-            self.evaluator,
-            self.subtree_cache,
-            self.dataset_key,
-            self.eval_opts,
-        )
+        self.workspace.loss_only::<Ops>(self.plan, self.expr)
     }
 
     fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut crate::optim::EvalBudget) -> Option<f64> {
@@ -174,20 +203,7 @@ where
         for (dst, &src) in self.expr.consts.iter_mut().zip(x.iter()) {
             *dst = T::from_f64(src)?;
         }
-        eval_loss_and_grad(
-            self.plan,
-            self.expr,
-            self.dataset,
-            self.options,
-            self.evaluator,
-            self.grad_ctx,
-            self.subtree_cache,
-            self.dataset_key,
-            self.dy_dc_buf,
-            self.eval_opts,
-            self.dloss_dyhat,
-            g_out,
-        )
+        self.workspace.loss_and_grad::<Ops>(self.plan, self.expr, g_out)
     }
 }
 
@@ -221,27 +237,9 @@ where
     let orig_loss = member.loss;
     let orig_cost = member.cost;
 
-    let eval_opts = EvalOptions {
-        check_finite: true,
-        early_exit: true,
-    };
-    let mut dloss_dyhat = vec![T::zero(); dataset_ref.n_rows];
-    let mut dy_dc_buf = vec![T::zero(); dataset_ref.n_rows * n_params];
+    let mut workspace = EvalWorkspace::new(dataset_ref, options, evaluator, grad_ctx, n_params);
 
-    // A conservative cap... (subtree_cache_max_bytes could be made an option).
-    let mut subtree_cache = SubtreeCache::<T>::new(dataset_ref.n_rows, 32 * 1024 * 1024);
-    let dataset_key = dataset_ref.x_key;
-
-    let baseline = match eval_loss_only(
-        &member.plan,
-        &member.expr,
-        dataset_ref,
-        options,
-        evaluator,
-        &mut subtree_cache,
-        dataset_key,
-        &eval_opts,
-    ) {
+    let baseline = match workspace.loss_only::<Ops>(&member.plan, &member.expr) {
         Some(v) => v,
         None => return (false, 0.0),
     };
@@ -260,31 +258,9 @@ where
 
     let mut n_evals: u64 = 0;
 
-    // Main run at x0:
     {
-        let mut obj = ConstObjective {
-            plan: &member.plan,
-            expr: &mut member.expr,
-            dataset: dataset_ref,
-            options,
-            evaluator,
-            subtree_cache: &mut subtree_cache,
-            dataset_key,
-            grad_ctx,
-            dy_dc_buf: &mut dy_dc_buf,
-            eval_opts: &eval_opts,
-            dloss_dyhat: &mut dloss_dyhat,
-        };
-
-        if n_params == 1 {
-            if let Some(res) = newton_1d_minimize(x0[0], &mut obj, optim_opts, ls) {
-                n_evals = n_evals.saturating_add(res.f_calls as u64);
-                if res.minimum < best_f {
-                    best_f = res.minimum;
-                    best_x = res.minimizer;
-                }
-            }
-        } else if let Some(res) = bfgs_minimize(&x0, &mut obj, optim_opts, ls) {
+        let res = workspace.optimize_from_start(&x0, n_params, member, optim_opts, ls);
+        if let Some(res) = res {
             n_evals = n_evals.saturating_add(res.f_calls as u64);
             if res.minimum < best_f {
                 best_f = res.minimum;
@@ -301,29 +277,8 @@ where
             *v *= 1.0 + 0.5 * eps;
         }
 
-        let mut obj = ConstObjective {
-            plan: &member.plan,
-            expr: &mut member.expr,
-            dataset: dataset_ref,
-            options,
-            evaluator,
-            subtree_cache: &mut subtree_cache,
-            dataset_key,
-            grad_ctx,
-            dy_dc_buf: &mut dy_dc_buf,
-            eval_opts: &eval_opts,
-            dloss_dyhat: &mut dloss_dyhat,
-        };
-
-        if n_params == 1 {
-            if let Some(res) = newton_1d_minimize(xt[0], &mut obj, optim_opts, ls) {
-                n_evals = n_evals.saturating_add(res.f_calls as u64);
-                if res.minimum < best_f {
-                    best_f = res.minimum;
-                    best_x = res.minimizer;
-                }
-            }
-        } else if let Some(res) = bfgs_minimize(&xt, &mut obj, optim_opts, ls) {
+        let res = workspace.optimize_from_start(&xt, n_params, member, optim_opts, ls);
+        if let Some(res) = res {
             n_evals = n_evals.saturating_add(res.f_calls as u64);
             if res.minimum < best_f {
                 best_f = res.minimum;

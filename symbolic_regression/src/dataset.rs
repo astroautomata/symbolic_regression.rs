@@ -42,6 +42,36 @@ pub struct Dataset<T: Float> {
 }
 
 impl<T: Float> Dataset<T> {
+    fn build_dataset(
+        x: Array2<T>,
+        y: Array1<T>,
+        weights: Option<Array1<T>>,
+        variable_names: Vec<String>,
+        avg_y: Option<T>,
+    ) -> Self {
+        let x = x.as_standard_layout().to_owned();
+        let (n_features, n_rows) = x.dim();
+
+        assert_eq!(y.len(), n_rows);
+
+        let weights = weights.inspect(|w| assert_eq!(w.len(), n_rows));
+
+        let avg_y = avg_y
+            .unwrap_or_else(|| Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().and_then(|w| w.as_slice())));
+        let x_key = Self::compute_x_key(&x, &y, weights.as_ref());
+
+        Self {
+            x,
+            y,
+            n_features,
+            n_rows,
+            weights,
+            variable_names,
+            avg_y,
+            x_key,
+        }
+    }
+
     fn hash_slice(hasher: &mut FxHasher, slice: &[T]) {
         let is_f32 = mem::size_of::<T>() == mem::size_of::<f32>() && mem::align_of::<T>() == mem::align_of::<f32>();
         if is_f32 {
@@ -76,23 +106,7 @@ impl<T: Float> Dataset<T> {
     }
 
     pub fn new(x: Array2<T>, y: Array1<T>) -> Self {
-        let x = x.as_standard_layout().to_owned();
-        let (n_features, n_rows) = x.dim();
-        assert_eq!(y.len(), n_rows);
-
-        let avg_y = Self::compute_avg_y(y.as_slice().unwrap(), None);
-        let x_key = Self::compute_x_key(&x, &y, None);
-
-        Self {
-            x,
-            y,
-            n_features,
-            n_rows,
-            weights: None,
-            variable_names: Vec::new(),
-            avg_y,
-            x_key,
-        }
+        Self::build_dataset(x, y, None, Vec::new(), None)
     }
 
     pub fn with_weights_and_names(
@@ -101,26 +115,7 @@ impl<T: Float> Dataset<T> {
         weights: Option<Array1<T>>,
         variable_names: Vec<String>,
     ) -> Self {
-        let x = x.as_standard_layout().to_owned();
-        let (n_features, n_rows) = x.dim();
-        assert_eq!(y.len(), n_rows);
-        if let Some(w) = &weights {
-            assert_eq!(w.len(), n_rows);
-        }
-
-        let avg_y = Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().and_then(|w| w.as_slice()));
-        let x_key = Self::compute_x_key(&x, &y, weights.as_ref());
-
-        Self {
-            x,
-            y,
-            n_features,
-            n_rows,
-            weights,
-            variable_names,
-            avg_y,
-            x_key,
-        }
+        Self::build_dataset(x, y, weights, variable_names, None)
     }
 
     pub fn y_slice(&self) -> &[T] {
@@ -160,17 +155,7 @@ impl<T: Float> Dataset<T> {
         let x = Array2::<T>::zeros((full.n_features, batch_size));
         let y = Array1::<T>::zeros(batch_size);
         let weights = full.weights.as_ref().map(|_| Array1::<T>::zeros(batch_size));
-        let x_key = Self::compute_x_key(&x, &y, weights.as_ref());
-        Dataset {
-            x,
-            y,
-            n_features: full.n_features,
-            n_rows: batch_size,
-            weights,
-            variable_names: full.variable_names.clone(),
-            avg_y: full.avg_y,
-            x_key,
-        }
+        Self::build_dataset(x, y, weights, full.variable_names.clone(), Some(full.avg_y))
     }
 
     pub fn resample_from(&mut self, full: &Dataset<T>, rng: &mut impl Rng) {
@@ -188,14 +173,11 @@ impl<T: Float> Dataset<T> {
             assert!(full.weights.is_none());
         }
 
-        for i in 0..self.n_rows {
-            let idx = rng.random_range(0..full.n_rows);
-            for f in 0..self.n_features {
-                self.x[(f, i)] = full.x[(f, idx)];
-            }
-            self.y[i] = full.y[idx];
+        for (dst_col, src_idx) in (0..self.n_rows).map(|i| (i, rng.random_range(0..full.n_rows))) {
+            self.x.column_mut(dst_col).assign(&full.x.column(src_idx));
+            self.y[dst_col] = full.y[src_idx];
             if let (Some(dst), Some(src)) = (self.weights.as_mut(), full.weights.as_ref()) {
-                dst[i] = src[idx];
+                dst[dst_col] = src[src_idx];
             }
         }
         self.x_key = Self::compute_x_key(&self.x, &self.y, self.weights.as_ref());
