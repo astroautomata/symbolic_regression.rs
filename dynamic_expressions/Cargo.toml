@@ -29,6 +29,7 @@ paste = "1"
 rstest = "0.26"
 approx = "0.5"
 criterion = "0.8"
+proptest = "1"
 
 [[bench]]
 name = "eval"

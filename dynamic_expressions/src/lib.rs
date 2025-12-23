@@ -12,6 +12,7 @@ pub mod operator_enum;
 pub mod operator_registry;
 pub mod simplify;
 pub mod strings;
+pub mod subtree_caching;
 pub mod utils;
 
 pub use num_traits;
@@ -19,10 +20,13 @@ pub use paste;
 
 pub use crate::compile::{compile_plan, EvalPlan, Instr};
 pub use crate::evaluate::{
-    eval_plan_array_into, eval_tree_array, eval_tree_array_into, EvalContext, EvalOptions,
+    eval_plan_array_into, eval_plan_array_into_cached, eval_tree_array, eval_tree_array_into,
+    EvalContext, EvalOptions,
 };
+pub use crate::subtree_caching::SubtreeCache;
 pub use crate::evaluate_derivative::{
-    eval_diff_tree_array, eval_grad_tree_array, DiffContext, GradContext, GradMatrix,
+    eval_diff_tree_array, eval_grad_plan_array_into, eval_grad_plan_array_into_cached,
+    eval_grad_tree_array, DiffContext, GradContext, GradMatrix,
 };
 pub use crate::expression::{Metadata, PostfixExpr, PostfixExpression, PostfixExpressionMut};
 pub use crate::expression_algebra::{lit, Lit};

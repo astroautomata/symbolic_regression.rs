@@ -1,6 +1,9 @@
 use ndarray::{Array1, Array2};
 use num_traits::Float;
 use rand::Rng;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+use std::mem;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {
@@ -36,15 +39,43 @@ pub struct Dataset<T: Float> {
     pub variable_names: Vec<String>,
     /// Weighted mean of `y` (or unweighted mean when no weights).
     pub avg_y: T,
+    /// Hash of dataset values (x/y/weights), used to invalidate cached evaluations.
+    pub x_key: u64,
 }
 
 impl<T: Float> Dataset<T> {
+    fn hash_slice(hasher: &mut DefaultHasher, slice: &[T]) {
+        let len_bytes = slice.len() * mem::size_of::<T>();
+        // SAFETY: The slice is contiguous and we only hash raw bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, len_bytes) };
+        hasher.write(bytes);
+    }
+
+    fn compute_x_key(x: &Array2<T>, y: &Array1<T>, weights: Option<&Array1<T>>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        hasher.write_usize(x.nrows());
+        hasher.write_usize(x.ncols());
+        let x_data = x.as_slice().expect("x is contiguous");
+        let y_data = y.as_slice().expect("y is contiguous");
+        Self::hash_slice(&mut hasher, x_data);
+        Self::hash_slice(&mut hasher, y_data);
+        if let Some(w) = weights {
+            hasher.write_u8(1);
+            let w_data = w.as_slice().expect("weights is contiguous");
+            Self::hash_slice(&mut hasher, w_data);
+        } else {
+            hasher.write_u8(0);
+        }
+        hasher.finish()
+    }
+
     pub fn new(x: Array2<T>, y: Array1<T>) -> Self {
         let x = x.as_standard_layout().to_owned();
         let (n_rows, n_features) = x.dim();
         assert_eq!(y.len(), n_rows);
 
         let avg_y = Self::compute_avg_y(y.as_slice().unwrap(), None);
+        let x_key = Self::compute_x_key(&x, &y, None);
 
         Self {
             x,
@@ -54,6 +85,7 @@ impl<T: Float> Dataset<T> {
             weights: None,
             variable_names: Vec::new(),
             avg_y,
+            x_key,
         }
     }
 
@@ -74,6 +106,7 @@ impl<T: Float> Dataset<T> {
             y.as_slice().unwrap(),
             weights.as_ref().and_then(|w| w.as_slice()),
         );
+        let x_key = Self::compute_x_key(&x, &y, weights.as_ref());
 
         Self {
             x,
@@ -83,6 +116,7 @@ impl<T: Float> Dataset<T> {
             weights,
             variable_names,
             avg_y,
+            x_key,
         }
     }
 
@@ -126,6 +160,7 @@ impl<T: Float> Dataset<T> {
             .weights
             .as_ref()
             .map(|_| Array1::<T>::zeros(batch_size));
+        let x_key = Self::compute_x_key(&x, &y, weights.as_ref());
         Dataset {
             x,
             y,
@@ -134,6 +169,7 @@ impl<T: Float> Dataset<T> {
             weights,
             variable_names: full.variable_names.clone(),
             avg_y: full.avg_y,
+            x_key,
         }
     }
 
@@ -160,5 +196,6 @@ impl<T: Float> Dataset<T> {
                 dst[i] = src[idx];
             }
         }
+        self.x_key = Self::compute_x_key(&self.x, &self.y, self.weights.as_ref());
     }
 }

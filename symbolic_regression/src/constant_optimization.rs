@@ -4,17 +4,25 @@ use crate::optim::{bfgs_minimize, newton_1d_minimize, BackTracking, Objective, O
 use crate::options::Options;
 use crate::pop_member::{Evaluator, PopMember};
 use dynamic_expressions::operator_enum::scalar::ScalarOpSet;
-use dynamic_expressions::{eval_grad_tree_array, eval_plan_array_into, EvalOptions, GradContext};
+use dynamic_expressions::{
+    eval_grad_plan_array_into_cached, eval_plan_array_into_cached, EvalOptions, GradContext,
+    SubtreeCache,
+};
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 use rand::Rng;
 use rand_distr::Distribution;
 use rand_distr::StandardNormal;
 
 fn eval_loss_and_grad<T: Float, Ops, const D: usize>(
+    plan: &dynamic_expressions::EvalPlan<D>,
     expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
     dataset: &Dataset<T>,
     options: &Options<T, D>,
+    evaluator: &mut Evaluator<T, D>,
     grad_ctx: &mut GradContext<T, D>,
+    subtree_cache: &mut SubtreeCache<T>,
+    dataset_key: u64,
+    dy_dc_buf: &mut [T],
     eval_opts: &EvalOptions,
     dloss_dyhat: &mut [T],
     grad_out: &mut [f64],
@@ -26,18 +34,31 @@ where
     let n_rows = dataset.n_rows;
     debug_assert_eq!(grad_out.len(), n_params);
     debug_assert_eq!(dloss_dyhat.len(), n_rows);
+    debug_assert_eq!(dy_dc_buf.len(), n_params * n_rows);
 
+    // Value + gradient (w.r.t. constants) into preallocated buffers.
     let x = dataset.x.view();
-    let (yhat, dy_dc, ok) = eval_grad_tree_array(expr, x, false, grad_ctx, eval_opts);
+    let ok = eval_grad_plan_array_into_cached(
+        &mut evaluator.yhat,
+        dy_dc_buf,
+        plan,
+        expr,
+        x,
+        /*variable=*/ false,
+        grad_ctx,
+        eval_opts,
+        subtree_cache,
+        dataset_key,
+    );
     if !ok {
         return None;
     }
-    if yhat.iter().any(|v| !v.is_finite()) {
+    if evaluator.yhat.iter().any(|v| !v.is_finite()) {
         return None;
     }
 
     let loss = options.loss.loss(
-        &yhat,
+        &evaluator.yhat,
         dataset.y.as_slice().unwrap(),
         dataset.weights.as_ref().and_then(|w| w.as_slice()),
     );
@@ -46,7 +67,7 @@ where
     }
 
     options.loss.dloss_dyhat(
-        &yhat,
+        &evaluator.yhat,
         dataset.y.as_slice().unwrap(),
         dataset.weights.as_ref().and_then(|w| w.as_slice()),
         dloss_dyhat,
@@ -60,7 +81,7 @@ where
         let acc = dloss_dyhat
             .iter()
             .copied()
-            .zip(dy_dc.data[base..base + n_rows].iter().copied())
+            .zip(dy_dc_buf[base..base + n_rows].iter().copied())
             .fold(T::zero(), |a, (dl, dc)| a + dl * dc);
         *gout = acc.to_f64().unwrap_or(f64::INFINITY);
     }
@@ -74,18 +95,22 @@ fn eval_loss_only<T: Float, Ops, const D: usize>(
     dataset: &Dataset<T>,
     options: &Options<T, D>,
     evaluator: &mut Evaluator<T, D>,
+    subtree_cache: &mut SubtreeCache<T>,
+    dataset_key: u64,
     eval_opts: &EvalOptions,
 ) -> Option<f64>
 where
     Ops: ScalarOpSet<T>,
 {
-    let ok = eval_plan_array_into(
+    let ok = eval_plan_array_into_cached(
         &mut evaluator.yhat,
         plan,
         expr,
         dataset.x.view(),
         &mut evaluator.scratch,
         eval_opts,
+        subtree_cache,
+        dataset_key,
     );
     if !ok {
         return None;
@@ -111,7 +136,10 @@ where
     dataset: &'a Dataset<T>,
     options: &'a Options<T, D>,
     evaluator: &'a mut Evaluator<T, D>,
+    subtree_cache: &'a mut SubtreeCache<T>,
+    dataset_key: u64,
     grad_ctx: &'a mut GradContext<T, D>,
+    dy_dc_buf: &'a mut [T],
     eval_opts: &'a EvalOptions,
     dloss_dyhat: &'a mut [T],
 }
@@ -132,6 +160,8 @@ where
             self.dataset,
             self.options,
             self.evaluator,
+            self.subtree_cache,
+            self.dataset_key,
             self.eval_opts,
         )
     }
@@ -147,10 +177,15 @@ where
             *dst = T::from_f64(src)?;
         }
         eval_loss_and_grad(
+            self.plan,
             self.expr,
             self.dataset,
             self.options,
+            self.evaluator,
             self.grad_ctx,
+            self.subtree_cache,
+            self.dataset_key,
+            self.dy_dc_buf,
             self.eval_opts,
             self.dloss_dyhat,
             g_out,
@@ -192,12 +227,12 @@ where
         check_finite: true,
         early_exit: true,
     };
-    grad_ctx.plan = Some(member.plan.clone());
-    grad_ctx.plan_nodes_len = member.expr.nodes.len();
-    grad_ctx.plan_n_consts = member.expr.consts.len();
-    grad_ctx.plan_n_features = dataset_ref.n_features;
-
     let mut dloss_dyhat = vec![T::zero(); dataset_ref.n_rows];
+    let mut dy_dc_buf = vec![T::zero(); dataset_ref.n_rows * n_params];
+
+    // A conservative cap... (subtree_cache_max_bytes could be made an option).
+    let mut subtree_cache = SubtreeCache::<T>::new(dataset_ref.n_rows, 32 * 1024 * 1024);
+    let dataset_key = dataset_ref.x_key;
 
     let baseline = match eval_loss_only(
         &member.plan,
@@ -205,6 +240,8 @@ where
         dataset_ref,
         options,
         evaluator,
+        &mut subtree_cache,
+        dataset_key,
         &eval_opts,
     ) {
         Some(v) => v,
@@ -238,7 +275,10 @@ where
             dataset: dataset_ref,
             options,
             evaluator,
+            subtree_cache: &mut subtree_cache,
+            dataset_key,
             grad_ctx,
+            dy_dc_buf: &mut dy_dc_buf,
             eval_opts: &eval_opts,
             dloss_dyhat: &mut dloss_dyhat,
         };
@@ -274,7 +314,10 @@ where
             dataset: dataset_ref,
             options,
             evaluator,
+            subtree_cache: &mut subtree_cache,
+            dataset_key,
             grad_ctx,
+            dy_dc_buf: &mut dy_dc_buf,
             eval_opts: &eval_opts,
             dloss_dyhat: &mut dloss_dyhat,
         };

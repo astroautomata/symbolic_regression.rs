@@ -5,6 +5,7 @@ use crate::node::Src;
 use crate::operator_enum::scalar::{
     DiffKernelCtx, GradKernelCtx, GradRef, OpId, ScalarOpSet, SrcRef,
 };
+use crate::subtree_caching::SubtreeCache;
 use ndarray::ArrayView2;
 use num_traits::Float;
 
@@ -384,4 +385,299 @@ where
             )
         }
     }
+}
+
+fn fill_nan<T: Float>(buf: &mut [T]) {
+    buf.fill(T::nan());
+}
+
+/// Evaluate value and gradient for a *compiled* plan, writing into preallocated buffers.
+///
+/// This is an allocation-free analogue of [`eval_grad_tree_array`].
+///
+/// `out_val` must have length `n_rows`, and `out_grad` must have length `n_dir * n_rows`,
+/// where `n_dir = if variable { n_features } else { n_consts }`.
+pub fn eval_grad_plan_array_into<T, Ops, const D: usize>(
+    out_val: &mut [T],
+    out_grad: &mut [T],
+    plan: &EvalPlan<D>,
+    expr: &PostfixExpr<T, Ops, D>,
+    x: ArrayView2<'_, T>,
+    variable: bool,
+    ctx: &mut GradContext<T, D>,
+    opts: &EvalOptions,
+) -> bool
+where
+    T: Float,
+    Ops: ScalarOpSet<T>,
+{
+    assert!(
+        x.is_standard_layout(),
+        "X must be standard (row-major) layout"
+    );
+    assert_eq!(out_val.len(), x.nrows());
+
+    let n_rows = x.nrows();
+    let n_features = x.ncols();
+    let n_dir = if variable { n_features } else { expr.consts.len() };
+    assert_eq!(out_grad.len(), n_dir * n_rows);
+
+    let x_data = x.as_slice().expect("X must be contiguous");
+
+    // Ensure scratch.
+    ctx.ensure_scratch(plan.n_slots, n_dir);
+
+    let mut complete = true;
+
+    for instr in plan.instrs.iter().copied() {
+        let dst_slot = instr.dst as usize;
+        let arity = instr.arity as usize;
+        let (val_before, val_rest) = ctx.val_scratch.split_at_mut(dst_slot);
+        let (dst_val, val_after) = val_rest.split_first_mut().unwrap();
+
+        let (grad_before, grad_rest) = ctx.grad_scratch.split_at_mut(dst_slot);
+        let (dst_grad_buf, grad_after) = grad_rest.split_first_mut().unwrap();
+        let dst_grad: &mut [T] = &mut dst_grad_buf[..n_dir * n_rows];
+        dst_grad.fill(T::zero());
+
+        let mut args_refs: [SrcRef<'_, T>; D] =
+            core::array::from_fn(|_| SrcRef::Const(T::zero()));
+        let mut arg_grads: [GradRef<'_, T>; D] = core::array::from_fn(|_| GradRef::Zero);
+
+        for (j, (dst, gdst)) in args_refs
+            .iter_mut()
+            .zip(arg_grads.iter_mut())
+            .take(arity)
+            .enumerate()
+        {
+            *dst = resolve_val_src(
+                instr.args[j],
+                x_data,
+                n_features,
+                &expr.consts,
+                dst_slot,
+                val_before,
+                val_after,
+            );
+            *gdst = resolve_grad_src(instr.args[j], variable, dst_slot, grad_before, grad_after);
+        }
+
+        let ok = Ops::grad(
+            OpId {
+                arity: instr.arity,
+                id: instr.op,
+            },
+            GradKernelCtx {
+                out_val: dst_val,
+                out_grad: dst_grad,
+                args: &args_refs[..arity],
+                arg_grads: &arg_grads[..arity],
+                n_dir,
+                n_rows,
+                opts,
+            },
+        );
+        complete &= ok;
+        if opts.early_exit && !ok {
+            fill_nan(out_val);
+            fill_nan(out_grad);
+            return false;
+        }
+    }
+
+    // Write root into outputs.
+    match plan.root {
+        Src::Var(f) => {
+            let offset = f as usize;
+            for row in 0..n_rows {
+                out_val[row] = x_data[row * n_features + offset];
+            }
+            out_grad.fill(T::zero());
+            if variable {
+                let dir = offset;
+                out_grad[dir * n_rows..(dir + 1) * n_rows].fill(T::one());
+            }
+        }
+        Src::Const(c) => {
+            let v = expr.consts[c as usize];
+            out_val.fill(v);
+            out_grad.fill(T::zero());
+            if !variable {
+                let dir = c as usize;
+                debug_assert!(dir < n_dir);
+                out_grad[dir * n_rows..(dir + 1) * n_rows].fill(T::one());
+            }
+            if opts.check_finite && !v.is_finite() {
+                complete = false;
+                if opts.early_exit {
+                    fill_nan(out_val);
+                    fill_nan(out_grad);
+                    return false;
+                }
+            }
+        }
+        Src::Slot(s) => {
+            out_val.copy_from_slice(&ctx.val_scratch[s as usize]);
+            out_grad.copy_from_slice(&ctx.grad_scratch[s as usize][..n_dir * n_rows]);
+        }
+    }
+
+    complete
+}
+
+/// Like [`eval_grad_plan_array_into`], but reuses cached values for constant-free subtrees.
+///
+/// When `variable == false` (gradients w.r.t. constants), any subtree that does not depend on
+/// constants has *zero* gradient. In this case we can reuse cached values and skip calling
+/// expensive operator kernels for those subtrees.
+///
+/// `dataset_key` must identify the dataset contents; changing it invalidates the cache.
+pub fn eval_grad_plan_array_into_cached<T, Ops, const D: usize>(
+    out_val: &mut [T],
+    out_grad: &mut [T],
+    plan: &EvalPlan<D>,
+    expr: &PostfixExpr<T, Ops, D>,
+    x: ArrayView2<'_, T>,
+    variable: bool,
+    ctx: &mut GradContext<T, D>,
+    opts: &EvalOptions,
+    cache: &mut SubtreeCache<T>,
+    dataset_key: u64,
+) -> bool
+where
+    T: Float,
+    Ops: ScalarOpSet<T>,
+{
+    // Only safe/meaningful when taking gradients w.r.t. constants.
+    if variable {
+        return eval_grad_plan_array_into::<T, Ops, D>(
+            out_val, out_grad, plan, expr, x, variable, ctx, opts,
+        );
+    }
+
+    assert!(
+        x.is_standard_layout(),
+        "X must be standard (row-major) layout"
+    );
+    assert_eq!(out_val.len(), x.nrows());
+
+    let n_rows = x.nrows();
+    let n_features = x.ncols();
+    let n_dir = expr.consts.len();
+    assert_eq!(out_grad.len(), n_dir * n_rows);
+
+    let x_data = x.as_slice().expect("X must be contiguous");
+
+    ctx.ensure_scratch(plan.n_slots, n_dir);
+    cache.ensure(&expr.nodes, dataset_key, n_rows);
+
+    let mut complete = true;
+
+    for (instr_index, instr) in plan.instrs.iter().copied().enumerate() {
+        let dst_slot = instr.dst as usize;
+        let arity = instr.arity as usize;
+
+        let (val_before, val_rest) = ctx.val_scratch.split_at_mut(dst_slot);
+        let (dst_val, val_after) = val_rest.split_first_mut().unwrap();
+
+        let (grad_before, grad_rest) = ctx.grad_scratch.split_at_mut(dst_slot);
+        let (dst_grad_buf, grad_after) = grad_rest.split_first_mut().unwrap();
+        let dst_grad: &mut [T] = &mut dst_grad_buf[..n_dir * n_rows];
+
+        // Cached constant-free subtree: value from cache, grad = 0.
+        if let Some(cached) = cache.get(instr_index) {
+            dst_val.copy_from_slice(&cached.val);
+            dst_grad.fill(T::zero());
+            if opts.check_finite && !cached.all_finite {
+                complete = false;
+                if opts.early_exit {
+                    fill_nan(out_val);
+                    fill_nan(out_grad);
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        dst_grad.fill(T::zero());
+
+        let mut args_refs: [SrcRef<'_, T>; D] =
+            core::array::from_fn(|_| SrcRef::Const(T::zero()));
+        let mut arg_grads: [GradRef<'_, T>; D] = core::array::from_fn(|_| GradRef::Zero);
+
+        for (j, (dst, gdst)) in args_refs
+            .iter_mut()
+            .zip(arg_grads.iter_mut())
+            .take(arity)
+            .enumerate()
+        {
+            *dst = resolve_val_src(
+                instr.args[j],
+                x_data,
+                n_features,
+                &expr.consts,
+                dst_slot,
+                val_before,
+                val_after,
+            );
+            *gdst = resolve_grad_src(instr.args[j], variable, dst_slot, grad_before, grad_after);
+        }
+
+        let ok = Ops::grad(
+            OpId {
+                arity: instr.arity,
+                id: instr.op,
+            },
+            GradKernelCtx {
+                out_val: dst_val,
+                out_grad: dst_grad,
+                args: &args_refs[..arity],
+                arg_grads: &arg_grads[..arity],
+                n_dir,
+                n_rows,
+                opts,
+            },
+        );
+        complete &= ok;
+        if opts.early_exit && !ok {
+            fill_nan(out_val);
+            fill_nan(out_grad);
+            return false;
+        }
+
+        // Populate cache lazily.
+        cache.maybe_store(instr_index, dst_val);
+    }
+
+    match plan.root {
+        Src::Var(f) => {
+            let offset = f as usize;
+            for row in 0..n_rows {
+                out_val[row] = x_data[row * n_features + offset];
+            }
+            out_grad.fill(T::zero());
+        }
+        Src::Const(c) => {
+            let v = expr.consts[c as usize];
+            out_val.fill(v);
+            out_grad.fill(T::zero());
+            let dir = c as usize;
+            debug_assert!(dir < n_dir);
+            out_grad[dir * n_rows..(dir + 1) * n_rows].fill(T::one());
+            if opts.check_finite && !v.is_finite() {
+                complete = false;
+                if opts.early_exit {
+                    fill_nan(out_val);
+                    fill_nan(out_grad);
+                    return false;
+                }
+            }
+        }
+        Src::Slot(s) => {
+            out_val.copy_from_slice(&ctx.val_scratch[s as usize]);
+            out_grad.copy_from_slice(&ctx.grad_scratch[s as usize][..n_dir * n_rows]);
+        }
+    }
+
+    complete
 }

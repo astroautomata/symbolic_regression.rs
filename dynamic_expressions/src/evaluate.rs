@@ -2,6 +2,7 @@ use crate::compile::{compile_plan, EvalPlan};
 use crate::expression::PostfixExpr;
 use crate::node::Src;
 use crate::operator_enum::scalar::{EvalKernelCtx, GradRef, OpId, ScalarOpSet, SrcRef};
+use crate::subtree_caching::SubtreeCache;
 use ndarray::ArrayView2;
 use num_traits::Float;
 
@@ -221,6 +222,129 @@ where
         if opts.early_exit && !ok {
             return false;
         }
+    }
+
+    match plan.root {
+        Src::Var(f) => {
+            let offset = f as usize;
+            for row in 0..n_rows {
+                out[row] = x_data[row * n_features + offset];
+            }
+        }
+        Src::Const(c) => {
+            let v = expr.consts[c as usize];
+            if opts.check_finite && !v.is_finite() {
+                complete = false;
+                if opts.early_exit {
+                    return false;
+                }
+            }
+            out.fill(v);
+        }
+        Src::Slot(s) => out.copy_from_slice(&scratch[s as usize]),
+    }
+
+    complete
+}
+
+/// Evaluate a compiled plan, reusing cached evaluations for constant-free subtrees.
+///
+/// This is intended for the common case where `expr.nodes` stays fixed and only
+/// `expr.consts` changes between evaluations (e.g. during constant optimization).
+/// Any subtree that does **not** depend on constants can be cached once per
+/// dataset and then reused across calls.
+///
+/// `dataset_key` must uniquely identify the dataset contents. If the dataset
+/// changes, pass a different key (e.g. a version counter) to automatically
+/// invalidate the cache.
+pub fn eval_plan_array_into_cached<T, Ops, const D: usize>(
+    out: &mut [T],
+    plan: &EvalPlan<D>,
+    expr: &PostfixExpr<T, Ops, D>,
+    x: ArrayView2<'_, T>,
+    scratch: &mut Vec<Vec<T>>,
+    opts: &EvalOptions,
+    cache: &mut SubtreeCache<T>,
+    dataset_key: u64,
+) -> bool
+where
+    T: Float,
+    Ops: ScalarOpSet<T>,
+{
+    assert!(
+        x.is_standard_layout(),
+        "X must be standard (row-major) layout"
+    );
+    assert_eq!(out.len(), x.nrows());
+
+    let n_rows = x.nrows();
+    let x_data = x.as_slice().expect("X must be contiguous");
+    let n_features = x.ncols();
+
+    if scratch.len() < plan.n_slots {
+        scratch.resize_with(plan.n_slots, Vec::new);
+    }
+    for slot in &mut scratch[..plan.n_slots] {
+        if slot.len() != n_rows {
+            slot.resize(n_rows, T::zero());
+        }
+    }
+
+    // Keep cache aligned with the expression and dataset.
+    cache.ensure(&expr.nodes, dataset_key, n_rows);
+
+    let mut complete = true;
+
+    for (instr_index, instr) in plan.instrs.iter().copied().enumerate() {
+        let dst_slot = instr.dst as usize;
+        let arity = instr.arity as usize;
+        let (before, rest) = scratch.split_at_mut(dst_slot);
+        let (dst_buf, after) = rest.split_first_mut().unwrap();
+
+        // Fast path: reuse cached constant-free subtree value.
+        if let Some(cached) = cache.get(instr_index) {
+            dst_buf.copy_from_slice(&cached.val);
+            if opts.check_finite && !cached.all_finite {
+                complete = false;
+                if opts.early_exit {
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        let mut args_refs: [SrcRef<'_, T>; D] =
+            core::array::from_fn(|_| SrcRef::Const(T::zero()));
+        for (j, dst) in args_refs.iter_mut().take(arity).enumerate() {
+            *dst = resolve_val_src(
+                instr.args[j],
+                x_data,
+                n_features,
+                &expr.consts,
+                dst_slot,
+                before,
+                after,
+            );
+        }
+
+        let ok = Ops::eval(
+            OpId {
+                arity: instr.arity,
+                id: instr.op,
+            },
+            EvalKernelCtx {
+                out: dst_buf,
+                args: &args_refs[..arity],
+                opts,
+            },
+        );
+        complete &= ok;
+        if opts.early_exit && !ok {
+            return false;
+        }
+
+        // Populate cache lazily after the first computation.
+        cache.maybe_store(instr_index, dst_buf);
     }
 
     match plan.root {

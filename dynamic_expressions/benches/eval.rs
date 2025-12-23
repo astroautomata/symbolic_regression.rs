@@ -1,9 +1,12 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use dynamic_expressions::{
-    eval_grad_tree_array, eval_tree_array_into, EvalContext, EvalOptions, GradContext, PNode,
-    PostfixExpr,
+    compile_plan, eval_grad_tree_array, eval_plan_array_into, eval_plan_array_into_cached,
+    eval_tree_array_into, EvalContext, EvalOptions, GradContext, PNode, PostfixExpr, SubtreeCache,
 };
+use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
+use dynamic_expressions::operator_registry::OpRegistry;
 use ndarray::Array2;
+use std::sync::Arc;
 
 dynamic_expressions::opset! {
     pub struct ReadmeOps<f64>;
@@ -21,6 +24,63 @@ fn build_expr() -> PostfixExpr<f64, ReadmeOps, 2> {
     // x1 * cos(x2 - 3.2)
     use dynamic_expressions::math::cos;
     var(0) * cos(var(1) - 3.2)
+}
+
+fn update_consts(consts: &mut [f64], tick: u64) {
+    let t = tick as f64 * 0.001;
+    for (i, c) in consts.iter_mut().enumerate() {
+        *c = (t + i as f64).sin() * 0.5;
+    }
+}
+
+fn build_complex_expr(n_features: usize) -> PostfixExpr<f64, BuiltinOpsF64, 2> {
+    let add = <BuiltinOpsF64 as OpRegistry>::lookup_with_arity("+", 2)
+        .expect("missing add")
+        .op
+        .id;
+    let sub = <BuiltinOpsF64 as OpRegistry>::lookup_with_arity("-", 2)
+        .expect("missing sub")
+        .op
+        .id;
+    let mul = <BuiltinOpsF64 as OpRegistry>::lookup_with_arity("*", 2)
+        .expect("missing mul")
+        .op
+        .id;
+    let sin = <BuiltinOpsF64 as OpRegistry>::lookup_with_arity("sin", 1)
+        .expect("missing sin")
+        .op
+        .id;
+    let cos = <BuiltinOpsF64 as OpRegistry>::lookup_with_arity("cos", 1)
+        .expect("missing cos")
+        .op
+        .id;
+
+    let mut nodes = Vec::new();
+
+    // Constant-free subtree: a deep fold over variables with alternating unary ops.
+    nodes.push(PNode::Var { feature: 0 });
+    for i in 1..n_features {
+        nodes.push(PNode::Var { feature: i as u16 });
+        let op = if i % 2 == 0 { add } else { mul };
+        nodes.push(PNode::Op { arity: 2, op });
+        let uop = if i % 2 == 0 { sin } else { cos };
+        nodes.push(PNode::Op { arity: 1, op: uop });
+    }
+
+    // Constant-dependent subtree.
+    nodes.push(PNode::Const { idx: 0 });
+    nodes.push(PNode::Var { feature: 0 });
+    nodes.push(PNode::Op { arity: 2, op: mul });
+    nodes.push(PNode::Const { idx: 1 });
+    nodes.push(PNode::Op { arity: 2, op: add });
+    nodes.push(PNode::Const { idx: 2 });
+    nodes.push(PNode::Op { arity: 2, op: sub });
+    nodes.push(PNode::Op { arity: 1, op: sin });
+
+    // Combine subtrees.
+    nodes.push(PNode::Op { arity: 2, op: add });
+
+    PostfixExpr::new(nodes, vec![0.1, -0.2, 0.3], Default::default())
 }
 
 fn eval_naive(expr: &PostfixExpr<f64, ReadmeOps, 2>, x: ndarray::ArrayView2<'_, f64>) -> Vec<f64> {
@@ -208,5 +268,98 @@ fn bench_readme_like(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_readme_like);
+fn bench_subtree_cache_complex(c: &mut Criterion) {
+    let n_features = 8usize;
+    let n_rows = 4096usize;
+    let mut data = vec![0.0f64; n_features * n_rows];
+    for row in 0..n_rows {
+        for feature in 0..n_features {
+            let idx = row * n_features + feature;
+            data[idx] = ((row as f64 + 1.0) * (feature as f64 + 1.0)).sin() * 0.1;
+        }
+    }
+    let x = Arc::new(Array2::from_shape_vec((n_rows, n_features), data).unwrap());
+
+    let expr = Arc::new(build_complex_expr(n_features));
+    let plan = Arc::new(compile_plan::<2>(
+        &expr.nodes,
+        n_features,
+        expr.consts.len(),
+    ));
+    let opts = EvalOptions {
+        check_finite: true,
+        early_exit: false,
+    };
+
+    let mut group = c.benchmark_group("subtree_cache_complex");
+    group.bench_function("uncached_eval", {
+        let x = Arc::clone(&x);
+        let expr = Arc::clone(&expr);
+        let plan = Arc::clone(&plan);
+        move |b| {
+            let x_view = x.view();
+            let plan = (*plan).clone();
+            let mut expr = (*expr).clone();
+            let mut scratch = Vec::new();
+            let mut out = vec![0.0f64; n_rows];
+            let mut tick = 0u64;
+            b.iter(|| {
+                tick = tick.wrapping_add(1);
+                update_consts(&mut expr.consts, tick);
+                let _ok = eval_plan_array_into(
+                    &mut out,
+                    &plan,
+                    &expr,
+                    x_view,
+                    &mut scratch,
+                    &opts,
+                );
+            })
+        }
+    });
+
+    group.bench_function("cached_eval", {
+        let x = Arc::clone(&x);
+        let expr = Arc::clone(&expr);
+        let plan = Arc::clone(&plan);
+        move |b| {
+            let x_view = x.view();
+            let plan = (*plan).clone();
+            let mut expr = (*expr).clone();
+            let mut scratch = Vec::new();
+            let mut out = vec![0.0f64; n_rows];
+            let mut cache = SubtreeCache::new(n_rows, 64 * 1024 * 1024);
+            let dataset_key = 0xC0FFEEu64;
+            let _ = eval_plan_array_into_cached(
+                &mut out,
+                &plan,
+                &expr,
+                x_view,
+                &mut scratch,
+                &opts,
+                &mut cache,
+                dataset_key,
+            );
+            let mut tick = 0u64;
+            b.iter(|| {
+                tick = tick.wrapping_add(1);
+                update_consts(&mut expr.consts, tick);
+                let _ok = eval_plan_array_into_cached(
+                    &mut out,
+                    &plan,
+                    &expr,
+                    x_view,
+                    &mut scratch,
+                    &opts,
+                    &mut cache,
+                    dataset_key,
+                );
+            })
+        }
+    });
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_readme_like, bench_subtree_cache_complex);
 criterion_main!(benches);
