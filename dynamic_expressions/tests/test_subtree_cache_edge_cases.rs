@@ -2,9 +2,7 @@ use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
 use dynamic_expressions::operator_registry::OpRegistry;
-use dynamic_expressions::{
-    compile_plan, eval_plan_array_into, eval_plan_array_into_cached, EvalOptions, SubtreeCache,
-};
+use dynamic_expressions::{EvalOptions, SubtreeCache, compile_plan, eval_plan_array_into, eval_plan_array_into_cached};
 use ndarray::Array2;
 
 const D: usize = 2;
@@ -58,14 +56,7 @@ fn subtree_cache_disabled_matches_uncached() {
     let mut out_cached = vec![0.0; x.ncols()];
     let mut scratch = Array2::<T>::zeros((0, 0));
 
-    let ok_uncached = eval_plan_array_into(
-        &mut out_uncached,
-        &plan,
-        &expr,
-        x.view(),
-        &mut scratch,
-        &opts,
-    );
+    let ok_uncached = eval_plan_array_into(&mut out_uncached, &plan, &expr, x.view(), &mut scratch, &opts);
 
     let mut cache = SubtreeCache::new(x.ncols(), 0);
     let ok_cached = eval_plan_array_into_cached(
@@ -102,14 +93,7 @@ fn subtree_cache_reuse_with_const_updates_matches_uncached() {
         let mut out_uncached = vec![0.0; x.ncols()];
         let mut out_cached = vec![0.0; x.ncols()];
 
-        let ok_uncached = eval_plan_array_into(
-            &mut out_uncached,
-            &plan,
-            &expr,
-            x.view(),
-            &mut scratch,
-            &opts,
-        );
+        let ok_uncached = eval_plan_array_into(&mut out_uncached, &plan, &expr, x.view(), &mut scratch, &opts);
 
         let ok_cached = eval_plan_array_into_cached(
             &mut out_cached,
@@ -142,14 +126,7 @@ fn subtree_cache_handles_row_count_change() {
     let x1 = make_x(4);
     let mut out1_uncached = vec![0.0; x1.ncols()];
     let mut out1_cached = vec![0.0; x1.ncols()];
-    let ok1_uncached = eval_plan_array_into(
-        &mut out1_uncached,
-        &plan,
-        &expr,
-        x1.view(),
-        &mut scratch,
-        &opts,
-    );
+    let ok1_uncached = eval_plan_array_into(&mut out1_uncached, &plan, &expr, x1.view(), &mut scratch, &opts);
     let ok1_cached = eval_plan_array_into_cached(
         &mut out1_cached,
         &plan,
@@ -166,14 +143,7 @@ fn subtree_cache_handles_row_count_change() {
     let x2 = make_x(3);
     let mut out2_uncached = vec![0.0; x2.ncols()];
     let mut out2_cached = vec![0.0; x2.ncols()];
-    let ok2_uncached = eval_plan_array_into(
-        &mut out2_uncached,
-        &plan,
-        &expr,
-        x2.view(),
-        &mut scratch,
-        &opts,
-    );
+    let ok2_uncached = eval_plan_array_into(&mut out2_uncached, &plan, &expr, x2.view(), &mut scratch, &opts);
     let ok2_cached = eval_plan_array_into_cached(
         &mut out2_cached,
         &plan,

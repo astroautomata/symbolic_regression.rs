@@ -1,6 +1,8 @@
-use crate::node::PNode;
-use num_traits::Float;
 use std::mem;
+
+use num_traits::Float;
+
+use crate::node::PNode;
 
 /// Cached value for a subtree evaluation.
 ///

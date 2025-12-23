@@ -1,9 +1,10 @@
-use ndarray::{Array1, Array2};
-use num_traits::Float;
-use rand::Rng;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::mem;
+
+use ndarray::{Array1, Array2};
+use num_traits::Float;
+use rand::Rng;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {

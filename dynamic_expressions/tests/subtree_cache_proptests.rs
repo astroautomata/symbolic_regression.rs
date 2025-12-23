@@ -2,9 +2,7 @@ use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
 use dynamic_expressions::operator_registry::OpRegistry;
-use dynamic_expressions::{
-    compile_plan, eval_plan_array_into, eval_plan_array_into_cached, EvalOptions, SubtreeCache,
-};
+use dynamic_expressions::{EvalOptions, SubtreeCache, compile_plan, eval_plan_array_into, eval_plan_array_into_cached};
 use ndarray::Array2;
 use proptest::prelude::*;
 
@@ -20,10 +18,7 @@ type Ops = BuiltinOpsF64;
 enum GenTree {
     Var(u16),
     Const(u16),
-    Op {
-        op: u16,
-        children: Vec<GenTree>,
-    },
+    Op { op: u16, children: Vec<GenTree> },
 }
 
 impl GenTree {
@@ -65,10 +60,7 @@ fn arb_tree_nodes() -> impl Strategy<Value = Vec<PNode>> {
 
     let ops = safe_binary_op_ids();
     leaf.prop_recursive(5, 64, 8, move |inner| {
-        (
-            prop::sample::select(ops.clone()),
-            prop::collection::vec(inner, 2),
-        )
+        (prop::sample::select(ops.clone()), prop::collection::vec(inner, 2))
             .prop_map(|(op, children)| GenTree::Op { op, children })
     })
     .prop_map(|tree| {

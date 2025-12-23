@@ -560,9 +560,7 @@ where
 {
     // Only safe/meaningful when taking gradients w.r.t. constants.
     if variable {
-        return eval_grad_plan_array_into::<T, Ops, D>(
-            out_val, out_grad, plan, expr, x_columns, variable, ctx, opts,
-        );
+        return eval_grad_plan_array_into::<T, Ops, D>(out_val, out_grad, plan, expr, x_columns, variable, ctx, opts);
     }
 
     assert!(x_columns.is_standard_layout(), "X must be contiguous");
@@ -621,12 +619,7 @@ where
         let mut args_refs: [SrcRef<'_, T>; D] = core::array::from_fn(|_| SrcRef::Const(T::zero()));
         let mut arg_grads: [GradRef<'_, T>; D] = core::array::from_fn(|_| GradRef::Zero);
 
-        for (j, (dst, gdst)) in args_refs
-            .iter_mut()
-            .zip(arg_grads.iter_mut())
-            .take(arity)
-            .enumerate()
-        {
+        for (j, (dst, gdst)) in args_refs.iter_mut().zip(arg_grads.iter_mut()).take(arity).enumerate() {
             *dst = resolve_val_src(
                 instr.args[j],
                 x_data,

@@ -2,8 +2,7 @@ use std::ops::AddAssign;
 
 use dynamic_expressions::operator_enum::scalar;
 use dynamic_expressions::{
-    eval_grad_plan_array_into_cached, eval_plan_array_into_cached, EvalOptions, GradContext,
-    SubtreeCache,
+    EvalOptions, GradContext, SubtreeCache, eval_grad_plan_array_into_cached, eval_plan_array_into_cached,
 };
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 use rand::Rng;
@@ -45,7 +44,8 @@ where
         plan,
         expr,
         x,
-        /*variable=*/ false,
+        // variable=
+        false,
         grad_ctx,
         eval_opts,
         subtree_cache,

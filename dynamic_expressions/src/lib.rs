@@ -17,16 +17,14 @@ pub mod utils;
 
 pub use {num_traits, paste};
 
-pub use crate::compile::{compile_plan, EvalPlan, Instr};
+pub use crate::compile::{EvalPlan, Instr, compile_plan};
 pub use crate::evaluate::{
-    eval_plan_array_into, eval_plan_array_into_cached, eval_tree_array, eval_tree_array_into,
-    EvalContext, EvalOptions,
+    EvalContext, EvalOptions, eval_plan_array_into, eval_plan_array_into_cached, eval_tree_array, eval_tree_array_into,
 };
 pub use crate::evaluate_derivative::{
-    eval_diff_tree_array, eval_grad_plan_array_into, eval_grad_plan_array_into_cached,
-    eval_grad_tree_array, DiffContext, GradContext, GradMatrix,
+    DiffContext, GradContext, GradMatrix, eval_diff_tree_array, eval_grad_plan_array_into,
+    eval_grad_plan_array_into_cached, eval_grad_tree_array,
 };
-pub use crate::subtree_caching::SubtreeCache;
 pub use crate::expression::{Metadata, PostfixExpr, PostfixExpression, PostfixExpressionMut};
 pub use crate::expression_algebra::{Lit, lit};
 pub use crate::node::{PNode, Src};
@@ -36,4 +34,5 @@ pub use crate::node_utils::{
 };
 pub use crate::simplify::{combine_operators_in_place, simplify_in_place, simplify_tree_in_place};
 pub use crate::strings::{OpNames, StringTreeOptions, print_tree, string_tree};
+pub use crate::subtree_caching::SubtreeCache;
 pub use crate::utils::{ConstRef, compress_constants, get_scalar_constants, set_scalar_constants};
