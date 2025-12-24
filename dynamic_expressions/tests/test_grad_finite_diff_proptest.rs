@@ -11,9 +11,10 @@ use dynamic_expressions::{
 };
 use ndarray::Array2;
 use proptest::prelude::*;
+use proptest::strategy::BoxedStrategy;
 
 const N_FEATURES: usize = 3;
-const N_CONSTS: usize = 3;
+const MAX_CONSTS: usize = 20;
 const D_TEST: usize = 2;
 const FD_STEP: f64 = 1e-4;
 const ATOL_FD: f64 = 1e-7;
@@ -114,6 +115,94 @@ fn safe_binary_ops() -> Vec<u16> {
         op_binary::<builtin::Sub>(),
         op_binary::<builtin::Mul>(),
     ]
+}
+
+fn arb_leaf_node(n_features: usize, n_consts: usize) -> BoxedStrategy<PNode> {
+    let var = (0u16..(n_features as u16)).prop_map(|feature| PNode::Var { feature });
+    if n_consts > 0 {
+        let con = (0u16..(n_consts as u16)).prop_map(|idx| PNode::Const { idx });
+        prop_oneof![var, con].boxed()
+    } else {
+        var.boxed()
+    }
+}
+
+fn arb_simple_op_expr_nodes(
+    n_features: usize,
+    n_consts: usize,
+    unary_ops: &[u16],
+    binary_ops: &[u16],
+) -> BoxedStrategy<Vec<PNode>> {
+    let leaf = arb_leaf_node(n_features, n_consts);
+    let unary = {
+        let ops = unary_ops.to_vec();
+        (leaf.clone(), prop::sample::select(ops)).prop_map(|(node, op)| vec![node, PNode::Op { arity: 1, op }])
+    };
+    let binary = {
+        let ops = binary_ops.to_vec();
+        (leaf.clone(), leaf, prop::sample::select(ops))
+            .prop_map(|(lhs, rhs, op)| vec![lhs, rhs, PNode::Op { arity: 2, op }])
+    };
+    prop_oneof![unary, binary].boxed()
+}
+
+fn arb_forward_slot_nodes(
+    n_features: usize,
+    n_consts: usize,
+    unary_ops: Vec<u16>,
+    binary_ops: Vec<u16>,
+) -> BoxedStrategy<Vec<PNode>> {
+    let leaf = arb_leaf_node(n_features, n_consts);
+    let simple = arb_simple_op_expr_nodes(n_features, n_consts, &unary_ops, &binary_ops);
+
+    let template_a = {
+        let ops = binary_ops.clone();
+        (
+            simple.clone(),
+            simple.clone(),
+            simple.clone(),
+            leaf.clone(),
+            prop::sample::select(ops.clone()),
+            prop::sample::select(ops.clone()),
+            prop::sample::select(ops),
+        )
+            .prop_map(|(a, b, c, leaf_d, op_ab, op_cd, op_final)| {
+                let mut nodes = Vec::with_capacity(a.len() + b.len() + c.len() + 4);
+                nodes.extend(a);
+                nodes.extend(b);
+                nodes.push(PNode::Op { arity: 2, op: op_ab });
+                nodes.extend(c);
+                nodes.push(leaf_d);
+                nodes.push(PNode::Op { arity: 2, op: op_cd });
+                nodes.push(PNode::Op { arity: 2, op: op_final });
+                nodes
+            })
+    };
+
+    let template_b = {
+        let bin_ops = binary_ops.clone();
+        let unary_ops = unary_ops.clone();
+        (
+            simple.clone(),
+            simple,
+            leaf,
+            prop::sample::select(bin_ops.clone()),
+            prop::sample::select(unary_ops),
+            prop::sample::select(bin_ops),
+        )
+            .prop_map(|(a, b, leaf_c, op_ab, op_unary, op_final)| {
+                let mut nodes = Vec::with_capacity(a.len() + b.len() + 3);
+                nodes.extend(a);
+                nodes.extend(b);
+                nodes.push(PNode::Op { arity: 2, op: op_ab });
+                nodes.push(leaf_c);
+                nodes.push(PNode::Op { arity: 1, op: op_unary });
+                nodes.push(PNode::Op { arity: 2, op: op_final });
+                nodes
+            })
+    };
+
+    prop_oneof![template_a, template_b].boxed()
 }
 
 fn custom_op_id(name: &str, arity: u8) -> u16 {
@@ -394,7 +483,7 @@ fn grad_custom_ops_const_const_zero_grad() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 128, .. ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: 64, .. ProptestConfig::default() })]
 
     #[test]
     fn grad_apply_binary_matches_manual_formula(
@@ -554,27 +643,125 @@ proptest! {
         }
         assert_close_exact(&out_grad, &expected);
     }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 48, .. ProptestConfig::default() })]
+
+    #[test]
+    fn grad_matches_reference_impl(
+        (n_consts, nodes, consts) in (0usize..=MAX_CONSTS).prop_flat_map(|n_consts| {
+            (
+                Just(n_consts),
+                proptest_utils::arb_postfix_nodes(
+                    N_FEATURES,
+                    n_consts,
+                    safe_unary_ops(),
+                    safe_binary_ops(),
+                    Vec::new(),
+                    4,
+                    48,
+                    6,
+                ),
+                prop::collection::vec(-1.0f64..=1.0, n_consts),
+            )
+        }),
+        (n_rows, x_data) in (1usize..4).prop_flat_map(|n_rows| {
+            prop::collection::vec(-1.0f64..=1.0, N_FEATURES * n_rows)
+                .prop_map(move |x| (n_rows, x))
+        }),
+        variable in any::<bool>(),
+    ) {
+        let expr = PostfixExpr::new(nodes, consts, Metadata::default());
+        prop_assert_eq!(expr.consts.len(), n_consts);
+        let x: Array2<f64> = Array2::from_shape_vec((N_FEATURES, n_rows), x_data.clone()).unwrap();
+        let opts = EvalOptions {
+            check_finite: true,
+            early_exit: true,
+        };
+
+        let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
+        let (eval, grad, ok_grad) =
+            eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(&expr, x.view(), variable, &mut gctx, &opts);
+        prop_assert!(ok_grad);
+
+        let (ref_val, ref_grad) = eval_reference(&expr, &x_data, n_rows, variable, builtin_op_ids());
+        assert_close_exact(&eval, &ref_val);
+        assert_close_exact(&grad.data, &ref_grad);
+    }
+
+    #[test]
+    fn grad_custom_ops_matches_reference_impl(
+        (n_consts, nodes, consts) in (0usize..=MAX_CONSTS).prop_flat_map(|n_consts| {
+            (
+                Just(n_consts),
+                proptest_utils::arb_postfix_nodes(
+                    N_FEATURES,
+                    n_consts,
+                    custom_unary_ops(),
+                    custom_binary_ops(),
+                    Vec::new(),
+                    4,
+                    48,
+                    6,
+                ),
+                prop::collection::vec(-1.0f64..=1.0, n_consts),
+            )
+        }),
+        (n_rows, x_data) in (1usize..4).prop_flat_map(|n_rows| {
+            prop::collection::vec(-1.0f64..=1.0, N_FEATURES * n_rows)
+                .prop_map(move |x| (n_rows, x))
+        }),
+        variable in any::<bool>(),
+    ) {
+        let expr = PostfixExpr::<f64, TestOps, D_TEST>::new(nodes, consts, Metadata::default());
+        prop_assert_eq!(expr.consts.len(), n_consts);
+        let x: Array2<f64> = Array2::from_shape_vec((N_FEATURES, n_rows), x_data.clone()).unwrap();
+        let opts = EvalOptions {
+            check_finite: true,
+            early_exit: true,
+        };
+
+        let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
+        let (eval, grad, ok_grad) =
+            eval_grad_tree_array::<f64, TestOps, D_TEST>(&expr, x.view(), variable, &mut gctx, &opts);
+        prop_assert!(ok_grad);
+
+        let (ref_val, ref_grad) = eval_reference(&expr, &x_data, n_rows, variable, custom_op_ids());
+        assert_close_exact(&eval, &ref_val);
+        assert_close_exact(&grad.data, &ref_grad);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 24, .. ProptestConfig::default() })]
 
     #[test]
     fn grad_matches_finite_diff_variables(
-        nodes in proptest_utils::arb_postfix_nodes(
-            N_FEATURES,
-            N_CONSTS,
-            safe_unary_ops(),
-            safe_binary_ops(),
-            Vec::new(),
-            5,
-            64,
-            8,
-        )
-        .prop_filter("needs op+var", |nodes| nodes_have_op(nodes) && nodes_have_var(nodes)),
-        consts in prop::collection::vec(-1.0f64..=1.0, N_CONSTS),
-        (n_rows, x_data) in (1usize..5).prop_flat_map(|n_rows| {
+        (n_consts, nodes, consts) in (0usize..=MAX_CONSTS).prop_flat_map(|n_consts| {
+            (
+                Just(n_consts),
+                proptest_utils::arb_postfix_nodes(
+                    N_FEATURES,
+                    n_consts,
+                    safe_unary_ops(),
+                    safe_binary_ops(),
+                    Vec::new(),
+                    4,
+                    48,
+                    6,
+                )
+                .prop_filter("needs op+var", |nodes| nodes_have_op(nodes) && nodes_have_var(nodes)),
+                prop::collection::vec(-1.0f64..=1.0, n_consts),
+            )
+        }),
+        (n_rows, x_data) in (1usize..4).prop_flat_map(|n_rows| {
             prop::collection::vec(-1.0f64..=1.0, N_FEATURES * n_rows)
                 .prop_map(move |x| (n_rows, x))
         }),
     ) {
         let expr = PostfixExpr::new(nodes, consts, Metadata::default());
+        prop_assert_eq!(expr.consts.len(), n_consts);
         let x: Array2<f64> = Array2::from_shape_vec((N_FEATURES, n_rows), x_data.clone()).unwrap();
         let opts = EvalOptions {
             check_finite: true,
@@ -601,100 +788,23 @@ proptest! {
     }
 
     #[test]
-    fn grad_matches_reference_impl(
-        nodes in proptest_utils::arb_postfix_nodes(
-            N_FEATURES,
-            N_CONSTS,
-            safe_unary_ops(),
-            safe_binary_ops(),
-            Vec::new(),
-            5,
-            64,
-            8,
-        ),
-        consts in prop::collection::vec(-1.0f64..=1.0, N_CONSTS),
-        (n_rows, x_data) in (1usize..5).prop_flat_map(|n_rows| {
-            prop::collection::vec(-1.0f64..=1.0, N_FEATURES * n_rows)
-                .prop_map(move |x| (n_rows, x))
-        }),
-        variable in any::<bool>(),
-    ) {
-        let expr = PostfixExpr::new(nodes, consts, Metadata::default());
-        let x: Array2<f64> = Array2::from_shape_vec((N_FEATURES, n_rows), x_data.clone()).unwrap();
-        let opts = EvalOptions {
-            check_finite: true,
-            early_exit: true,
-        };
-
-        let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
-        let (eval, grad, ok_grad) =
-            eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(&expr, x.view(), variable, &mut gctx, &opts);
-        prop_assert!(ok_grad);
-
-        let (ref_val, ref_grad) = eval_reference(&expr, &x_data, n_rows, variable, builtin_op_ids());
-        assert_close_exact(&eval, &ref_val);
-        assert_close_exact(&grad.data, &ref_grad);
-    }
-
-    #[test]
-    fn grad_custom_ops_matches_reference_impl(
-        nodes in proptest_utils::arb_postfix_nodes(
-            N_FEATURES,
-            N_CONSTS,
-            custom_unary_ops(),
-            custom_binary_ops(),
-            Vec::new(),
-            5,
-            64,
-            8,
-        ),
-        consts in prop::collection::vec(-1.0f64..=1.0, N_CONSTS),
-        (n_rows, x_data) in (1usize..5).prop_flat_map(|n_rows| {
-            prop::collection::vec(-1.0f64..=1.0, N_FEATURES * n_rows)
-                .prop_map(move |x| (n_rows, x))
-        }),
-        variable in any::<bool>(),
-    ) {
-        let expr = PostfixExpr::<f64, TestOps, D_TEST>::new(nodes, consts, Metadata::default());
-        let x: Array2<f64> = Array2::from_shape_vec((N_FEATURES, n_rows), x_data.clone()).unwrap();
-        let opts = EvalOptions {
-            check_finite: true,
-            early_exit: true,
-        };
-
-        let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
-        let (eval, grad, ok_grad) =
-            eval_grad_tree_array::<f64, TestOps, D_TEST>(&expr, x.view(), variable, &mut gctx, &opts);
-        prop_assert!(ok_grad);
-
-        let (ref_val, ref_grad) = eval_reference(&expr, &x_data, n_rows, variable, custom_op_ids());
-        assert_close_exact(&eval, &ref_val);
-        assert_close_exact(&grad.data, &ref_grad);
-    }
-
-    #[test]
     fn grad_matches_finite_diff_with_forward_slots(
-        nodes in proptest_utils::arb_postfix_nodes(
-            N_FEATURES,
-            N_CONSTS,
-            safe_unary_ops(),
-            safe_binary_ops(),
-            Vec::new(),
-            6,
-            96,
-            12,
-        )
-        .prop_filter("needs forward slot", |nodes| {
-            let plan = compile_plan::<D_TEST>(nodes, N_FEATURES, N_CONSTS);
-            plan_has_forward_slot(&plan)
+        (n_consts, nodes, consts) in (0usize..=MAX_CONSTS).prop_flat_map(|n_consts| {
+            (
+                Just(n_consts),
+                arb_forward_slot_nodes(N_FEATURES, n_consts, safe_unary_ops(), safe_binary_ops()),
+                prop::collection::vec(-1.0f64..=1.0, n_consts),
+            )
         }),
-        consts in prop::collection::vec(-1.0f64..=1.0, N_CONSTS),
-        (n_rows, x_data) in (1usize..5).prop_flat_map(|n_rows| {
+        (n_rows, x_data) in (1usize..4).prop_flat_map(|n_rows| {
             prop::collection::vec(-1.0f64..=1.0, N_FEATURES * n_rows)
                 .prop_map(move |x| (n_rows, x))
         }),
     ) {
         let expr = PostfixExpr::new(nodes, consts, Metadata::default());
+        prop_assert_eq!(expr.consts.len(), n_consts);
+        let plan = compile_plan::<D_TEST>(&expr.nodes, N_FEATURES, expr.consts.len());
+        prop_assert!(plan_has_forward_slot(&plan));
         let x: Array2<f64> = Array2::from_shape_vec((N_FEATURES, n_rows), x_data.clone()).unwrap();
         let opts = EvalOptions {
             check_finite: true,

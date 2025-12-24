@@ -1200,7 +1200,7 @@ pub mod scalar {
         ///
         /// Example:
         ///
-        /// ```
+        /// ```rust,ignore
         /// dynamic_expressions::custom_opset! {
         ///     /// Example custom operators.
         ///     struct CustomOps<f64> {

@@ -36,10 +36,18 @@ pub fn arb_expr(
     max_size: u32,
     max_branch: u32,
 ) -> impl Strategy<Value = GenExpr> {
-    let leaf = prop_oneof![
-        (0u16..(n_features as u16)).prop_map(GenExpr::Var),
-        (0u16..(n_consts as u16)).prop_map(GenExpr::Const),
-    ];
+    let mut leaf_choices: Vec<BoxedStrategy<GenExpr>> = Vec::new();
+    if n_features > 0 {
+        leaf_choices.push((0u16..(n_features as u16)).prop_map(GenExpr::Var).boxed());
+    }
+    if n_consts > 0 {
+        leaf_choices.push((0u16..(n_consts as u16)).prop_map(GenExpr::Const).boxed());
+    }
+    debug_assert!(
+        !leaf_choices.is_empty(),
+        "arb_expr requires at least one feature or constant"
+    );
+    let leaf = Union::new(leaf_choices);
 
     leaf.prop_recursive(max_depth, max_size, max_branch, move |inner| {
         let mut choices: Vec<BoxedStrategy<GenExpr>> = Vec::new();
