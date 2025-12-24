@@ -826,9 +826,10 @@ pub mod scalar {
     mod kernels {
         use num_traits::Float;
 
-        use super::{__src_val, ArgView, GradKernelCtx, SrcRef, grad_at};
+        use super::{__src_val, ArgView, GradKernelCtx, GradRef, SrcRef, grad_at};
         use crate::evaluate::EvalOptions;
         use crate::operator_enum::builtin::BuiltinOp;
+        use crate::utils::ZipEq;
 
         fn __all_finite<T: Float>(vals: &[T]) -> bool {
             vals.iter().all(|v| v.is_finite())
@@ -856,7 +857,7 @@ pub mod scalar {
         fn eval_unary_loop<T: Float, F: Fn(T) -> T>(out: &mut [T], arg: ArgView<'_, T>, eval: F) {
             match arg {
                 ArgView::Slice(s) => {
-                    for (outv, &av) in out.iter_mut().zip(s.iter()) {
+                    for (outv, &av) in out.iter_mut().zip_eq(s) {
                         *outv = eval(av);
                     }
                 }
@@ -876,17 +877,17 @@ pub mod scalar {
         ) {
             match (lhs, rhs) {
                 (ArgView::Slice(a), ArgView::Slice(b)) => {
-                    for ((outv, &av), &bv) in out.iter_mut().zip(a.iter()).zip(b.iter()) {
+                    for ((outv, &av), &bv) in out.iter_mut().zip_eq(a).zip_eq(b) {
                         *outv = eval(av, bv);
                     }
                 }
                 (ArgView::Slice(a), ArgView::Const(bc)) => {
-                    for (outv, &av) in out.iter_mut().zip(a.iter()) {
+                    for (outv, &av) in out.iter_mut().zip_eq(a) {
                         *outv = eval(av, bc);
                     }
                 }
                 (ArgView::Const(ac), ArgView::Slice(b)) => {
-                    for (outv, &bv) in out.iter_mut().zip(b.iter()) {
+                    for (outv, &bv) in out.iter_mut().zip_eq(b) {
                         *outv = eval(ac, bv);
                     }
                 }
@@ -894,6 +895,135 @@ pub mod scalar {
                     let v = eval(ac, bc);
                     out.fill(v);
                 }
+            }
+        }
+
+        #[inline]
+        fn vals2<T: Float, const A: usize>(a: T, b: T) -> [T; A] {
+            let mut vals = [T::zero(); A];
+            vals[0] = a;
+            vals[1] = b;
+            vals
+        }
+
+        #[inline]
+        fn vals1<T: Float, const A: usize>(a: T) -> [T; A] {
+            let mut vals = [T::zero(); A];
+            vals[0] = a;
+            vals
+        }
+
+        #[inline]
+        fn grad_dir_view<'a, T: Float>(g: GradRef<'a, T>, dir: usize, n_rows: usize) -> ArgView<'a, T> {
+            match g {
+                GradRef::Slice(s) => ArgView::Slice(&s[dir * n_rows..(dir + 1) * n_rows]),
+                GradRef::Basis(k) => ArgView::Const(if dir == k { T::one() } else { T::zero() }),
+                GradRef::Zero => ArgView::Const(T::zero()),
+            }
+        }
+
+        #[inline]
+        fn grad_unary_loop<T: Float, F, const A: usize>(
+            out: &mut [T],
+            x: ArgView<'_, T>,
+            dx: ArgView<'_, T>,
+            partial: F,
+        ) where
+            F: Fn(&[T; A], usize) -> T,
+        {
+            match (x, dx) {
+                (_, ArgView::Const(dx_c)) if dx_c.is_zero() => out.fill(T::zero()),
+                (ArgView::Slice(x_s), ArgView::Slice(dx_s)) => {
+                    for ((outg, &xv), &dxv) in out.iter_mut().zip_eq(x_s).zip_eq(dx_s) {
+                        let vals = vals1(xv);
+                        *outg = partial(&vals, 0) * dxv;
+                    }
+                }
+                (ArgView::Slice(x_s), ArgView::Const(dx_c)) => {
+                    for (outg, &xv) in out.iter_mut().zip_eq(x_s) {
+                        let vals = vals1(xv);
+                        *outg = partial(&vals, 0) * dx_c;
+                    }
+                }
+                (ArgView::Const(x_c), ArgView::Const(dx_c)) => {
+                    let vals = vals1(x_c);
+                    let p = partial(&vals, 0);
+                    out.fill(p * dx_c);
+                }
+                _ => unreachable!("malformed expression"),
+            }
+        }
+
+        #[inline]
+        fn grad_binary_loop<T: Float, F, const A: usize>(
+            out: &mut [T],
+            x: ArgView<'_, T>,
+            y: ArgView<'_, T>,
+            dx: ArgView<'_, T>,
+            dy: ArgView<'_, T>,
+            partial: F,
+        ) where
+            F: Fn(&[T; A], usize) -> T,
+        {
+            match (x, y, dx, dy) {
+                (ArgView::Slice(x_s), ArgView::Slice(y_s), ArgView::Slice(dx_s), ArgView::Slice(dy_s)) => {
+                    let data = (x_s.iter().zip_eq(y_s)).zip_eq(dx_s.iter().zip_eq(dy_s));
+                    for (outv, ((&xv, &yv), (&dxv, &dyv))) in out.iter_mut().zip_eq(data) {
+                        let vals = vals2(xv, yv);
+                        *outv = partial(&vals, 0) * dxv + partial(&vals, 1) * dyv;
+                    }
+                }
+                (ArgView::Slice(x_s), ArgView::Slice(y_s), ArgView::Slice(dx_s), ArgView::Const(dy_c)) => {
+                    let data = x_s.iter().zip_eq(y_s).zip_eq(dx_s);
+                    for (outv, ((&xv, &yv), &dxv)) in out.iter_mut().zip_eq(data) {
+                        let vals = vals2(xv, yv);
+                        *outv = partial(&vals, 0) * dxv + partial(&vals, 1) * dy_c;
+                    }
+                }
+                (ArgView::Slice(x_s), ArgView::Slice(y_s), ArgView::Const(dx_c), ArgView::Slice(dy_s)) => {
+                    let data = x_s.iter().zip_eq(y_s).zip_eq(dy_s);
+                    for (outv, ((&xv, &yv), &dyv)) in out.iter_mut().zip_eq(data) {
+                        let vals = vals2(xv, yv);
+                        *outv = partial(&vals, 0) * dx_c + partial(&vals, 1) * dyv;
+                    }
+                }
+                (ArgView::Slice(x_s), ArgView::Slice(y_s), ArgView::Const(dx_c), ArgView::Const(dy_c)) => {
+                    for (outv, (&xv, &yv)) in out.iter_mut().zip_eq(x_s.iter().zip_eq(y_s)) {
+                        let vals = vals2(xv, yv);
+                        *outv = partial(&vals, 0) * dx_c + partial(&vals, 1) * dy_c;
+                    }
+                }
+
+                (ArgView::Slice(x_s), ArgView::Const(y_c), ArgView::Slice(dx_s), ArgView::Const(dy_c)) => {
+                    for (outv, (&xv, &dxv)) in out.iter_mut().zip_eq(x_s.iter().zip_eq(dx_s)) {
+                        let vals = vals2(xv, y_c);
+                        *outv = partial(&vals, 0) * dxv + partial(&vals, 1) * dy_c;
+                    }
+                }
+                (ArgView::Slice(x_s), ArgView::Const(y_c), ArgView::Const(dx_c), ArgView::Const(dy_c)) => {
+                    for (outv, &xv) in out.iter_mut().zip_eq(x_s) {
+                        let vals = vals2(xv, y_c);
+                        *outv = partial(&vals, 0) * dx_c + partial(&vals, 1) * dy_c;
+                    }
+                }
+
+                (ArgView::Const(x_c), ArgView::Slice(y_s), ArgView::Const(dx_c), ArgView::Slice(dy_s)) => {
+                    for (outv, (&yv, &dyv)) in out.iter_mut().zip_eq(y_s.iter().zip_eq(dy_s)) {
+                        let vals = vals2(x_c, yv);
+                        *outv = partial(&vals, 0) * dx_c + partial(&vals, 1) * dyv;
+                    }
+                }
+                (ArgView::Const(x_c), ArgView::Slice(y_s), ArgView::Const(dx_c), ArgView::Const(dy_c)) => {
+                    for (outv, &yv) in out.iter_mut().zip_eq(y_s) {
+                        let vals = vals2(x_c, yv);
+                        *outv = partial(&vals, 0) * dx_c + partial(&vals, 1) * dy_c;
+                    }
+                }
+                (ArgView::Const(x_c), ArgView::Const(y_c), ArgView::Const(dx_c), ArgView::Const(dy_c)) => {
+                    let vals = vals2(x_c, y_c);
+                    out.fill(partial(&vals, 0) * dx_c + partial(&vals, 1) * dy_c);
+                }
+                _ => unreachable!("malformed expression"),
             }
         }
 
@@ -920,29 +1050,17 @@ pub mod scalar {
             let views: [ArgView<'_, T>; A] = make_arg_views(args);
 
             if A == 1 {
-                eval_unary_loop(out, views[0], |a| {
-                    let mut vals: [T; A] = [T::zero(); A];
-                    vals[0] = a;
-                    eval(&vals)
-                });
-                return finish_complete(out, check_finite, early_exit);
-            }
-            if A == 2 {
-                eval_binary_loop(out, views[0], views[1], |a, b| {
-                    let mut vals: [T; A] = [T::zero(); A];
-                    vals[0] = a;
-                    vals[1] = b;
-                    eval(&vals)
-                });
-                return finish_complete(out, check_finite, early_exit);
-            }
-
-            let mut vals: [T; A] = core::array::from_fn(|_| T::zero());
-            for (row, outv) in out.iter_mut().enumerate() {
-                for (j, v) in vals.iter_mut().enumerate() {
-                    *v = views[j].get(row);
+                eval_unary_loop(out, views[0], |a| eval(&vals1(a)));
+            } else if A == 2 {
+                eval_binary_loop(out, views[0], views[1], |a, b| eval(&vals2(a, b)));
+            } else {
+                let mut vals: [T; A] = [T::zero(); A];
+                for (row, outv) in out.iter_mut().enumerate() {
+                    for (v, view) in vals.iter_mut().zip_eq(views.iter()) {
+                        *v = view.get(row);
+                    }
+                    *outv = eval(&vals);
                 }
-                *outv = eval(&vals);
             }
 
             finish_complete(out, check_finite, early_exit)
@@ -971,26 +1089,23 @@ pub mod scalar {
 
             if A == 1 {
                 eval_unary_loop(out, views[0], |a| {
-                    let mut vals: [T; A] = [T::zero(); A];
-                    vals[0] = a;
+                    let vals = vals1::<T, A>(a);
                     Op::eval(&vals)
                 });
                 return finish_complete(out, check_finite, early_exit);
             }
             if A == 2 {
                 eval_binary_loop(out, views[0], views[1], |a, b| {
-                    let mut vals: [T; A] = [T::zero(); A];
-                    vals[0] = a;
-                    vals[1] = b;
+                    let vals = vals2(a, b);
                     Op::eval(&vals)
                 });
                 return finish_complete(out, check_finite, early_exit);
             }
 
-            let mut vals: [T; A] = core::array::from_fn(|_| T::zero());
+            let mut vals: [T; A] = [T::zero(); A];
             for (row, outv) in out.iter_mut().enumerate() {
-                for (j, v) in vals.iter_mut().enumerate() {
-                    *v = views[j].get(row);
+                for (v, view) in vals.iter_mut().zip_eq(views.iter()) {
+                    *v = view.get(row);
                 }
                 *outv = Op::eval(&vals);
             }
@@ -1013,17 +1128,17 @@ pub mod scalar {
             let early_exit = opts.early_exit;
             let mut complete = true;
 
-            let mut vals: [T; A] = core::array::from_fn(|_| T::zero());
-            let mut dvals: [T; A] = core::array::from_fn(|_| T::zero());
+            let mut vals: [T; A] = [T::zero(); A];
+            let mut dvals: [T; A] = [T::zero(); A];
             let val_views: [ArgView<'_, T>; A] = make_arg_views(args);
             let dval_views: [ArgView<'_, T>; A] = make_arg_views(dargs);
 
-            for ((row, outv), outd) in out_val.iter_mut().enumerate().zip(out_der.iter_mut()) {
-                for (v, src) in vals.iter_mut().zip(val_views.iter()) {
-                    *v = src.get(row);
+            for ((row, outv), outd) in out_val.iter_mut().enumerate().zip_eq(out_der.iter_mut()) {
+                for (v, view) in vals.iter_mut().zip_eq(val_views.iter()) {
+                    *v = view.get(row);
                 }
-                for (dv, dsrc) in dvals.iter_mut().zip(dval_views.iter()) {
-                    *dv = dsrc.get(row);
+                for (dv, view) in dvals.iter_mut().zip_eq(dval_views.iter()) {
+                    *dv = view.get(row);
                 }
                 let v = eval(&vals);
                 let mut d = T::zero();
@@ -1060,17 +1175,17 @@ pub mod scalar {
             let early_exit = opts.early_exit;
             let mut complete = true;
 
-            let mut vals: [T; A] = core::array::from_fn(|_| T::zero());
-            let mut dvals: [T; A] = core::array::from_fn(|_| T::zero());
+            let mut vals: [T; A] = [T::zero(); A];
+            let mut dvals: [T; A] = [T::zero(); A];
             let val_views: [ArgView<'_, T>; A] = make_arg_views(args);
             let dval_views: [ArgView<'_, T>; A] = make_arg_views(dargs);
 
-            for ((row, outv), outd) in out_val.iter_mut().enumerate().zip(out_der.iter_mut()) {
-                for (v, src) in vals.iter_mut().zip(val_views.iter()) {
-                    *v = src.get(row);
+            for ((row, outv), outd) in out_val.iter_mut().enumerate().zip_eq(out_der.iter_mut()) {
+                for (v, view) in vals.iter_mut().zip_eq(val_views.iter()) {
+                    *v = view.get(row);
                 }
-                for (dv, dsrc) in dvals.iter_mut().zip(dval_views.iter()) {
-                    *dv = dsrc.get(row);
+                for (dv, view) in dvals.iter_mut().zip_eq(dval_views.iter()) {
+                    *dv = view.get(row);
                 }
                 let v = Op::eval(&vals);
                 let mut d = T::zero();
@@ -1105,26 +1220,59 @@ pub mod scalar {
             let check_finite = ctx.opts.check_finite;
             let early_exit = ctx.opts.early_exit;
             let mut complete = true;
-            let mut vals: [T; A] = core::array::from_fn(|_| T::zero());
             let arg_views: [ArgView<'_, T>; A] = make_arg_views(ctx.args);
 
-            for (row, outv) in ctx.out_val.iter_mut().enumerate() {
-                for (v, src) in vals.iter_mut().zip(arg_views.iter()) {
-                    *v = src.get(row);
+            if A == 1 {
+                eval_unary_loop(ctx.out_val, arg_views[0], |a| eval(&vals1(a)));
+                let x = arg_views[0];
+                let dx_ref = ctx.arg_grads[0];
+                let n_rows = ctx.n_rows;
+                for dir in 0..ctx.n_dir {
+                    let grad_dir = &mut ctx.out_grad[dir * n_rows..(dir + 1) * n_rows];
+                    let dx = grad_dir_view(dx_ref, dir, n_rows);
+                    grad_unary_loop::<T, _, A>(grad_dir, x, dx, partial);
                 }
-                *outv = eval(&vals);
-            }
+            } else if A == 2 {
+                eval_binary_loop(ctx.out_val, arg_views[0], arg_views[1], |a, b| eval(&vals2(a, b)));
 
-            for (dir, grad_dir) in ctx.out_grad.chunks_mut(ctx.n_rows).enumerate().take(ctx.n_dir) {
-                for (row, outg) in grad_dir.iter_mut().enumerate() {
-                    for (v, src) in vals.iter_mut().zip(arg_views.iter()) {
-                        *v = src.get(row);
+                let x = arg_views[0];
+                let y = arg_views[1];
+                let dx_ref = ctx.arg_grads[0];
+                let dy_ref = ctx.arg_grads[1];
+                let n_rows = ctx.n_rows;
+
+                for dir in 0..ctx.n_dir {
+                    let grad_dir = &mut ctx.out_grad[dir * n_rows..(dir + 1) * n_rows];
+                    let dx = grad_dir_view(dx_ref, dir, n_rows);
+                    let dy = grad_dir_view(dy_ref, dir, n_rows);
+                    if matches!((dx, dy), (ArgView::Const(dx_c), ArgView::Const(dy_c)) if dx_c.is_zero() && dy_c.is_zero())
+                    {
+                        grad_dir.fill(T::zero());
+                        continue;
                     }
-                    let mut g = T::zero();
-                    for (j, ag) in ctx.arg_grads.iter().copied().enumerate() {
-                        g += partial(&vals, j) * grad_at(ag, dir, row, ctx.n_rows);
+                    grad_binary_loop::<T, _, A>(grad_dir, x, y, dx, dy, partial);
+                }
+            } else {
+                let mut vals: [T; A] = [T::zero(); A];
+
+                for (row, outv) in ctx.out_val.iter_mut().enumerate() {
+                    for (v, view) in vals.iter_mut().zip_eq(arg_views.iter()) {
+                        *v = view.get(row);
                     }
-                    *outg = g;
+                    *outv = eval(&vals);
+                }
+
+                for (dir, grad_dir) in ctx.out_grad.chunks_mut(ctx.n_rows).enumerate().take(ctx.n_dir) {
+                    for (row, outg) in grad_dir.iter_mut().enumerate() {
+                        for (v, view) in vals.iter_mut().zip_eq(arg_views.iter()) {
+                            *v = view.get(row);
+                        }
+                        let mut g = T::zero();
+                        for (j, ag) in ctx.arg_grads.iter().copied().enumerate() {
+                            g += partial(&vals, j) * grad_at(ag, dir, row, ctx.n_rows);
+                        }
+                        *outg = g;
+                    }
                 }
             }
 
@@ -1150,26 +1298,66 @@ pub mod scalar {
             let check_finite = ctx.opts.check_finite;
             let early_exit = ctx.opts.early_exit;
             let mut complete = true;
-            let mut vals: [T; A] = core::array::from_fn(|_| T::zero());
             let arg_views: [ArgView<'_, T>; A] = make_arg_views(ctx.args);
 
-            for (row, outv) in ctx.out_val.iter_mut().enumerate() {
-                for (v, src) in vals.iter_mut().zip(arg_views.iter()) {
-                    *v = src.get(row);
-                }
-                *outv = Op::eval(&vals);
-            }
+            if A == 1 {
+                eval_unary_loop(ctx.out_val, arg_views[0], |a| {
+                    let vals = vals1::<T, A>(a);
+                    Op::eval(&vals)
+                });
 
-            for (dir, grad_dir) in ctx.out_grad.chunks_mut(ctx.n_rows).enumerate().take(ctx.n_dir) {
-                for (row, outg) in grad_dir.iter_mut().enumerate() {
-                    for (v, src) in vals.iter_mut().zip(arg_views.iter()) {
-                        *v = src.get(row);
+                let x = arg_views[0];
+                let dx_ref = ctx.arg_grads[0];
+                let n_rows = ctx.n_rows;
+                for dir in 0..ctx.n_dir {
+                    let grad_dir = &mut ctx.out_grad[dir * n_rows..(dir + 1) * n_rows];
+                    let dx = grad_dir_view(dx_ref, dir, n_rows);
+                    grad_unary_loop::<T, _, A>(grad_dir, x, dx, Op::partial);
+                }
+            } else if A == 2 {
+                eval_binary_loop(ctx.out_val, arg_views[0], arg_views[1], |a, b| {
+                    let vals = vals2(a, b);
+                    Op::eval(&vals)
+                });
+
+                let x = arg_views[0];
+                let y = arg_views[1];
+                let dx_ref = ctx.arg_grads[0];
+                let dy_ref = ctx.arg_grads[1];
+                let n_rows = ctx.n_rows;
+
+                for dir in 0..ctx.n_dir {
+                    let grad_dir = &mut ctx.out_grad[dir * n_rows..(dir + 1) * n_rows];
+                    let dx = grad_dir_view(dx_ref, dir, n_rows);
+                    let dy = grad_dir_view(dy_ref, dir, n_rows);
+                    if matches!((dx, dy), (ArgView::Const(dx_c), ArgView::Const(dy_c)) if dx_c.is_zero() && dy_c.is_zero())
+                    {
+                        grad_dir.fill(T::zero());
+                        continue;
                     }
-                    let mut g = T::zero();
-                    for (j, ag) in ctx.arg_grads.iter().copied().enumerate() {
-                        g += Op::partial(&vals, j) * grad_at(ag, dir, row, ctx.n_rows);
+                    grad_binary_loop::<T, _, A>(grad_dir, x, y, dx, dy, Op::partial);
+                }
+            } else {
+                let mut vals: [T; A] = [T::zero(); A];
+
+                for (row, outv) in ctx.out_val.iter_mut().enumerate() {
+                    for (v, view) in vals.iter_mut().zip_eq(arg_views.iter()) {
+                        *v = view.get(row);
                     }
-                    *outg = g;
+                    *outv = Op::eval(&vals);
+                }
+
+                for (dir, grad_dir) in ctx.out_grad.chunks_mut(ctx.n_rows).enumerate().take(ctx.n_dir) {
+                    for (row, outg) in grad_dir.iter_mut().enumerate() {
+                        for (v, view) in vals.iter_mut().zip_eq(arg_views.iter()) {
+                            *v = view.get(row);
+                        }
+                        let mut g = T::zero();
+                        for (j, ag) in ctx.arg_grads.iter().copied().enumerate() {
+                            g += Op::partial(&vals, j) * grad_at(ag, dir, row, ctx.n_rows);
+                        }
+                        *outg = g;
+                    }
                 }
             }
 
