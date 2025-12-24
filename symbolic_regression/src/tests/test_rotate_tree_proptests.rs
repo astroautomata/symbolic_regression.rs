@@ -31,15 +31,57 @@ fn node_multiset(nodes: &[PNode]) -> BTreeMap<(u8, u16, u16), usize> {
 }
 
 fn arb_rotatable_tree_nodes() -> impl Strategy<Value = Vec<PNode>> {
-    // Start with a valid tree, then filter to ones our implementation can rotate.
-    // (We prioritize simpler test code over generator efficiency.)
     let op_ids: Vec<u16> = (0u16..20u16).collect();
-    proptest_utils::arb_postfix_nodes(N_FEATURES, N_CONSTS, op_ids.clone(), op_ids.clone(), op_ids, 6, 32, 10)
-        .prop_filter("rotatable tree", |nodes| {
-            let mut expr = PostfixExpr::<f64, (), D_TEST>::new(nodes.clone(), vec![0.0; N_CONSTS], Metadata::default());
-            let mut rng = StdRng::seed_from_u64(0);
-            rotate_tree_in_place(&mut rng, &mut expr)
-        })
+    (1usize..=D_TEST).prop_flat_map(move |root_arity| {
+        let op_ids = op_ids.clone();
+        (
+            Just(root_arity),
+            0usize..root_arity,
+            1usize..=D_TEST,
+            prop::sample::select(op_ids.clone()),
+            prop::sample::select(op_ids.clone()),
+        )
+            .prop_flat_map(move |(root_arity, pivot_pos, pivot_arity, op_root, op_pivot)| {
+                let pivot_children = prop::collection::vec(
+                    proptest_utils::arb_shallow_postfix_nodes(N_FEATURES, N_CONSTS, &op_ids, &op_ids, true),
+                    pivot_arity,
+                );
+                let other_children = prop::collection::vec(
+                    proptest_utils::arb_shallow_postfix_nodes(N_FEATURES, N_CONSTS, &op_ids, &op_ids, true),
+                    root_arity - 1,
+                );
+                (
+                    Just((root_arity, pivot_pos, pivot_arity, op_root, op_pivot)),
+                    pivot_children,
+                    other_children,
+                )
+            })
+            .prop_map(
+                |((root_arity, pivot_pos, pivot_arity, op_root, op_pivot), pivot_children, other_children)| {
+                    let mut nodes = Vec::new();
+                    let mut other_iter = other_children.into_iter();
+                    for j in 0..root_arity {
+                        if j == pivot_pos {
+                            for child in &pivot_children {
+                                nodes.extend_from_slice(child);
+                            }
+                            nodes.push(PNode::Op {
+                                arity: pivot_arity as u8,
+                                op: op_pivot,
+                            });
+                        } else {
+                            let child = other_iter.next().expect("missing non-pivot child");
+                            nodes.extend(child);
+                        }
+                    }
+                    nodes.push(PNode::Op {
+                        arity: root_arity as u8,
+                        op: op_root,
+                    });
+                    nodes
+                },
+            )
+    })
 }
 
 #[test]
@@ -75,13 +117,6 @@ fn rotate_tree_supports_non_binary_arity() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        // Rotatable trees can be somewhat rare under a generic tree generator.
-        // Increase the global reject budget so we don't flake.
-        max_global_rejects: 100_000,
-        .. ProptestConfig::default()
-    })]
-
     #[test]
     fn rotate_tree_in_place_preserves_invariants(
         nodes in arb_rotatable_tree_nodes(),

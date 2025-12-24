@@ -117,43 +117,14 @@ fn safe_binary_ops() -> Vec<u16> {
     ]
 }
 
-fn arb_leaf_node(n_features: usize, n_consts: usize) -> BoxedStrategy<PNode> {
-    let var = (0u16..(n_features as u16)).prop_map(|feature| PNode::Var { feature });
-    if n_consts > 0 {
-        let con = (0u16..(n_consts as u16)).prop_map(|idx| PNode::Const { idx });
-        prop_oneof![var, con].boxed()
-    } else {
-        var.boxed()
-    }
-}
-
-fn arb_simple_op_expr_nodes(
-    n_features: usize,
-    n_consts: usize,
-    unary_ops: &[u16],
-    binary_ops: &[u16],
-) -> BoxedStrategy<Vec<PNode>> {
-    let leaf = arb_leaf_node(n_features, n_consts);
-    let unary = {
-        let ops = unary_ops.to_vec();
-        (leaf.clone(), prop::sample::select(ops)).prop_map(|(node, op)| vec![node, PNode::Op { arity: 1, op }])
-    };
-    let binary = {
-        let ops = binary_ops.to_vec();
-        (leaf.clone(), leaf, prop::sample::select(ops))
-            .prop_map(|(lhs, rhs, op)| vec![lhs, rhs, PNode::Op { arity: 2, op }])
-    };
-    prop_oneof![unary, binary].boxed()
-}
-
 fn arb_forward_slot_nodes(
     n_features: usize,
     n_consts: usize,
     unary_ops: Vec<u16>,
     binary_ops: Vec<u16>,
 ) -> BoxedStrategy<Vec<PNode>> {
-    let leaf = arb_leaf_node(n_features, n_consts);
-    let simple = arb_simple_op_expr_nodes(n_features, n_consts, &unary_ops, &binary_ops);
+    let leaf = proptest_utils::arb_leaf_node(n_features, n_consts).boxed();
+    let simple = proptest_utils::arb_shallow_postfix_nodes(n_features, n_consts, &unary_ops, &binary_ops, false);
 
     let template_a = {
         let ops = binary_ops.clone();
