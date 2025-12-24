@@ -1027,7 +1027,7 @@ pub mod scalar {
         }
 
         pub fn eval_nary<const A: usize, T: Float>(
-            eval: fn(&[T; A]) -> T,
+            eval: impl Copy + Fn(&[T; A]) -> T,
             out: &mut [T],
             args: &[SrcRef<'_, T>],
             opts: &EvalOptions,
@@ -1049,9 +1049,9 @@ pub mod scalar {
             let views: [ArgView<'_, T>; A] = make_arg_views(args);
 
             if A == 1 {
-                eval_unary_loop(out, views[0], |a| eval(&vals1(a)));
+                eval_unary_loop(out, views[0], move |a| eval(&vals1(a)));
             } else if A == 2 {
-                eval_binary_loop(out, views[0], views[1], |a, b| eval(&vals2(a, b)));
+                eval_binary_loop(out, views[0], views[1], move |a, b| eval(&vals2(a, b)));
             } else {
                 let mut vals: [T; A] = [T::zero(); A];
                 for (row, outv) in out.iter_mut().enumerate() {
@@ -1066,8 +1066,8 @@ pub mod scalar {
         }
 
         pub fn diff_nary<const A: usize, T: Float + core::ops::AddAssign>(
-            eval: fn(&[T; A]) -> T,
-            partial: fn(&[T; A], usize) -> T,
+            eval: impl Copy + Fn(&[T; A]) -> T,
+            partial: impl Copy + Fn(&[T; A], usize) -> T,
             out_val: &mut [T],
             out_der: &mut [T],
             args: &[SrcRef<'_, T>],
@@ -1115,8 +1115,8 @@ pub mod scalar {
         }
 
         pub fn grad_nary<const A: usize, T: Float + core::ops::AddAssign>(
-            eval: fn(&[T; A]) -> T,
-            partial: fn(&[T; A], usize) -> T,
+            eval: impl Copy + Fn(&[T; A]) -> T,
+            partial: impl Copy + Fn(&[T; A], usize) -> T,
             ctx: GradKernelCtx<'_, '_, T>,
         ) -> bool {
             debug_assert_eq!(ctx.args.len(), A);
@@ -1128,7 +1128,7 @@ pub mod scalar {
             let arg_views: [ArgView<'_, T>; A] = make_arg_views(ctx.args);
 
             if A == 1 {
-                eval_unary_loop(ctx.out_val, arg_views[0], |a| eval(&vals1(a)));
+                eval_unary_loop(ctx.out_val, arg_views[0], move |a| eval(&vals1(a)));
                 let x = arg_views[0];
                 let dx_ref = ctx.arg_grads[0];
                 let n_rows = ctx.n_rows;
@@ -1138,7 +1138,7 @@ pub mod scalar {
                     grad_unary_loop::<T, _, A>(grad_dir, x, dx, partial);
                 }
             } else if A == 2 {
-                eval_binary_loop(ctx.out_val, arg_views[0], arg_views[1], |a, b| eval(&vals2(a, b)));
+                eval_binary_loop(ctx.out_val, arg_views[0], arg_views[1], move |a, b| eval(&vals2(a, b)));
 
                 let x = arg_views[0];
                 let y = arg_views[1];
