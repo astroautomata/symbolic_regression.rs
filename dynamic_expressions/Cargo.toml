@@ -32,8 +32,6 @@ rstest = "0.26"
 approx = "0.5"
 criterion = "0.7"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
-proptest = "1"
-dynamic_expressions = { path = ".", features = ["proptest-utils"] }
 
 [features]
 proptest-utils = ["dep:proptest"]
