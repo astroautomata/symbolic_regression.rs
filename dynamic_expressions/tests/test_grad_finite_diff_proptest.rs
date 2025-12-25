@@ -1,3 +1,5 @@
+#![cfg(feature = "proptest-utils")]
+
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::{PNode, Src};
 use dynamic_expressions::operator_enum::builtin;
