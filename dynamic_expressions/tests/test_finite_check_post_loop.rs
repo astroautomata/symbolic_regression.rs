@@ -1,8 +1,8 @@
 use std::hint::black_box;
 
-use dynamic_expressions::EvalOptions;
-use dynamic_expressions::operator_enum::builtin::{Add, BuiltinOp};
+use dynamic_expressions::operator_enum::builtin::Add;
 use dynamic_expressions::operator_enum::scalar::{GradKernelCtx, GradRef, SrcRef, diff_nary, eval_nary, grad_nary};
+use dynamic_expressions::{EvalOptions, Operator};
 
 fn id_eval(args: &[f64; 1]) -> f64 {
     args[0]
@@ -77,7 +77,7 @@ fn eval_nary_checks_after_loop_when_no_early_exit_binary() {
         early_exit: false,
     });
     assert!(!eval_nary::<2, f64>(
-        <Add as BuiltinOp<f64, 2>>::eval,
+        <Add as Operator<f64, 2>>::eval,
         &mut out,
         &args,
         &opts
@@ -94,7 +94,7 @@ fn eval_nary_const_only_check_finite_false_returns_true_binary() {
         early_exit: true,
     });
     assert!(eval_nary::<2, f64>(
-        <Add as BuiltinOp<f64, 2>>::eval,
+        <Add as Operator<f64, 2>>::eval,
         &mut out,
         &args,
         &opts
@@ -116,8 +116,8 @@ fn diff_nary_checks_after_loop_when_no_early_exit_binary() {
         early_exit: false,
     });
     assert!(!diff_nary::<2, f64>(
-        <Add as BuiltinOp<f64, 2>>::eval,
-        <Add as BuiltinOp<f64, 2>>::partial,
+        <Add as Operator<f64, 2>>::eval,
+        <Add as Operator<f64, 2>>::partial,
         &mut out_val,
         &mut out_der,
         &args,
@@ -189,8 +189,8 @@ fn diff_nary_no_checks_returns_true_binary() {
         early_exit: true,
     });
     assert!(diff_nary::<2, f64>(
-        <Add as BuiltinOp<f64, 2>>::eval,
-        <Add as BuiltinOp<f64, 2>>::partial,
+        <Add as Operator<f64, 2>>::eval,
+        <Add as Operator<f64, 2>>::partial,
         &mut out_val,
         &mut out_der,
         &args,
@@ -212,8 +212,8 @@ fn grad_apply_checks_after_loop_when_no_early_exit() {
         early_exit: false,
     });
     assert!(!grad_nary::<2, f64>(
-        Add::eval,
-        Add::partial,
+        <Add as Operator<f64, 2>>::eval,
+        <Add as Operator<f64, 2>>::partial,
         GradKernelCtx {
             out_val: &mut out_val,
             out_grad: &mut out_grad,
@@ -240,8 +240,8 @@ fn grad_apply_no_checks_returns_true() {
         early_exit: true,
     });
     assert!(grad_nary::<2, f64>(
-        Add::eval,
-        Add::partial,
+        <Add as Operator<f64, 2>>::eval,
+        <Add as Operator<f64, 2>>::partial,
         GradKernelCtx {
             out_val: &mut out_val,
             out_grad: &mut out_grad,

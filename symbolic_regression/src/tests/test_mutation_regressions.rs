@@ -1,6 +1,7 @@
+use dynamic_expressions::HasOp;
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;
-use dynamic_expressions::operator_enum::{builtin, scalar};
+use dynamic_expressions::operator_enum::builtin;
 use ndarray::{Array1, Array2};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -152,19 +153,9 @@ fn add_node_includes_append_at_leaf_move() {
         Array1::from_vec(vec![0.0]),
     );
 
+    let add = <TestOps as HasOp<builtin::Add>>::op_id();
     let mut ops = operators::Operators::<D>::new();
-    ops.push(
-        2,
-        operators::OpSpec {
-            op: scalar::OpId {
-                arity: 2,
-                id: <TestOps as scalar::HasOp<builtin::Add, 2>>::ID,
-            },
-            commutative: true,
-            associative: true,
-            complexity: 1,
-        },
-    );
+    ops.push(add);
     let mut options = Options::<T, D> {
         operators: ops,
         ..Default::default()
@@ -193,8 +184,8 @@ fn add_node_includes_append_at_leaf_move() {
             PNode::Var { feature: 0 },
             PNode::Var { feature: 1 },
             PNode::Op {
-                arity: 2,
-                op: <TestOps as scalar::HasOp<builtin::Add, 2>>::ID,
+                arity: add.arity,
+                op: add.id,
             },
         ],
         Vec::new(),
@@ -261,19 +252,9 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
         Array1::from_vec(vec![0.0]),
     );
 
+    let add = <TestOps as HasOp<builtin::Add>>::op_id();
     let mut ops = operators::Operators::<D>::new();
-    ops.push(
-        2,
-        operators::OpSpec {
-            op: scalar::OpId {
-                arity: 2,
-                id: <TestOps as scalar::HasOp<builtin::Add, 2>>::ID,
-            },
-            commutative: true,
-            associative: true,
-            complexity: 1,
-        },
-    );
+    ops.push(add);
 
     let mut options = Options::<T, D> {
         operators: ops,
@@ -303,8 +284,8 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
             PNode::Var { feature: 0 },
             PNode::Var { feature: 1 },
             PNode::Op {
-                arity: 2,
-                op: <TestOps as scalar::HasOp<builtin::Add, 2>>::ID,
+                arity: add.arity,
+                op: add.id,
             },
         ],
         Vec::new(),

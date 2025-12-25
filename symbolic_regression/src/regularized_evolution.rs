@@ -30,8 +30,7 @@ pub fn reg_evol_cycle<T, Ops, const D: usize, R: Rng>(
 ) -> f64
 where
     T: Float + FromPrimitive + ToPrimitive + AddAssign,
-    Ops:
-        dynamic_expressions::operator_enum::scalar::ScalarOpSet<T> + dynamic_expressions::operator_registry::OpRegistry,
+    Ops: dynamic_expressions::OperatorSet<T = T>,
 {
     let mut num_evals = 0.0;
     let n_evol_cycles = ((pop.len() as f64) / (ctx.options.tournament_selection_n as f64)).ceil() as usize;

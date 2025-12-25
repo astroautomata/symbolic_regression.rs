@@ -2,7 +2,7 @@ use core::fmt;
 
 use crate::expression::PostfixExpr;
 use crate::node::PNode;
-pub use crate::operator_enum::names::OpNames;
+use crate::traits::{OpId, OperatorSet};
 
 #[derive(Clone, Debug, Default)]
 pub struct StringTreeOptions<'a> {
@@ -91,7 +91,7 @@ fn combine(opname: &str, args: &[String]) -> String {
 pub fn string_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>, opts: StringTreeOptions<'_>) -> String
 where
     T: fmt::Display,
-    Ops: OpNames,
+    Ops: OperatorSet,
 {
     let names = opts.variable_names.or({
         if expr.meta.variable_names.is_empty() {
@@ -113,11 +113,11 @@ where
             PNode::Op { arity, op } => {
                 let a = arity as usize;
                 let start = stack.len() - a;
-                let op = crate::operator_enum::scalar::OpId { arity, id: op };
+                let op = OpId { arity, id: op };
                 let opname = if opts.pretty {
-                    Ops::op_pretty_name(op)
+                    Ops::display(op)
                 } else {
-                    Ops::op_name(op)
+                    Ops::infix(op).unwrap_or_else(|| Ops::name(op))
                 };
 
                 let out = combine(opname, &stack[start..]);
@@ -134,7 +134,7 @@ where
 pub fn print_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>)
 where
     T: fmt::Display,
-    Ops: OpNames,
+    Ops: OperatorSet,
 {
     println!("{}", string_tree(expr, StringTreeOptions::default()));
 }
@@ -142,7 +142,7 @@ where
 impl<T, Ops, const D: usize> fmt::Display for PostfixExpr<T, Ops, D>
 where
     T: fmt::Display,
-    Ops: OpNames,
+    Ops: OperatorSet,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&string_tree(self, StringTreeOptions::default()))

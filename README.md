@@ -67,6 +67,7 @@ use symbolic_regression::prelude::*;
 // Mirrors `SymbolicRegression.jl/example.jl`.
 
 fn main() {
+    const D: usize = 3;
     let n_features = 5;
     let n_rows = 100;
 
@@ -86,16 +87,16 @@ fn main() {
 
     let dataset = Dataset::new(x, y);
 
-    let operators = BuiltinOpsF32::from_names_by_arity(&["cos", "exp", "sin"], &["+", "-", "*", "/"], &[])
+    let operators = Operators::<D>::from_names_by_arity::<BuiltinOpsF32>(&["cos", "exp", "sin"], &["+", "-", "*", "/"], &[])
         .unwrap();
 
-    let options = Options::<f32, _> {
+    let options = Options::<f32, D> {
         operators,
         niterations: 200,
         ..Default::default()
     };
 
-    let result = equation_search::<_, BuiltinOpsF32, _>(&dataset, &options);
+    let result = equation_search::<f32, BuiltinOpsF32, D>(&dataset, &options);
     let dominating = result.hall_of_fame.pareto_front();
 
     println!("Final Pareto front:");
@@ -110,7 +111,7 @@ fn main() {
             .unwrap()
             .expr
             .clone();
-        let _ = eval_tree_array::<f32, BuiltinOpsF32, 2>(
+        let _ = eval_tree_array::<f32, BuiltinOpsF32, D>(
             &tree,
             dataset.x.view(),
             &EvalOptions::default(),

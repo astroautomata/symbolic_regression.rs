@@ -1,21 +1,6 @@
 pub mod builtin {
     use num_traits::Float;
 
-    pub trait BuiltinOp<T: Float, const A: usize> {
-        const NAME: &'static str;
-        const INFIX: Option<&'static str> = None;
-        const DISPLAY: &'static str = Self::NAME;
-
-        fn eval(args: &[T; A]) -> T;
-        fn partial(args: &[T; A], idx: usize) -> T;
-    }
-
-    pub trait OpMeta<const A: usize> {
-        const COMMUTATIVE: bool = false;
-        const ASSOCIATIVE: bool = false;
-        const COMPLEXITY: u16 = 1;
-    }
-
     fn two<T: Float>() -> T {
         T::one() + T::one()
     }
@@ -66,19 +51,20 @@ pub mod builtin {
         $(#[$meta])*
         pub struct $Op;
 
-        impl OpMeta<$A> for $Op {
-            const COMMUTATIVE: bool = builtin_op!(@commutative $($commutative)?);
-            const ASSOCIATIVE: bool = builtin_op!(@associative $($associative)?);
-            const COMPLEXITY: u16 = builtin_op!(@complexity $($complexity)?);
+        impl $crate::traits::OpTag for $Op {
+            const ARITY: u8 = $A as u8;
         }
 
-        impl<T: Float> BuiltinOp<T, $A> for $Op {
+        impl<T: Float> $crate::traits::Operator<T, $A> for $Op {
             const NAME: &'static str = builtin_op!(@name $Op $(, $name)?);
             const INFIX: Option<&'static str> = builtin_op!(@infix $($infix)?);
             const DISPLAY: &'static str = match builtin_op!(@infix $($infix)?) {
                 Some(s) => s,
                 None => builtin_op!(@name $Op $(, $name)?),
             };
+            const COMMUTATIVE: bool = builtin_op!(@commutative $($commutative)?);
+            const ASSOCIATIVE: bool = builtin_op!(@associative $($associative)?);
+            const COMPLEXITY: u16 = builtin_op!(@complexity $($complexity)?);
 
             fn eval(args: &[T; $A]) -> T {
                 let $args = args;
@@ -650,18 +636,6 @@ pub mod builtin {
     });
 }
 
-pub mod names {
-    use super::scalar::OpId;
-
-    pub trait OpNames {
-        fn op_name(op: OpId) -> &'static str;
-
-        fn op_pretty_name(op: OpId) -> &'static str {
-            Self::op_name(op)
-        }
-    }
-}
-
 pub mod presets {
     use crate::opset;
 
@@ -695,10 +669,6 @@ pub mod presets {
             (3, TOpsF64) { Clamp, Fma, }
         }
     }
-}
-
-pub mod registry {
-    pub use crate::operator_registry::{LookupError, OpInfo, OpRegistry};
 }
 
 pub mod scalar {
@@ -1220,10 +1190,12 @@ pub mod scalar {
         /// ```
         #[macro_export]
         macro_rules! custom_opset {
-            (
-                $(#[$meta:meta])* $vis:vis struct $Ops:ident<$t:ty> {
-                    $( $arity:literal {
-                        $( $op_name:ident { $($op_body:tt)* })*
+	            (@max_arity $a:literal) => { $a as u8 };
+	            (@max_arity $a:literal, $($rest:literal),+ $(,)?) => { $crate::custom_opset!(@max_arity $($rest),+) };
+	            (
+	                $(#[$meta:meta])* $vis:vis struct $Ops:ident<$t:ty> {
+	                    $( $arity:literal {
+	                        $( $op_name:ident { $($op_body:tt)* })*
                     })*
                 }
             ) => {
@@ -1251,13 +1223,45 @@ pub mod scalar {
                                     $crate::custom_opset!(@partial_body args, idx { $($op_body)* })
                                 }
                             )*
-                        )*
-                }
+	                        )*
+	                }
 
-                $crate::paste::paste! {
-                    impl $crate::operator_enum::scalar::ScalarOpSet<$t> for $Ops {
-                        fn eval(
-                            op: $crate::operator_enum::scalar::OpId,
+	                $crate::paste::paste! {
+	                    $(
+	                        $(
+	                            #[derive(Copy, Clone, Debug, Default)]
+	                            $vis struct [<$Ops $op_name:camel>];
+
+	                            impl $crate::traits::OpTag for [<$Ops $op_name:camel>] {
+	                                const ARITY: u8 = $arity as u8;
+	                            }
+
+	                            impl $crate::traits::Operator<$t, $arity> for [<$Ops $op_name:camel>] {
+	                                const NAME: &'static str = stringify!($op_name);
+	                                const DISPLAY: &'static str = $crate::custom_opset!(@display $op_name { $($op_body)* });
+	                                const INFIX: Option<&'static str> = $crate::custom_opset!(@infix { $($op_body)* });
+	                                const COMMUTATIVE: bool = $crate::custom_opset!(@bool [commutative] { $($op_body)* });
+	                                const ASSOCIATIVE: bool = $crate::custom_opset!(@bool [associative] { $($op_body)* });
+	                                const COMPLEXITY: u16 = $crate::custom_opset!(@complexity { $($op_body)* });
+
+	                                #[inline]
+	                                fn eval(args: &[$t; $arity]) -> $t {
+	                                    [<__ $Ops _ $op_name _eval>](args)
+	                                }
+
+	                                #[inline]
+	                                fn partial(args: &[$t; $arity], idx: usize) -> $t {
+	                                    [<__ $Ops _ $op_name _partial>](args, idx)
+	                                }
+	                            }
+	                        )*
+	                    )*
+	                }
+
+	                $crate::paste::paste! {
+	                    impl $crate::operator_enum::scalar::ScalarOpSet<$t> for $Ops {
+	                        fn eval(
+	                            op: $crate::operator_enum::scalar::OpId,
                             ctx: $crate::operator_enum::scalar::EvalKernelCtx<'_, '_, $t>,
                         ) -> bool {
                             match op.arity {
@@ -1329,54 +1333,190 @@ pub mod scalar {
                     }
                 }
 
-                $crate::paste::paste! {
-                    impl $crate::operator_registry::OpRegistry for $Ops {
-                        fn registry() -> &'static [$crate::operator_registry::OpInfo] {
-                            const REGISTRY: &[$crate::operator_registry::OpInfo] = &[
-                                $(
-                                    $(
-                                        $crate::operator_registry::OpInfo {
-                                            op: $crate::operator_enum::scalar::OpId {
-                                                arity: $arity as u8,
-                                                id: [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16,
-                                            },
-                                            name: stringify!($op_name),
-                                            display: $crate::custom_opset!(@display $op_name { $($op_body)* }),
-                                            infix: $crate::custom_opset!(@infix { $($op_body)* }),
-                                            commutative: $crate::custom_opset!(@bool [commutative] { $($op_body)* }),
-                                            associative: $crate::custom_opset!(@bool [associative] { $($op_body)* }),
-                                            complexity: $crate::custom_opset!(@complexity { $($op_body)* }),
-                                        },
-                                    )*
-                                )*
-                            ];
-                            REGISTRY
-                        }
-                    }
-                }
+	                impl $crate::traits::OperatorSet for $Ops {
+	                    type T = $t;
+	                    const MAX_ARITY: u8 = $crate::custom_opset!(@max_arity $($arity),*);
 
-                $crate::paste::paste! {
-                    impl $crate::strings::OpNames for $Ops {
-                        fn op_name(op: $crate::operator_enum::scalar::OpId) -> &'static str {
-                            match op.arity {
-                                $(
-                                    $arity => match op.id {
-                                        $(
-                                            x if x == ([<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16) =>
-                                                $crate::custom_opset!(@display $op_name { $($op_body)* }),
-                                        )*
-                                        _ => "unknown_op",
-                                    },
-                                )*
-                                _ => "unknown_op",
-                            }
-                        }
-                    }
-                }
-            };
+	                    fn ops_with_arity(arity: u8) -> &'static [u16] {
+	                        match arity {
+	                            $(
+	                                $arity => &[$( $crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 } , )*],
+	                            )*
+	                            _ => &[],
+	                        }
+	                    }
 
-            (@eval_body $args:ident { eval: $eval:expr, $($rest:tt)* }) => {
-                ($eval)($args)
+	                    fn name(op: $crate::traits::OpId) -> &'static str {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) => {
+	                                            <$crate::paste::paste! { [<$Ops $op_name:camel>] } as $crate::traits::Operator<$t, $arity>>::NAME
+	                                        }
+	                                    )*
+	                                    _ => "unknown_op",
+	                                },
+	                            )*
+	                            _ => "unknown_op",
+	                        }
+	                    }
+
+	                    fn display(op: $crate::traits::OpId) -> &'static str {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) => {
+	                                            <$crate::paste::paste! { [<$Ops $op_name:camel>] } as $crate::traits::Operator<$t, $arity>>::DISPLAY
+	                                        }
+	                                    )*
+	                                    _ => "unknown_op",
+	                                },
+	                            )*
+	                            _ => "unknown_op",
+	                        }
+	                    }
+
+	                    fn infix(op: $crate::traits::OpId) -> Option<&'static str> {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) => {
+	                                            <$crate::paste::paste! { [<$Ops $op_name:camel>] } as $crate::traits::Operator<$t, $arity>>::INFIX
+	                                        }
+	                                    )*
+	                                    _ => None,
+	                                },
+	                            )*
+	                            _ => None,
+	                        }
+	                    }
+
+	                    fn commutative(op: $crate::traits::OpId) -> bool {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) => {
+	                                            <$crate::paste::paste! { [<$Ops $op_name:camel>] } as $crate::traits::Operator<$t, $arity>>::COMMUTATIVE
+	                                        }
+	                                    )*
+	                                    _ => false,
+	                                },
+	                            )*
+	                            _ => false,
+	                        }
+	                    }
+
+	                    fn associative(op: $crate::traits::OpId) -> bool {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) => {
+	                                            <$crate::paste::paste! { [<$Ops $op_name:camel>] } as $crate::traits::Operator<$t, $arity>>::ASSOCIATIVE
+	                                        }
+	                                    )*
+	                                    _ => false,
+	                                },
+	                            )*
+	                            _ => false,
+	                        }
+	                    }
+
+	                    fn complexity(op: $crate::traits::OpId) -> u16 {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) => {
+	                                            <$crate::paste::paste! { [<$Ops $op_name:camel>] } as $crate::traits::Operator<$t, $arity>>::COMPLEXITY
+	                                        }
+	                                    )*
+	                                    _ => 0,
+	                                },
+	                            )*
+	                            _ => 0,
+	                        }
+	                    }
+
+	                    fn eval(op: $crate::traits::OpId, ctx: $crate::dispatch::EvalKernelCtx<'_, '_, $t>) -> bool {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) =>
+	                                            $crate::paste::paste! {
+	                                                $crate::evaluate::kernels::eval_nary::<$arity, $t, [<$Ops $op_name:camel>]>(
+	                                                    ctx.out,
+	                                                    ctx.args,
+	                                                    ctx.opts,
+	                                                )
+	                                            },
+	                                    )*
+	                                    _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+	                                },
+	                            )*
+	                            _ => panic!("unsupported arity {}", op.arity),
+	                        }
+	                    }
+
+	                    fn diff(op: $crate::traits::OpId, ctx: $crate::dispatch::DiffKernelCtx<'_, '_, $t>) -> bool {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) =>
+	                                            $crate::paste::paste! {
+	                                                $crate::evaluate::kernels::diff_nary::<$arity, $t, [<$Ops $op_name:camel>]>(
+	                                                    ctx.out_val,
+	                                                    ctx.out_der,
+	                                                    ctx.args,
+	                                                    ctx.dargs,
+	                                                    ctx.opts,
+	                                                )
+	                                            },
+	                                    )*
+	                                    _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+	                                },
+	                            )*
+	                            _ => panic!("unsupported arity {}", op.arity),
+	                        }
+	                    }
+
+	                    fn grad(op: $crate::traits::OpId, ctx: $crate::dispatch::GradKernelCtx<'_, '_, $t>) -> bool {
+	                        match op.arity {
+	                            $(
+	                                $arity => match op.id {
+	                                    $(
+	                                        x if x == ($crate::paste::paste! { [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16 }) =>
+	                                            $crate::paste::paste! {
+	                                                $crate::evaluate::kernels::grad_nary::<$arity, $t, [<$Ops $op_name:camel>]>(ctx)
+	                                            },
+	                                    )*
+	                                    _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+	                                },
+	                            )*
+	                            _ => panic!("unsupported arity {}", op.arity),
+	                        }
+	                    }
+	                }
+
+	                $crate::paste::paste! {
+	                    $(
+	                        $(
+	                            impl $crate::traits::HasOp<[<$Ops $op_name:camel>]> for $Ops {
+	                                const ID: u16 = [<__ $Ops _op_id_ $arity>]::[<$op_name:camel>] as u16;
+	                            }
+	                        )*
+	                    )*
+	                }
+	            };
+
+	            (@eval_body $args:ident { eval: $eval:expr, $($rest:tt)* }) => {
+	                ($eval)($args)
             };
             (@eval_body $args:ident { eval($eval_args:ident) $eval:block, $($rest:tt)* }) => {{
                 let $eval_args = $args;
@@ -1578,31 +1718,17 @@ pub mod scalar {
             )*
         )*
 
-        impl $crate::operator_enum::names::OpNames for $Ops {
-            fn op_name(op: $crate::operator_enum::scalar::OpId) -> &'static str {
-                match op.arity {
-                    $(
-                        $arity => match op.id {
-                            $(
-                                x if x == ($enum_name::$op_name as u16) => $crate::__default_op_str!($op_name),
-                            )*
-                            _ => "unknown_op",
-                        },
-                    )*
-                    _ => "unknown_op",
-                }
-            }
-        }
-
     };
 }
 
         #[macro_export]
         macro_rules! opset {
-    (
-        $vis:vis struct $Ops:ident<$t:ty>;
-        ops {
-            $(($arity:literal, $enum_name:ident) { $($op_name:ident,)* })*
+    (@max_arity $a:literal) => { $a as u8 };
+    (@max_arity $a:literal, $($rest:literal),+ $(,)?) => { $crate::opset!(@max_arity $($rest),+) };
+	    (
+	        $vis:vis struct $Ops:ident<$t:ty>;
+	        ops {
+	            $(($arity:literal, $enum_name:ident) { $($op_name:ident,)* })*
         }
     ) => {
         #[derive(Copy, Clone, Debug, Default)]
@@ -1625,7 +1751,7 @@ pub mod scalar {
                             $(
                                 x if x == ($enum_name::$op_name as u16) =>
                                     $crate::operator_enum::scalar::eval_nary::<$arity, $t>(
-                                        <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::eval,
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::eval,
                                         ctx.out,
                                         ctx.args,
                                         ctx.opts,
@@ -1648,8 +1774,8 @@ pub mod scalar {
                             $(
                                 x if x == ($enum_name::$op_name as u16) =>
                                     $crate::operator_enum::scalar::diff_nary::<$arity, $t>(
-                                        <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::eval,
-                                        <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::partial,
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::eval,
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::partial,
                                         ctx.out_val,
                                         ctx.out_der,
                                         ctx.args,
@@ -1674,8 +1800,8 @@ pub mod scalar {
                             $(
                                 x if x == ($enum_name::$op_name as u16) =>
                                     $crate::operator_enum::scalar::grad_nary::<$arity, $t>(
-                                        <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::eval,
-                                        <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::partial,
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::eval,
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::partial,
                                         ctx,
                                     ),
                             )*
@@ -1695,57 +1821,184 @@ pub mod scalar {
             )*
         )*
 
-        impl $crate::operator_enum::names::OpNames for $Ops {
-            fn op_name(op: $crate::operator_enum::scalar::OpId) -> &'static str {
-                match op.arity {
-                    $(
-                        $arity => match op.id {
-                            $(
-                                x if x == ($enum_name::$op_name as u16) => {
-                                    <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::DISPLAY
-                                }
-                            )*
-                            _ => "unknown_op",
-                        },
-                    )*
-                    _ => "unknown_op",
+            impl $crate::traits::OperatorSet for $Ops {
+                type T = $t;
+                const MAX_ARITY: u8 = $crate::opset!(@max_arity $($arity),*);
+
+                fn ops_with_arity(arity: u8) -> &'static [u16] {
+                    match arity {
+                        $(
+                            $arity => &[$($enum_name::$op_name as u16,)*],
+                        )*
+                        _ => &[],
+                    }
+                }
+
+                fn name(op: $crate::traits::OpId) -> &'static str {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) => {
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::NAME
+                                    }
+                                )*
+                                _ => "unknown_op",
+                            },
+                        )*
+                        _ => "unknown_op",
+                    }
+                }
+
+                fn display(op: $crate::traits::OpId) -> &'static str {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) => {
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::DISPLAY
+                                    }
+                                )*
+                                _ => "unknown_op",
+                            },
+                        )*
+                        _ => "unknown_op",
+                    }
+                }
+
+                fn infix(op: $crate::traits::OpId) -> Option<&'static str> {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) => {
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::INFIX
+                                    }
+                                )*
+                                _ => None,
+                            },
+                        )*
+                        _ => None,
+                    }
+                }
+
+                fn commutative(op: $crate::traits::OpId) -> bool {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) => {
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::COMMUTATIVE
+                                    }
+                                )*
+                                _ => false,
+                            },
+                        )*
+                        _ => false,
+                    }
+                }
+
+                fn associative(op: $crate::traits::OpId) -> bool {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) => {
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::ASSOCIATIVE
+                                    }
+                                )*
+                                _ => false,
+                            },
+                        )*
+                        _ => false,
+                    }
+                }
+
+                fn complexity(op: $crate::traits::OpId) -> u16 {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) => {
+                                        <$crate::operator_enum::builtin::$op_name as $crate::traits::Operator<$t, $arity>>::COMPLEXITY
+                                    }
+                                )*
+                                _ => 0,
+                            },
+                        )*
+                        _ => 0,
+                    }
+                }
+
+                fn eval(op: $crate::traits::OpId, ctx: $crate::dispatch::EvalKernelCtx<'_, '_, $t>) -> bool {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) =>
+                                        $crate::evaluate::kernels::eval_nary::<$arity, $t, $crate::operator_enum::builtin::$op_name>(
+                                            ctx.out,
+                                            ctx.args,
+                                            ctx.opts,
+                                        ),
+                                )*
+                                _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+                            },
+                        )*
+                        _ => panic!("unsupported arity {}", op.arity),
+                    }
+                }
+
+                fn diff(op: $crate::traits::OpId, ctx: $crate::dispatch::DiffKernelCtx<'_, '_, $t>) -> bool {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) =>
+                                        $crate::evaluate::kernels::diff_nary::<$arity, $t, $crate::operator_enum::builtin::$op_name>(
+                                            ctx.out_val,
+                                            ctx.out_der,
+                                            ctx.args,
+                                            ctx.dargs,
+                                            ctx.opts,
+                                        ),
+                                )*
+                                _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+                            },
+                        )*
+                        _ => panic!("unsupported arity {}", op.arity),
+                    }
+                }
+
+                fn grad(op: $crate::traits::OpId, ctx: $crate::dispatch::GradKernelCtx<'_, '_, $t>) -> bool {
+                    match op.arity {
+                        $(
+                            $arity => match op.id {
+                                $(
+                                    x if x == ($enum_name::$op_name as u16) =>
+                                        $crate::evaluate::kernels::grad_nary::<$arity, $t, $crate::operator_enum::builtin::$op_name>(
+                                            ctx,
+                                        ),
+                                )*
+                                _ => panic!("unknown op id {} for arity {}", op.id, op.arity),
+                            },
+                        )*
+                        _ => panic!("unsupported arity {}", op.arity),
+                    }
                 }
             }
-        }
 
-        impl $Ops {
-            pub const REGISTRY: &'static [$crate::operator_registry::OpInfo] = &[
+            $(
                 $(
-                    $(
-                        $crate::operator_registry::OpInfo {
-                            op: $crate::operator_enum::scalar::OpId {
-                                arity: $arity as u8,
-                                id: $enum_name::$op_name as u16,
-                            },
-                            name: <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::NAME,
-                            display: <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::DISPLAY,
-                            infix: <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::BuiltinOp<$t, $arity>>::INFIX,
-                            commutative: <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::OpMeta<$arity>>::COMMUTATIVE,
-                            associative: <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::OpMeta<$arity>>::ASSOCIATIVE,
-                            complexity: <$crate::operator_enum::builtin::$op_name as $crate::operator_enum::builtin::OpMeta<$arity>>::COMPLEXITY,
-                        },
-                    )*
+                    impl $crate::traits::HasOp<$crate::operator_enum::builtin::$op_name> for $Ops {
+                        const ID: u16 = $enum_name::$op_name as u16;
+                    }
                 )*
-            ];
-        }
-
-        impl $crate::operator_registry::OpRegistry for $Ops {
-            #[inline]
-            fn registry() -> &'static [$crate::operator_registry::OpInfo] {
-                Self::REGISTRY
-            }
-        }
-    };
-}
+            )*
+	    };
+	}
     }
 
     pub use kernels::*;
     pub use types::*;
 }
-
-pub use registry::{LookupError, OpInfo, OpRegistry};
