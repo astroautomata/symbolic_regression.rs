@@ -22,31 +22,6 @@ This workspace contains three crates:
 | [`dynamic_expressions`](./dynamic_expressions) | [![crates.io](https://img.shields.io/crates/v/dynamic_expressions)](https://crates.io/crates/dynamic_expressions) | [![CI (dynamic_expressions)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-dynamic-expressions.yml/badge.svg?branch=main)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-dynamic-expressions.yml) |
 | [`symbolic_regression_wasm`](./web/wasm) | [![crates.io](https://img.shields.io/crates/v/symbolic_regression_wasm)](https://crates.io/crates/symbolic_regression_wasm) | [![CI (Web UI)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-web.yml/badge.svg?branch=main)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-web.yml) |
 
-## CLI (`symreg`)
-
-This repo optionally ships an experimental CLI binary named `symreg`, behind the `cli` feature.
-
-Install from the git repo:
-
-```bash
-cargo install \
-  --git https://github.com/astro-automata/symbolic_regression.rs \
-  --package symbolic_regression \
-  --features cli \
-  --bin symreg
-```
-
-Run on a CSV dataset:
-
-```bash
-symreg data.csv --y target --x x1,x2,x3 --niterations=100 --populations=4 --population-size=64
-```
-
-Notes:
-
-- Use `symreg --list-operators` to see available builtin operators.
-- Quote operator lists in shells to avoid globbing (e.g. `--binary-operators='+,*'`).
-
 ## Low-level API
 
 Execute `examples/example.rs`, which is the standard example from the [`SymbolicRegression.jl` README](https://github.com/MilesCranmer/SymbolicRegression.jl).
@@ -129,40 +104,35 @@ use symbolic_regression::custom_opset;
 use symbolic_regression::prelude::*;
 
 custom_opset! {
-    pub struct CustomOps<T = f64>;
-
-    // Unary operators.
-    1 => {
-        square {
-            eval: |[x]| x * x,
-            partial: |[x]| 2.0 * x,
-        },
-        exp {
-            eval: |[x]| x.exp(),
-            partial: |[x]| x.exp(),
-        },
-    },
-
-    // Binary operators.
-    2 => {
-        add {
-            eval: |[x, y]| x + y,
-            partial: |[_, _], _idx| 1.0,
-        },
-        sub {
-            infix: "-",    // optional
-            complexity: 2, // optional
-            eval: |[x, y]| x - y,
-            partial: |[_, _], idx| if idx == 0 { 1.0 } else { -1.0 },
-        },
-    },
+    pub struct CustomOps<f64> {
+        1 {
+            square {
+                eval(args) { args[0] * args[0] },
+                partial(args, _idx) { 2.0 * args[0] },
+            }
+            exp {
+                eval(args) { args[0].exp() },
+                partial(args, _idx) { args[0].exp() },
+            }
+        }
+        2 {
+            add {
+                eval(args) { args[0] + args[1] },
+                partial(_args, _idx) { 1.0 },
+            }
+            sub {
+                infix: "-",    // optional
+                complexity: 2, // optional
+                eval(args) { args[0] - args[1] },
+                partial(_args, idx) {
+                    if idx == 0 { 1.0 } else { -1.0 }
+                },
+            }
+        }
+    }
 }
 
-let operators = CustomOps::from_names_by_arity(
-    &["square", "exp"],
-    &["add", "sub"],
-    &[],
-).unwrap();
+let operators = CustomOps::from_names_by_arity(&["square", "exp"], &["add", "sub"], &[]).unwrap();
 let options = Options::<f64, _> { operators, ..Default::default() };
 ```
 
