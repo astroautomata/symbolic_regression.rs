@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 
 use fastrand::Rng;
 use num_traits::Float;
@@ -13,9 +12,18 @@ fn sample_tournament_place(rng: &mut Rng, n: usize, p: f32) -> usize {
     if n <= 1 || p >= 1.0 {
         return 1;
     }
+    if p <= 0.0 {
+        panic!("tournament_selection_p must be > 0");
+    }
+    let q = 1.0 - (p as f64);
+    if q <= 0.0 {
+        return 1;
+    }
+
+    // Tournament sampling is typically called with small `n` (e.g. 10-30).
+    // Avoid `ln`/`pow` and just construct the (truncated) geometric weights.
     let mut weights = Vec::with_capacity(n);
     let mut cur = p as f64;
-    let q = 1.0 - (p as f64);
     for _ in 0..n {
         weights.push(cur);
         cur *= q;
@@ -49,8 +57,9 @@ pub fn best_of_sample<T: Float, Ops, const D: usize>(
     }
 
     let place = sample_tournament_place(rng, scored.len(), options.tournament_selection_p);
+    let place_index = (place - 1).min(scored.len() - 1);
     scored.sort_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(Ordering::Greater));
-    let chosen = scored[(place - 1).min(scored.len() - 1)].1;
+    let chosen = scored[place_index].1;
     pop.members[chosen].clone()
 }
 
@@ -83,26 +92,31 @@ pub(crate) fn weighted_index(rng: &mut Rng, weights: &[f64]) -> usize {
 }
 
 fn sample_indices(rng: &mut Rng, len: usize, n: usize) -> Vec<usize> {
-    if len == 0 || n == 0 {
-        return Vec::new();
-    }
     let take = n.min(len);
-
-    // Partial Fisher-Yates shuffle using an implicit permutation represented by a sparse map.
-    // Avoids allocating a `Vec<usize>` of length `len` for large populations.
-    let mut map: HashMap<usize, usize> = HashMap::with_capacity(take * 2);
-    let mut out: Vec<usize> = Vec::with_capacity(take);
-
-    for i in 0..take {
-        let j = rng.usize(i..len);
-        let vi = *map.get(&i).unwrap_or(&i);
-        let vj = *map.get(&j).unwrap_or(&j);
-        map.insert(i, vj);
-        map.insert(j, vi);
-        out.push(vj);
+    if len == 0 || n == 0 {
+        Vec::new()
+    } else if take == len {
+        (0..len).collect()
+    } else if take * take <= len {
+        // Rejection sampling is ~O(take^2) due to linear duplicate checks; partial shuffle is ~O(len).
+        // Choose based on which term dominates, avoiding overflow.
+        let mut out = Vec::with_capacity(take);
+        while out.len() < take {
+            let idx = rng.usize(0..len);
+            if !out.contains(&idx) {
+                out.push(idx);
+            }
+        }
+        out
+    } else {
+        let mut v: Vec<usize> = (0..len).collect();
+        for i in 0..take {
+            let j = rng.usize(i..len);
+            v.swap(i, j);
+        }
+        v.truncate(take);
+        v
     }
-
-    out
 }
 
 #[cfg(test)]
