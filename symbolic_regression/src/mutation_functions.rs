@@ -42,7 +42,7 @@ pub fn random_expr<T: Float, Ops, const D: usize, R: Rng>(
         let rem = target_size - nodes.len();
         let max_arity = rem.min(D);
         let arity = operators.sample_arity(rng, max_arity);
-        let op_id = operators.sample_op(rng, arity).op.id;
+        let op_id = operators.sample_op(rng, arity).id;
 
         let leaf_positions: Vec<usize> = nodes
             .iter()
@@ -91,7 +91,7 @@ pub fn random_expr_append_ops<T: Float, Ops, const D: usize, R: Rng>(
             break;
         }
         let arity = operators.sample_arity(rng, max_arity);
-        let op_id = operators.sample_op(rng, arity).op.id;
+        let op_id = operators.sample_op(rng, arity).id;
 
         let leaf_positions: Vec<usize> = expr
             .nodes
@@ -206,7 +206,7 @@ pub(crate) fn mutate_operator_in_place<T, Ops, const D: usize, R: Rng>(
 
     // Match SymbolicRegression.jl: sample uniformly among all operators of the same arity,
     // including the current one (i.e., this mutation can be a no-op).
-    let new_op = operators.sample_op(rng, a).op.id;
+    let new_op = operators.sample_op(rng, a).id;
     expr.nodes[i] = PNode::Op { arity, op: new_op };
     true
 }
@@ -389,7 +389,7 @@ pub fn insert_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
     let old_sub: Vec<PNode> = expr.nodes[start..=end].to_vec();
 
     let arity = operators.sample_arity(rng, D);
-    let op_id = operators.sample_op(rng, arity).op.id;
+    let op_id = operators.sample_op(rng, arity).id;
     let carry_pos = rng.random_range(0..arity);
 
     let mut new_sub: Vec<PNode> = Vec::new();
@@ -422,7 +422,7 @@ pub(crate) fn prepend_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
         return false;
     }
     let arity = operators.sample_arity(rng, D);
-    let op_id = operators.sample_op(rng, arity).op.id;
+    let op_id = operators.sample_op(rng, arity).id;
     let carry_pos = rng.random_range(0..arity);
 
     let old = expr.nodes.clone();
@@ -468,7 +468,7 @@ pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize, R: Rng>(
     let leaf_idx = leaf_positions[rng.random_range(0..leaf_positions.len())];
 
     let arity = operators.sample_arity(rng, D);
-    let op_id = operators.sample_op(rng, arity).op.id;
+    let op_id = operators.sample_op(rng, arity).id;
 
     let mut replace_with: Vec<PNode> = Vec::with_capacity(arity + 1);
     for _ in 0..arity {

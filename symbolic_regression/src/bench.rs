@@ -1,7 +1,7 @@
+use dynamic_expressions::OperatorSet;
 use dynamic_expressions::expression::{Metadata, PostfixExpr};
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
-use dynamic_expressions::operator_registry::OpRegistry;
 use dynamic_expressions::utils::ZipEq;
 use ndarray::{Array1, Array2};
 use rand::SeedableRng;
@@ -71,8 +71,8 @@ pub fn bfgs_quadratic_n16() -> Option<(Vec<f64>, f64)> {
 }
 
 fn build_linear_expr_for_constant_optimization() -> PostfixExpr<T, Ops, D> {
-    let mul = <Ops as OpRegistry>::lookup("*").unwrap().op;
-    let add = <Ops as OpRegistry>::lookup("+").unwrap().op;
+    let mul = Ops::lookup("*").unwrap();
+    let add = Ops::lookup("+").unwrap();
 
     // expr: c0 * x0 + c1
     PostfixExpr::new(

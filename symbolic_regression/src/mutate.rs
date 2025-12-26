@@ -162,8 +162,7 @@ impl MutationChoice {
         ctx: MutationApplyCtx<'_, '_, T, Ops, D, R>,
     ) -> MutationOutcome<T, Ops, D>
     where
-        Ops: dynamic_expressions::operator_enum::scalar::ScalarOpSet<T>
-            + dynamic_expressions::operator_registry::OpRegistry,
+        Ops: dynamic_expressions::OperatorSet<T = T>,
     {
         let MutationApplyCtx {
             rng,
@@ -300,8 +299,7 @@ pub fn next_generation<
     ctx: NextGenerationCtx<'_, T, Ops, D, R>,
 ) -> (PopMember<T, Ops, D>, bool, f64)
 where
-    Ops:
-        dynamic_expressions::operator_enum::scalar::ScalarOpSet<T> + dynamic_expressions::operator_registry::OpRegistry,
+    Ops: dynamic_expressions::OperatorSet<T = T>,
 {
     let NextGenerationCtx {
         rng,
@@ -434,7 +432,7 @@ pub fn crossover_generation<T: Float + AddAssign, Ops, const D: usize, R: Rng>(
     ctx: CrossoverCtx<'_, T, Ops, D, R>,
 ) -> (PopMember<T, Ops, D>, PopMember<T, Ops, D>, bool, f64)
 where
-    Ops: dynamic_expressions::operator_enum::scalar::ScalarOpSet<T>,
+    Ops: dynamic_expressions::OperatorSet<T = T>,
 {
     let CrossoverCtx {
         rng,
