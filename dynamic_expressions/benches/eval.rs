@@ -223,7 +223,7 @@ where
     T: Float + Send + Sync,
     Ops: OpRegistry + ScalarOpSet<T> + Send + Sync,
 {
-    let mut rng = StdRng::seed_from_u64(2);
+    let mut rng = Rng::with_seed(2);
     let sizes = [8usize, 20, 64, 128];
     let mut group = c.benchmark_group(format!("utilities/{type_name}/count_depth_sizes"));
 
