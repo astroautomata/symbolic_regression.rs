@@ -66,6 +66,11 @@ pub fn default_search_options() -> Result<JsValue, JsValue> {
     to_value(&opts).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+#[wasm_bindgen]
+pub fn default_core_options() -> Result<JsValue, JsValue> {
+    to_value(&WasmOptionsShim::default()).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 fn shuffle<T>(rng: &mut Rng, values: &mut [T]) {
     if values.len() <= 1 {
         return;

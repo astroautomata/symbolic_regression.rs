@@ -2,6 +2,7 @@ import { create } from "zustand";
 import * as Papa from "papaparse";
 import initWasm, {
   builtin_operator_registry,
+  default_core_options,
   default_search_options,
 } from "../pkg/symbolic_regression_wasm.js";
 import { DEFAULT_CSV } from "../generated/defaultCsv";
@@ -146,10 +147,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       await initWasm();
 
-      const [ops, defaults] = await Promise.all([builtin_operator_registry(), default_search_options()]);
+      const [ops, defaults, coreDefaults] = await Promise.all([
+        builtin_operator_registry(),
+        default_search_options(),
+        default_core_options()
+      ]);
 
       const operatorRegistry = ops as WasmOpInfo[];
-      const defaultOptions = defaults as WasmSearchOptions;
+      const uiDefaults = defaults as any;
+      const engineKnobDefaults = coreDefaults as any;
+      const defaultOptions = { ...uiDefaults, ...engineKnobDefaults } as any as WasmSearchOptions;
+      delete (defaultOptions as any).core;
       set({
         wasmLoaded: true,
         operatorRegistry,
