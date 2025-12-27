@@ -124,6 +124,8 @@ macro_rules! sr_options_spec {
                     (true, should_simplify, "should-simplify"),
                 batching:
                     (false, batching, "batching"),
+                deterministic:
+                    (false, deterministic, "deterministic"),
             }
         }
     };

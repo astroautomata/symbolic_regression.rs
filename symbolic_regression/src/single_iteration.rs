@@ -21,7 +21,6 @@ pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut dynamic_expressions::GradContext<T, D>,
     pub next_id: &'a mut u64,
-    pub next_birth: &'a mut u64,
     pub _ops: core::marker::PhantomData<Ops>,
 }
 
@@ -59,7 +58,6 @@ where
                 options: ctx.options,
                 evaluator: ctx.evaluator,
                 next_id: ctx.next_id,
-                next_birth: ctx.next_birth,
                 _ops: core::marker::PhantomData,
             },
         );
@@ -101,7 +99,6 @@ where
                         options: ctx.options,
                         evaluator: ctx.evaluator,
                         grad_ctx: ctx.grad_ctx,
-                        next_birth: ctx.next_birth,
                     },
                 );
                 let _ = improved;

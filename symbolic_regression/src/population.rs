@@ -24,7 +24,7 @@ impl<T: Float, Ops, const D: usize> Population<T, Ops, D> {
             .members
             .iter()
             .enumerate()
-            .min_by_key(|(_, m)| m.birth)
+            .min_by_key(|(_, m)| m.birth.expect("member.birth must be initialized"))
             .expect("population must be non-empty");
         idx
     }
@@ -33,7 +33,7 @@ impl<T: Float, Ops, const D: usize> Population<T, Ops, D> {
         let mut first: Option<(usize, u64)> = None;
         let mut second: Option<(usize, u64)> = None;
         for (i, m) in self.members.iter().enumerate() {
-            let b = m.birth;
+            let b = m.birth.expect("member.birth must be initialized");
             match first {
                 None => first = Some((i, b)),
                 Some((_, bf)) if b < bf => {

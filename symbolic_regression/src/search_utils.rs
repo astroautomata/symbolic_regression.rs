@@ -60,7 +60,6 @@ pub(crate) struct PopState<T: Float + AddAssign, Ops, const D: usize> {
     pub(crate) rng: Rng,
     pub(crate) batch_dataset: Option<Dataset<T>>,
     pub(crate) next_id: u64,
-    pub(crate) next_birth: u64,
 }
 
 impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
@@ -111,7 +110,6 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             evaluator: &mut self.evaluator,
             grad_ctx: &mut self.grad_ctx,
             next_id: &mut self.next_id,
-            next_birth: &mut self.next_birth,
             _ops: core::marker::PhantomData,
         };
 
@@ -484,7 +482,7 @@ fn apply_task_result<T, Ops, const D: usize>(
             options.fraction_replaced,
             &mut st.rng,
             &mut st.next_id,
-            &mut st.next_birth,
+            options.deterministic,
         );
     }
 
@@ -496,7 +494,7 @@ fn apply_task_result<T, Ops, const D: usize>(
             options.fraction_replaced_hof,
             &mut st.rng,
             &mut st.next_id,
-            &mut st.next_birth,
+            options.deterministic,
         );
     }
 
@@ -580,7 +578,6 @@ where
         let grad_ctx = dynamic_expressions::GradContext::new(dataset.n_rows);
 
         let mut next_id = (pop_i as u64) << 32;
-        let mut next_birth = 0u64;
 
         let nlength = 3usize;
         let mut members = Vec::with_capacity(options.population_size);
@@ -592,9 +589,8 @@ where
                 nlength,
                 options.maxsize,
             );
-            let mut m = PopMember::from_expr(MemberId(next_id), None, next_birth, expr, dataset.n_features);
+            let mut m = PopMember::from_expr(MemberId(next_id), None, expr, dataset.n_features, options);
             next_id += 1;
-            next_birth += 1;
             let _ = m.evaluate(&full_dataset, options, &mut evaluator);
             total_evals += 1;
             hall.consider(&m, options, options.maxsize);
@@ -608,7 +604,6 @@ where
             rng,
             batch_dataset: None,
             next_id,
-            next_birth,
         }));
     }
 
