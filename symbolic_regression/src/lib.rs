@@ -27,6 +27,7 @@ pub(crate) mod regularized_evolution;
 pub(crate) mod search_utils;
 pub(crate) mod selection;
 pub(crate) mod single_iteration;
+pub(crate) mod stop_controller;
 pub(crate) mod warmup;
 
 #[cfg(feature = "bench")]

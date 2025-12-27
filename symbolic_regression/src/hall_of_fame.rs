@@ -16,6 +16,9 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
     }
 
     pub fn consider(&mut self, member: &PopMember<T, Ops, D>, options: &Options<T, D>, curmaxsize: usize) {
+        if !member.loss.is_finite() {
+            return;
+        }
         if !check_constraints(&member.expr, options, curmaxsize) {
             return;
         }

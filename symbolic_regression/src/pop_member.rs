@@ -1,3 +1,7 @@
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::{EvalOptions, EvalPlan};
 use num_traits::Float;
@@ -20,6 +24,34 @@ pub struct PopMember<T: Float, Ops, const D: usize> {
     pub complexity: usize,
     pub loss: T,
     pub cost: T,
+}
+
+static PSEUDO_TIME: OnceLock<AtomicU64> = OnceLock::new();
+
+fn pseudo_time() -> &'static AtomicU64 {
+    PSEUDO_TIME.get_or_init(|| AtomicU64::new(0))
+}
+
+pub(crate) fn get_birth_order(deterministic: bool) -> u64 {
+    if deterministic {
+        // SymbolicRegression.jl: `pseudo_time[] += 1; return pseudo_time[]`
+        return pseudo_time().fetch_add(1, Ordering::Relaxed).saturating_add(1);
+    }
+
+    // SymbolicRegression.jl: `round(Int, 1e7 * time())`
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must be after UNIX_EPOCH");
+    let secs = dur.as_secs();
+    let nanos = dur.subsec_nanos() as u64;
+    // Round to the nearest 100ns tick (for positive values, ties round up).
+    let ticks_1e7 = nanos.saturating_add(50) / 100;
+    secs.saturating_mul(10_000_000).saturating_add(ticks_1e7)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_pseudo_time_for_tests() {
+    pseudo_time().store(0, Ordering::Relaxed);
 }
 
 impl<T: Float, Ops, const D: usize> Clone for PopMember<T, Ops, D> {
@@ -69,6 +101,26 @@ where
     pub fn from_expr(
         id: MemberId,
         parent: Option<MemberId>,
+        expr: PostfixExpr<T, Ops, D>,
+        n_features: usize,
+        options: &Options<T, D>,
+    ) -> Self {
+        let plan = dynamic_expressions::compile_plan(&expr.nodes, n_features, expr.consts.len());
+        Self {
+            id,
+            parent,
+            birth: get_birth_order(options.deterministic),
+            expr,
+            plan,
+            complexity: 0,
+            loss: T::infinity(),
+            cost: T::infinity(),
+        }
+    }
+
+    pub fn from_expr_with_birth(
+        id: MemberId,
+        parent: Option<MemberId>,
         birth: u64,
         expr: PostfixExpr<T, Ops, D>,
         n_features: usize,
@@ -96,6 +148,7 @@ where
         options: &Options<T, D>,
         evaluator: &mut Evaluator<T, D>,
     ) -> bool {
+        evaluator.ensure_n_rows(dataset.n_rows);
         let ok = dynamic_expressions::eval_plan_array_into(
             &mut evaluator.yhat,
             &self.plan,
@@ -118,6 +171,11 @@ where
             dataset.y.as_slice().unwrap(),
             dataset.weights.as_ref().and_then(|w| w.as_slice()),
         );
+        if loss.is_nan() {
+            self.loss = loss;
+            self.cost = T::nan();
+            return false;
+        }
         if !loss.is_finite() {
             self.loss = T::infinity();
             self.cost = T::infinity();

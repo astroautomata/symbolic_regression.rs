@@ -8,7 +8,7 @@ use num_traits::{Float, FromPrimitive, ToPrimitive};
 use crate::dataset::{Dataset, TaggedDataset};
 use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize, newton_1d_minimize};
 use crate::options::Options;
-use crate::pop_member::{Evaluator, PopMember};
+use crate::pop_member::{Evaluator, PopMember, get_birth_order};
 use crate::random::standard_normal;
 
 struct EvalWorkspace<'a, T: Float + AddAssign, const D: usize> {
@@ -198,13 +198,10 @@ where
         options,
         evaluator,
         grad_ctx,
-        next_birth,
     } = ctx;
     let dataset_ref: &Dataset<T> = dataset.data;
-
-    if !options.should_optimize_constants {
-        return (false, 0.0);
-    }
+    evaluator.ensure_n_rows(dataset.n_rows);
+    grad_ctx.n_rows = dataset.n_rows;
     let n_params = member.expr.consts.len();
     if n_params == 0 {
         return (false, 0.0);
@@ -278,8 +275,7 @@ where
             return (false, n_evals as f64);
         }
         n_evals = n_evals.saturating_add(1);
-        member.birth = *next_birth;
-        *next_birth += 1;
+        member.birth = get_birth_order(options.deterministic);
         (true, n_evals as f64)
     } else {
         member.expr.consts = orig_consts;
@@ -295,5 +291,4 @@ pub struct OptimizeConstantsCtx<'a, 'd, T: Float, const D: usize> {
     pub options: &'a Options<T, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut GradContext<T, D>,
-    pub next_birth: &'a mut u64,
 }

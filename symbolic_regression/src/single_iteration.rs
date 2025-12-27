@@ -11,6 +11,7 @@ use crate::options::Options;
 use crate::pop_member::Evaluator;
 use crate::population::Population;
 use crate::regularized_evolution::{RegEvolCtx, reg_evol_cycle};
+use crate::stop_controller::StopController;
 
 pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub rng: &'a mut Rng,
@@ -21,7 +22,7 @@ pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut dynamic_expressions::GradContext<T, D>,
     pub next_id: &'a mut u64,
-    pub next_birth: &'a mut u64,
+    pub controller: &'a StopController,
     pub _ops: core::marker::PhantomData<Ops>,
 }
 
@@ -42,6 +43,9 @@ where
     best_seen.update_from_members(&pop.members, ctx.options, ctx.curmaxsize);
 
     for i in 0..ncycles {
+        if ctx.controller.is_cancelled() {
+            break;
+        }
         let temperature = if ncycles <= 1 {
             max_temp
         } else {
@@ -59,7 +63,7 @@ where
                 options: ctx.options,
                 evaluator: ctx.evaluator,
                 next_id: ctx.next_id,
-                next_birth: ctx.next_birth,
+                controller: ctx.controller,
                 _ops: core::marker::PhantomData,
             },
         );
@@ -81,6 +85,9 @@ where
 
     if ctx.options.should_simplify {
         for m in &mut pop.members {
+            if ctx.controller.is_cancelled() {
+                return num_evals;
+            }
             let changed = dynamic_expressions::simplify_in_place(&mut m.expr, &ctx.evaluator.eval_opts);
             if changed {
                 m.rebuild_plan(ctx.full_dataset.n_features);
@@ -92,6 +99,9 @@ where
         ctx.evaluator.ensure_n_rows(opt_dataset.n_rows);
         ctx.grad_ctx.n_rows = opt_dataset.n_rows;
         for m in &mut pop.members {
+            if ctx.controller.is_cancelled() {
+                return num_evals;
+            }
             if ctx.rng.f64() < ctx.options.optimizer_probability {
                 let (improved, evals) = optimize_constants(
                     ctx.rng,
@@ -101,7 +111,6 @@ where
                         options: ctx.options,
                         evaluator: ctx.evaluator,
                         grad_ctx: ctx.grad_ctx,
-                        next_birth: ctx.next_birth,
                     },
                 );
                 let _ = improved;
@@ -110,10 +119,17 @@ where
         }
     }
 
-    ctx.evaluator.ensure_n_rows(ctx.full_dataset.n_rows);
-    for m in &mut pop.members {
-        let _ = m.evaluate(&ctx.full_dataset, ctx.options, ctx.evaluator);
-        num_evals += 1.0;
+    // Match SymbolicRegression.jl `finalize_costs`: only re-evaluate on the full dataset when
+    // batching is enabled (i.e., members were evolved on a batch and need final losses/costs).
+    if ctx.options.batching {
+        ctx.evaluator.ensure_n_rows(ctx.full_dataset.n_rows);
+        for m in &mut pop.members {
+            if ctx.controller.is_cancelled() {
+                return num_evals;
+            }
+            let _ = m.evaluate(&ctx.full_dataset, ctx.options, ctx.evaluator);
+            num_evals += 1.0;
+        }
     }
 
     num_evals
