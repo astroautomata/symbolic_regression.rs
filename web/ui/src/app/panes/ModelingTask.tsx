@@ -331,7 +331,7 @@ export function ModelingTask(): React.ReactElement {
             <section className="section fullWidth">
               <div className="subTitle">Mutation weights</div>
               <div className="mutationWeightsGrid">
-                {Object.entries(options.mutation_weights).map(([k, v]) => (
+                {Object.entries(options.mutation_weights ?? {}).map(([k, v]) => (
                   <label key={k} className="field">
                     <div className="label">{k}</div>
                     <input

@@ -38,14 +38,16 @@ rayon = "1"
 [features]
 default = ["progress"]
 progress = ["dep:indicatif", "dep:console"]
+serde = ["dep:serde"]
+serde_json = ["dep:serde_json", "serde"]
 cli = [
     "progress",
     "dep:anyhow",
     "dep:clap",
     "dep:csv",
     "dep:calamine",
-    "dep:serde",
-    "dep:serde_json",
+    "serde",
+    "serde_json",
 ]
 bench = []
 [dev-dependencies]

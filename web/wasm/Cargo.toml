@@ -29,7 +29,7 @@ csv = "1"
 ndarray = "0.17"
 fastrand = "2.3"
 
-symbolic_regression = { version = "0.10.0", path = "../../symbolic_regression", default-features = false }
+symbolic_regression = { version = "0.10.0", path = "../../symbolic_regression", default-features = false, features = ["serde"] }
 dynamic_expressions = { version = "0.9.0", path = "../../dynamic_expressions", default-features = false }
 
 [features]
@@ -43,3 +43,6 @@ optional = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-rayon = "1"
+
+[dev-dependencies]
+serde_json = "1"

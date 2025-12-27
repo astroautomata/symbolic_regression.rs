@@ -44,7 +44,7 @@ pub use hall_of_fame::HallOfFame;
 pub use loss_functions::{LossKind, epsilon_insensitive, huber, log_cosh, lp, mae, make_loss, mse, quantile, rmse};
 pub use operator_library::OperatorLibrary;
 pub use operators::{OperatorSelectError, Operators};
-pub use options::{MutationWeights, Options, OutputStyle};
+pub use options::{MutationWeights, Options, OutputStyle, WasmOptionsShim};
 pub use pop_member::{MemberId, PopMember};
 pub use search_utils::{SearchEngine, SearchResult, equation_search};
 #[cfg(feature = "bench")]

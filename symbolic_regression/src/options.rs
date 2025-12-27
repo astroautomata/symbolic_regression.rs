@@ -132,6 +132,8 @@ macro_rules! sr_options_spec {
 #[rustfmt::skip]
 macro_rules! __define_mutation_weights {
     ( $( $name:ident: ($ty:ty, $default:expr, $cli_long:literal), )* ) => {
+        #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+        #[cfg_attr(feature = "serde", serde(default))]
         #[derive(Clone, Debug)]
         pub struct MutationWeights {
             $(pub $name: $ty,)*
@@ -206,6 +208,51 @@ macro_rules! __define_options {
 }
 
 sr_options_spec!(__define_options);
+
+macro_rules! __define_wasm_options_shim {
+    (
+        values { $( $name:ident: ($ty:ty, $default:expr, $cli_long:literal), )* }
+        neg_flags { $( $iname:ident: ($bdefault:expr, $cli_name:ident, $cli_blong:literal), )* }
+        pos_flags { $( $pname:ident: ($pdefault:expr, $cli_pname:ident, $cli_plong:literal), )* }
+    ) => {
+        /// Serde-friendly "wire-format" representation of the SR engine's tunable knobs.
+        ///
+        /// This contains only the option fields listed in `sr_options_spec!` plus
+        /// `mutation_weights`, and can be applied to an `Options` instance.
+        #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+        #[cfg_attr(feature = "serde", serde(default))]
+        #[derive(Clone, Debug)]
+        pub struct WasmOptionsShim {
+            $(pub $name: $ty,)*
+            $(pub $iname: bool,)*
+            $(pub $pname: bool,)*
+
+            pub mutation_weights: MutationWeights,
+        }
+
+        impl Default for WasmOptionsShim {
+            fn default() -> Self {
+                Self {
+                    $($name: $default,)*
+                    $($iname: $bdefault,)*
+                    $($pname: $pdefault,)*
+                    mutation_weights: MutationWeights::default(),
+                }
+            }
+        }
+
+        impl WasmOptionsShim {
+            pub fn apply_to<T: Float, const D: usize>(&self, opt: &mut Options<T, D>) {
+                $(opt.$name = self.$name;)*
+                $(opt.$iname = self.$iname;)*
+                $(opt.$pname = self.$pname;)*
+                opt.mutation_weights = self.mutation_weights.clone();
+            }
+        }
+    };
+}
+
+sr_options_spec!(__define_wasm_options_shim);
 
 impl<T: Float, const D: usize> Options<T, D> {
     pub fn uses_default_complexity(&self) -> bool {

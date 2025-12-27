@@ -9,7 +9,7 @@ use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
-use symbolic_regression::{Dataset, LossKind, MutationWeights, Operators, Options, SearchEngine};
+use symbolic_regression::{Dataset, LossKind, Operators, Options, SearchEngine, WasmOptionsShim};
 use wasm_bindgen::prelude::*;
 
 type FullDatasetParts = (Dataset<f64>, Vec<String>, Option<Array1<f64>>);
@@ -62,26 +62,8 @@ pub fn builtin_operator_registry() -> Result<JsValue, JsValue> {
 
 #[wasm_bindgen]
 pub fn default_search_options() -> Result<JsValue, JsValue> {
-    to_value(&WasmSearchOptions::default()).map_err(|e| JsValue::from_str(&e.to_string()))
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct WasmMutationWeights {
-    pub mutate_constant: f64,
-    pub mutate_operator: f64,
-    pub mutate_feature: f64,
-    pub swap_operands: f64,
-    pub rotate_tree: f64,
-    pub add_node: f64,
-    pub insert_node: f64,
-    pub delete_node: f64,
-    pub simplify: f64,
-    pub randomize: f64,
-    pub do_nothing: f64,
-    pub optimize: f64,
-    pub form_connection: f64,
-    pub break_connection: f64,
+    let opts = WasmSearchOptions::default();
+    to_value(&opts).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 fn shuffle<T>(rng: &mut Rng, values: &mut [T]) {
@@ -91,47 +73,6 @@ fn shuffle<T>(rng: &mut Rng, values: &mut [T]) {
     for i in (1..values.len()).rev() {
         let j = rng.usize(0..=i);
         values.swap(i, j);
-    }
-}
-
-impl Default for WasmMutationWeights {
-    fn default() -> Self {
-        let w = MutationWeights::default();
-        Self {
-            mutate_constant: w.mutate_constant,
-            mutate_operator: w.mutate_operator,
-            mutate_feature: w.mutate_feature,
-            swap_operands: w.swap_operands,
-            rotate_tree: w.rotate_tree,
-            add_node: w.add_node,
-            insert_node: w.insert_node,
-            delete_node: w.delete_node,
-            simplify: w.simplify,
-            randomize: w.randomize,
-            do_nothing: w.do_nothing,
-            optimize: w.optimize,
-            form_connection: w.form_connection,
-            break_connection: w.break_connection,
-        }
-    }
-}
-
-impl WasmMutationWeights {
-    fn apply_to(&self, w: &mut MutationWeights) {
-        w.mutate_constant = self.mutate_constant;
-        w.mutate_operator = self.mutate_operator;
-        w.mutate_feature = self.mutate_feature;
-        w.swap_operands = self.swap_operands;
-        w.rotate_tree = self.rotate_tree;
-        w.add_node = self.add_node;
-        w.insert_node = self.insert_node;
-        w.delete_node = self.delete_node;
-        w.simplify = self.simplify;
-        w.randomize = self.randomize;
-        w.do_nothing = self.do_nothing;
-        w.optimize = self.optimize;
-        w.form_connection = self.form_connection;
-        w.break_connection = self.break_connection;
     }
 }
 
@@ -152,53 +93,12 @@ pub struct WasmSearchOptions {
     pub quantile_tau: f64,
     pub epsilon_insensitive_eps: f64,
 
-    // Core options (mirrors symbolic_regression::Options fields)
-    pub seed: u64,
-    pub niterations: usize,
-    pub populations: usize,
-    pub population_size: usize,
-    pub ncycles_per_iteration: usize,
-    pub batch_size: usize,
-    pub complexity_of_constants: u16,
-    pub complexity_of_variables: u16,
-    pub maxsize: usize,
-    pub maxdepth: usize,
-    pub warmup_maxsize_by: f32,
-    pub parsimony: f64,
-    pub adaptive_parsimony_scaling: f64,
-    pub crossover_probability: f64,
-    pub perturbation_factor: f64,
-    pub probability_negate_constant: f64,
-    pub tournament_selection_n: usize,
-    pub tournament_selection_p: f32,
-    pub alpha: f64,
-    pub optimizer_nrestarts: usize,
-    pub optimizer_probability: f64,
-    pub optimizer_iterations: usize,
-    pub optimizer_f_calls_limit: usize,
-    pub fraction_replaced: f64,
-    pub fraction_replaced_hof: f64,
-    pub fraction_replaced_guesses: f64,
-    pub topn: usize,
-
-    pub use_frequency: bool,
-    pub use_frequency_in_tournament: bool,
-    pub skip_mutation_failures: bool,
-    pub annealing: bool,
-    pub should_optimize_constants: bool,
-    pub migration: bool,
-    pub hof_migration: bool,
-    pub use_baseline: bool,
-    pub progress: bool,
-    pub should_simplify: bool,
-    pub batching: bool,
-
-    pub mutation_weights: WasmMutationWeights,
+    #[serde(flatten)]
+    pub core: WasmOptionsShim,
 }
 
 impl Default for WasmSearchOptions {
     fn default() -> Self {
-        let o = Options::<f64, 3>::default();
         Self {
             has_headers: true,
             x_columns: None,
@@ -211,48 +111,7 @@ impl Default for WasmSearchOptions {
             lp_p: 2.0,
             quantile_tau: 0.5,
             epsilon_insensitive_eps: 0.1,
-
-            seed: o.seed,
-            niterations: o.niterations,
-            populations: o.populations,
-            population_size: o.population_size,
-            ncycles_per_iteration: o.ncycles_per_iteration,
-            batch_size: o.batch_size,
-            complexity_of_constants: o.complexity_of_constants,
-            complexity_of_variables: o.complexity_of_variables,
-            maxsize: o.maxsize,
-            maxdepth: o.maxdepth,
-            warmup_maxsize_by: o.warmup_maxsize_by,
-            parsimony: o.parsimony,
-            adaptive_parsimony_scaling: o.adaptive_parsimony_scaling,
-            crossover_probability: o.crossover_probability,
-            perturbation_factor: o.perturbation_factor,
-            probability_negate_constant: o.probability_negate_constant,
-            tournament_selection_n: o.tournament_selection_n,
-            tournament_selection_p: o.tournament_selection_p,
-            alpha: o.alpha,
-            optimizer_nrestarts: o.optimizer_nrestarts,
-            optimizer_probability: o.optimizer_probability,
-            optimizer_iterations: o.optimizer_iterations,
-            optimizer_f_calls_limit: o.optimizer_f_calls_limit,
-            fraction_replaced: o.fraction_replaced,
-            fraction_replaced_hof: o.fraction_replaced_hof,
-            fraction_replaced_guesses: o.fraction_replaced_guesses,
-            topn: o.topn,
-
-            use_frequency: o.use_frequency,
-            use_frequency_in_tournament: o.use_frequency_in_tournament,
-            skip_mutation_failures: o.skip_mutation_failures,
-            annealing: o.annealing,
-            should_optimize_constants: o.should_optimize_constants,
-            migration: o.migration,
-            hof_migration: o.hof_migration,
-            use_baseline: o.use_baseline,
-            progress: o.progress,
-            should_simplify: o.should_simplify,
-            batching: o.batching,
-
-            mutation_weights: WasmMutationWeights::default(),
+            core: WasmOptionsShim::default(),
         }
     }
 }
@@ -344,7 +203,7 @@ impl WasmSearch {
         let (dataset_all, variable_names, weights_all) =
             build_full_dataset(&headers, &rows, &opts).map_err(|e| JsValue::from_str(&e))?;
 
-        let split = make_split_indices(dataset_all.n_rows, opts.validation_fraction, opts.seed);
+        let split = make_split_indices(dataset_all.n_rows, opts.validation_fraction, opts.core.seed);
         let (train, val) = split_train_val(&dataset_all, weights_all.as_ref(), &variable_names, &split)
             .map_err(|e| JsValue::from_str(&e))?;
 
@@ -435,56 +294,14 @@ fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Resul
         }
     };
 
-    let mut mutation_weights = MutationWeights::default();
-    opts.mutation_weights.apply_to(&mut mutation_weights);
-
     let mut out = Options::<f64, 3> {
         operators,
         ..Default::default()
     };
 
-    out.seed = opts.seed;
-    out.niterations = opts.niterations;
-    out.populations = opts.populations;
-    out.population_size = opts.population_size;
-    out.ncycles_per_iteration = opts.ncycles_per_iteration;
-    out.batch_size = opts.batch_size;
-    out.complexity_of_constants = opts.complexity_of_constants;
-    out.complexity_of_variables = opts.complexity_of_variables;
-    out.maxsize = opts.maxsize;
-    out.maxdepth = opts.maxdepth;
-    out.warmup_maxsize_by = opts.warmup_maxsize_by;
-    out.parsimony = opts.parsimony;
-    out.adaptive_parsimony_scaling = opts.adaptive_parsimony_scaling;
-    out.crossover_probability = opts.crossover_probability;
-    out.perturbation_factor = opts.perturbation_factor;
-    out.probability_negate_constant = opts.probability_negate_constant;
-    out.tournament_selection_n = opts.tournament_selection_n;
-    out.tournament_selection_p = opts.tournament_selection_p;
-    out.alpha = opts.alpha;
-    out.optimizer_nrestarts = opts.optimizer_nrestarts;
-    out.optimizer_probability = opts.optimizer_probability;
-    out.optimizer_iterations = opts.optimizer_iterations;
-    out.optimizer_f_calls_limit = opts.optimizer_f_calls_limit;
-    out.fraction_replaced = opts.fraction_replaced;
-    out.fraction_replaced_hof = opts.fraction_replaced_hof;
-    out.fraction_replaced_guesses = opts.fraction_replaced_guesses;
-    out.topn = opts.topn;
-
-    out.use_frequency = opts.use_frequency;
-    out.use_frequency_in_tournament = opts.use_frequency_in_tournament;
-    out.skip_mutation_failures = opts.skip_mutation_failures;
-    out.annealing = opts.annealing;
-    out.should_optimize_constants = opts.should_optimize_constants;
-    out.migration = opts.migration;
-    out.hof_migration = opts.hof_migration;
-    out.use_baseline = opts.use_baseline;
+    opts.core.apply_to(&mut out);
     // Keep browser output clean (and default-features disables progress anyway).
     out.progress = false;
-    out.should_simplify = opts.should_simplify;
-    out.batching = opts.batching;
-
-    out.mutation_weights = mutation_weights;
     out.loss = symbolic_regression::make_loss::<f64>(loss_kind);
 
     Ok(out)
@@ -891,4 +708,47 @@ fn select_rows(
         }
     }
     Ok((xo, yo, wo))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WasmSearchOptions;
+
+    #[test]
+    fn wasm_options_shim_defaults_match_known_spec_values() {
+        let core = WasmSearchOptions::default().core;
+        assert_eq!(core.seed, 0);
+        assert_eq!(core.niterations, 100);
+        assert_eq!(core.populations, 31);
+        assert_eq!(core.population_size, 27);
+        assert_eq!(core.maxsize, 30);
+        assert_eq!(core.maxdepth, 30);
+        assert!(core.progress);
+        assert!(!core.batching);
+    }
+
+    #[test]
+    fn wasm_search_options_flattened_serde_shape_has_no_core_field() {
+        let opts = WasmSearchOptions::default();
+        let v = serde_json::to_value(&opts).unwrap();
+        let obj = v.as_object().unwrap();
+        assert!(obj.contains_key("seed"));
+        assert!(obj.contains_key("mutation_weights"));
+        assert!(!obj.contains_key("core"));
+    }
+
+    #[test]
+    fn wasm_options_shim_apply_to_patches_core_options() {
+        let mut core = WasmSearchOptions::default().core;
+        core.seed = 123;
+        core.niterations = 9;
+        core.progress = false;
+
+        let mut opt: symbolic_regression::Options<f64, 3> = Default::default();
+        core.apply_to(&mut opt);
+
+        assert_eq!(opt.seed, 123);
+        assert_eq!(opt.niterations, 9);
+        assert!(!opt.progress);
+    }
 }
