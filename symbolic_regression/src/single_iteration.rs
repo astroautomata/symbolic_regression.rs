@@ -110,10 +110,14 @@ where
         }
     }
 
-    ctx.evaluator.ensure_n_rows(ctx.full_dataset.n_rows);
-    for m in &mut pop.members {
-        let _ = m.evaluate(&ctx.full_dataset, ctx.options, ctx.evaluator);
-        num_evals += 1.0;
+    // Match SymbolicRegression.jl `finalize_costs`: only re-evaluate on the full dataset when
+    // batching is enabled (i.e., members were evolved on a batch and need final losses/costs).
+    if ctx.options.batching {
+        ctx.evaluator.ensure_n_rows(ctx.full_dataset.n_rows);
+        for m in &mut pop.members {
+            let _ = m.evaluate(&ctx.full_dataset, ctx.options, ctx.evaluator);
+            num_evals += 1.0;
+        }
     }
 
     num_evals
