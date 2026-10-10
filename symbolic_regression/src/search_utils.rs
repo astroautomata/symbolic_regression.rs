@@ -132,6 +132,13 @@ struct PopPools<T: Float + AddAssign, Ops, const D: usize> {
     total_evals: f64,
 }
 
+/// Rejects a loss that cannot score `dataset`, before the search starts.
+fn check_loss_weights<T: Float, Ops, const D: usize>(dataset: &Dataset<T>, options: &Options<T, Ops, D>) {
+    if let Err(message) = options.loss.check_weights(dataset.weights.is_some()) {
+        panic!("{message}");
+    }
+}
+
 pub fn equation_search<T, Ops, const D: usize>(
     dataset: &Dataset<T>,
     options: &Options<T, Ops, D>,
@@ -140,6 +147,7 @@ where
     T: Float + AddAssign + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + Send + Sync,
     Ops: dynamic_expressions::OperatorSet<T = T> + Send + Sync,
 {
+    check_loss_weights(dataset, options);
     let baseline_loss = if options.use_baseline {
         baseline_loss_from_zero_expression::<T, Ops, D>(dataset, &options.operators.set, options.loss.as_ref())
     } else {
@@ -391,6 +399,7 @@ where
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
     pub fn new(dataset: Dataset<T>, options: Options<T, Ops, D>) -> Self {
+        check_loss_weights(&dataset, &options);
         let baseline_loss = if options.use_baseline {
             baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, &options.operators.set, options.loss.as_ref())
         } else {

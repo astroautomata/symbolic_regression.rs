@@ -10,7 +10,7 @@ use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
-use symbolic_regression::{Dataset, LossKind, Options, SearchEngine, WasmOptionsShim};
+use symbolic_regression::{Dataset, Options, SearchEngine, WasmOptionsShim, parse_early_stop, parse_loss};
 use wasm_bindgen::prelude::*;
 
 type WasmOps = BuiltinOpsF64<CustomOps<f64>>;
@@ -132,12 +132,13 @@ pub struct WasmSearchOptions {
     pub weights_column: Option<usize>,
     pub validation_fraction: f64,
 
-    // Loss
-    pub loss_kind: String,
-    pub huber_delta: f64,
-    pub lp_p: f64,
-    pub quantile_tau: f64,
-    pub epsilon_insensitive_eps: f64,
+    /// PySR's `elementwise_loss`: a built-in such as `"L1DistLoss()"` or `"HuberLoss(1.5)"`, or a
+    /// definition such as `"f(x, y) = abs(x - y)^1.5"` (with a third weight argument when the data
+    /// has a weights column).
+    pub loss: String,
+    /// PySR's `early_stop_condition`: a loss threshold such as `"1e-6"`, or a definition taking
+    /// `(loss, complexity)` such as `"f(loss, complexity) = loss < 1e-6 && complexity < 10"`.
+    pub early_stop_condition: Option<String>,
 
     #[serde(flatten)]
     pub core: WasmOptionsShim,
@@ -152,11 +153,8 @@ impl Default for WasmSearchOptions {
             weights_column: None,
             validation_fraction: 0.0,
 
-            loss_kind: "mse".to_string(),
-            huber_delta: 1.0,
-            lp_p: 2.0,
-            quantile_tau: 0.5,
-            epsilon_insensitive_eps: 0.1,
+            loss: "L2DistLoss()".to_string(),
+            early_stop_condition: None,
             core: WasmOptionsShim::default(),
         }
     }
@@ -234,9 +232,11 @@ impl WasmSearch {
         binary_tokens: JsValue,
         ternary_tokens: JsValue,
     ) -> Result<WasmSearch, JsValue> {
-        let opts: WasmSearchOptions = from_value(opts)
-            .or_else(|_| Ok::<WasmSearchOptions, serde_wasm_bindgen::Error>(WasmSearchOptions::default()))
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let opts: WasmSearchOptions = if opts.is_undefined() || opts.is_null() {
+            WasmSearchOptions::default()
+        } else {
+            from_value(opts).map_err(|e| JsValue::from_str(&e.to_string()))?
+        };
 
         let unary: Vec<String> = from_value(unary_tokens).unwrap_or_default();
         let binary: Vec<String> = from_value(binary_tokens).unwrap_or_default();
@@ -254,6 +254,10 @@ impl WasmSearch {
             .map_err(|e| JsValue::from_str(&e))?;
 
         let options = options_from_wasm(&opts, operators)?;
+        options
+            .loss
+            .check_weights(train.weights.is_some())
+            .map_err(|e| JsValue::from_str(&e))?;
 
         let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options);
 
@@ -321,27 +325,14 @@ fn options_from_wasm(
     opts: &WasmSearchOptions,
     operators: Operators<WasmOps, 3>,
 ) -> Result<Options<f64, WasmOps, 3>, JsValue> {
-    let loss_kind = match opts.loss_kind.trim().to_ascii_lowercase().as_str() {
-        "mse" => LossKind::Mse,
-        "mae" => LossKind::Mae,
-        "rmse" => LossKind::Rmse,
-        "huber" => LossKind::Huber {
-            delta: opts.huber_delta,
-        },
-        "logcosh" => LossKind::LogCosh,
-        "lp" => LossKind::Lp { p: opts.lp_p },
-        "quantile" => LossKind::Quantile { tau: opts.quantile_tau },
-        "epsilon-insensitive" | "epsilon_insensitive" | "eps-insensitive" | "eps_insensitive" => {
-            LossKind::EpsilonInsensitive {
-                eps: opts.epsilon_insensitive_eps,
-            }
-        }
-        other => {
-            return Err(JsValue::from_str(&format!(
-                "unknown loss_kind {other:?} (expected \"mse\", \"mae\", \"rmse\", \"huber\", \"logcosh\", \"lp\", \"quantile\", or \"epsilon-insensitive\")"
-            )));
-        }
-    };
+    let error = |e: dynamic_expressions::dsl::DslError| JsValue::from_str(&e.to_string());
+    let loss = parse_loss::<f64>(&opts.loss).map_err(error)?;
+    let early_stop_condition = opts
+        .early_stop_condition
+        .as_deref()
+        .map(parse_early_stop::<f64>)
+        .transpose()
+        .map_err(error)?;
 
     let mut out = Options::<f64, WasmOps, 3> {
         operators,
@@ -351,7 +342,8 @@ fn options_from_wasm(
     opts.core.apply_to(&mut out);
     // Keep browser output clean (and default-features disables progress anyway).
     out.progress = false;
-    out.loss = symbolic_regression::make_loss::<f64>(loss_kind);
+    out.loss = loss;
+    out.early_stop_condition = early_stop_condition;
 
     Ok(out)
 }
@@ -799,6 +791,28 @@ mod tests {
         assert!(obj.contains_key("seed"));
         assert!(obj.contains_key("mutation_weights"));
         assert!(!obj.contains_key("core"));
+    }
+
+    #[test]
+    fn wasm_search_options_read_loss_strings_and_loss_scale() {
+        let opts: WasmSearchOptions = serde_json::from_value(serde_json::json!({
+            "loss": "myloss(x, y, w) = w * abs(x - y)",
+            "early_stop_condition": "f(loss, complexity) = loss < 1e-6 && complexity < 10",
+            "loss_scale": "linear",
+        }))
+        .unwrap();
+        assert_eq!(opts.loss, "myloss(x, y, w) = w * abs(x - y)");
+        assert_eq!(opts.core.loss_scale, symbolic_regression::LossScale::Linear);
+        let options = symbolic_regression::Options::<f64, super::WasmOps, 3> {
+            loss: symbolic_regression::parse_loss(&opts.loss).unwrap(),
+            ..Default::default()
+        };
+        assert!(options.loss.check_weights(false).is_err());
+        assert!(options.loss.check_weights(true).is_ok());
+
+        assert_eq!(WasmSearchOptions::default().loss, "L2DistLoss()");
+        assert!(WasmSearchOptions::default().early_stop_condition.is_none());
+        assert!(serde_json::from_value::<WasmSearchOptions>(serde_json::json!({ "loss_scale": "cubic" })).is_err());
     }
 
     #[test]

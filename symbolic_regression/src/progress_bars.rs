@@ -10,7 +10,7 @@ mod imp {
     use num_traits::Float;
 
     use crate::hall_of_fame::HallOfFame;
-    use crate::options::{Options, OutputStyle};
+    use crate::options::{LossScale, Options, OutputStyle};
 
     struct ProgressTracking {
         last_speed_time: Instant,
@@ -20,8 +20,10 @@ mod imp {
     }
 
     #[derive(Copy, Clone, Debug)]
-    struct RenderOptions {
-        ansi: bool,
+    pub(crate) struct RenderOptions {
+        pub(crate) ansi: bool,
+        /// `LossScale::Log` adds a Score column, as in SymbolicRegression.jl.
+        pub(crate) loss_scale: LossScale,
     }
 
     pub(crate) struct SearchProgress {
@@ -48,7 +50,10 @@ mod imp {
                 }
                 OutputStyle::Auto => console::colors_enabled_stderr(),
             };
-            let render = RenderOptions { ansi };
+            let render = RenderOptions {
+                ansi,
+                loss_scale: options.loss_scale,
+            };
 
             let bar = if show {
                 let pb = ProgressBar::new(total_cycles as u64);
@@ -204,7 +209,7 @@ mod imp {
         progress.last_msg_update = now;
     }
 
-    fn format_hall_of_fame<T, Ops, const D: usize>(
+    pub(crate) fn format_hall_of_fame<T, Ops, const D: usize>(
         hall: &HallOfFame<T, Ops, D>,
         ops: &Ops,
         terminal_width: usize,
@@ -217,33 +222,26 @@ mod imp {
         Ops: OperatorSet,
     {
         let terminal_width = terminal_width.max(80);
-        let raw_border = "─".repeat(terminal_width.saturating_sub(1));
-        let raw_header = format!("{:<10}  {:<10}  {}", "Complexity", "Loss", "Equation");
-
-        let border = raw_border;
-        let header = if render.ansi {
-            let s = console::Style::new().bold().underlined();
-
-            let complexity_plain = "Complexity";
-            let loss_plain = "Loss";
-            let equation_plain = "Equation";
-
-            let complexity = format!(
-                "{}{}",
-                s.apply_to(complexity_plain),
-                " ".repeat(10_usize.saturating_sub(complexity_plain.len()))
-            );
-            let loss = format!(
-                "{}{}",
-                s.apply_to(loss_plain),
-                " ".repeat(10_usize.saturating_sub(loss_plain.len()))
-            );
-            let equation = s.apply_to(equation_plain).to_string();
-
-            format!("{complexity}  {loss}  {equation}")
+        let border = "─".repeat(terminal_width.saturating_sub(1));
+        let show_score = render.loss_scale == LossScale::Log;
+        let style = console::Style::new().bold().underlined();
+        let mut header = String::new();
+        for name in ["Complexity", "Loss", "Score"] {
+            if name == "Score" && !show_score {
+                continue;
+            }
+            let styled = if render.ansi {
+                style.apply_to(name).to_string()
+            } else {
+                name.to_string()
+            };
+            header.push_str(&format!("{styled}{}  ", " ".repeat(10 - name.len())));
+        }
+        header.push_str(&if render.ansi {
+            style.apply_to("Equation").to_string()
         } else {
-            raw_header
-        };
+            "Equation".to_string()
+        });
 
         let mut out = String::new();
         out.push_str(&border);
@@ -251,9 +249,21 @@ mod imp {
         out.push_str(&truncate_to_width(&header, terminal_width, render));
         out.push('\n');
 
-        for m in hall.pareto_front().into_iter().take(max_entries) {
+        let scores = match hall.pareto_scores(render.loss_scale) {
+            Ok(scores) => scores,
+            Err(message) => {
+                out.push_str(&message);
+                out.push('\n');
+                out.push_str(&border);
+                return out;
+            }
+        };
+        for (m, score) in hall.pareto_front().into_iter().zip(scores).take(max_entries) {
             let loss = m.loss.to_f64().unwrap_or(f64::INFINITY);
-            let stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
+            let mut stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
+            if show_score {
+                stats.push_str(&format!("{:<10.3e}  ", score.to_f64().unwrap_or(f64::NAN)));
+            }
             let left_cols_width = stats.chars().count();
 
             let eqn_plain = string_tree(
@@ -325,52 +335,6 @@ mod imp {
             s.chars().take(max).collect()
         }
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn header_equation_column_aligns_with_rows() {
-            let render = RenderOptions { ansi: true };
-
-            let raw_header = format!("{:<10}  {:<10}  {}", "Complexity", "Loss", "Equation");
-            let header = if render.ansi {
-                let s = console::Style::new().bold().underlined();
-
-                let complexity_plain = "Complexity";
-                let loss_plain = "Loss";
-                let equation_plain = "Equation";
-
-                let complexity = format!(
-                    "{}{}",
-                    s.apply_to(complexity_plain),
-                    " ".repeat(10_usize.saturating_sub(complexity_plain.len()))
-                );
-                let loss = format!(
-                    "{}{}",
-                    s.apply_to(loss_plain),
-                    " ".repeat(10_usize.saturating_sub(loss_plain.len()))
-                );
-                let equation = s.apply_to(equation_plain).to_string();
-                format!("{complexity}  {loss}  {equation}")
-            } else {
-                raw_header
-            };
-
-            let header_plain = console::strip_ansi_codes(&header);
-            let eq_header_start = header_plain.find("Equation").expect("header should contain Equation");
-
-            let stats = format!("{:<10}  {:<10.3e}  ", 5_u32, 1.234_f64);
-            let row = format!("{stats}x0");
-            let eq_row_start = row.find("x0").expect("row should contain equation");
-
-            assert_eq!(
-                eq_header_start, eq_row_start,
-                "Equation header must align with equation column"
-            );
-        }
-    }
 }
 
 #[cfg(not(feature = "progress"))]
@@ -404,3 +368,5 @@ mod imp {
 }
 
 pub(crate) use imp::SearchProgress;
+#[cfg(all(test, feature = "progress"))]
+pub(crate) use imp::{RenderOptions, format_hall_of_fame};

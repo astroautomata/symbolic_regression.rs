@@ -1,9 +1,12 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use dynamic_expressions::Operators;
+use dynamic_expressions::dispatch::SrcRef;
+use dynamic_expressions::dsl::{DslError, DslFloat, ScalarFn, parse_definition};
 use num_traits::Float;
 
-use crate::loss_functions::{LossObject, mse};
+use crate::loss_functions::{BuiltinLoss, LossObject};
 
 /// Matches SymbolicRegression.jl `early_stop_condition`: takes `(loss, complexity)` and returns
 /// `true` to terminate the search early. Wrapping a scalar threshold `t` is `EarlyStop::below(t)`.
@@ -17,6 +20,77 @@ impl EarlyStop {
     /// scalar `early_stop_condition::Real` into `(l, c) -> l < threshold`.
     pub fn below<T: Float + Send + Sync + 'static>(threshold: T) -> EarlyStopCondition<T> {
         Arc::new(move |loss: T, _complexity: usize| loss < threshold)
+    }
+}
+
+/// Parses an early-stop condition written as in PySR's `early_stop_condition`: a loss threshold
+/// such as `"1e-6"` (stop once a loss is below it), or a definition taking `(loss, complexity)`
+/// and returning Bool, such as `"stop_if(loss, complexity) = loss < 1e-6 && complexity < 10"`.
+///
+/// ```
+/// use symbolic_regression::parse_early_stop;
+///
+/// let stop = parse_early_stop::<f64>("(loss, complexity) -> loss <= 1e-4 && complexity <= 6").unwrap();
+/// assert!(stop(1e-5, 6));
+/// assert!(!stop(1e-5, 7));
+/// assert!(parse_early_stop::<f64>("1e-6").unwrap()(1e-7, 30));
+/// ```
+pub fn parse_early_stop<T: DslFloat>(src: &str) -> Result<EarlyStopCondition<T>, DslError> {
+    if let Ok(threshold) = src.trim().parse::<f64>() {
+        return Ok(EarlyStop::below(T::from(threshold).unwrap()));
+    }
+    let def = parse_definition(src)?;
+    let n = def.params.len();
+    if n != 2 {
+        let plural = if n == 1 { "" } else { "s" };
+        return Err(DslError::new(
+            format!("an early-stop condition takes (loss, complexity), but this one takes {n} argument{plural}"),
+            def.span,
+            src,
+        ));
+    }
+    let func = ScalarFn::<T>::compile(&def)?;
+    if !func.returns_bool() {
+        return Err(DslError::new(
+            "an early-stop condition must return Bool, but this one returns a number",
+            def.span,
+            src,
+        ));
+    }
+    let opts = dynamic_expressions::EvalOptions {
+        check_finite: false,
+        early_exit: false,
+    };
+    Ok(Arc::new(move |loss: T, complexity: usize| {
+        let mut out = [T::zero()];
+        let args = [SrcRef::Const(loss), SrcRef::Const(T::from(complexity).unwrap())];
+        func.eval(&mut out, &args, &opts);
+        out[0] != T::zero()
+    }))
+}
+
+/// How SymbolicRegression.jl scores the Pareto front (`loss_scale`).
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub enum LossScale {
+    /// Scores are the drop in log-loss per unit of complexity; losses must be non-negative.
+    #[default]
+    Log,
+    /// Scores are the drop in loss per unit of complexity; losses may be negative, and the best
+    /// equation is the one with the lowest loss.
+    Linear,
+}
+
+impl FromStr for LossScale {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "log" => Ok(Self::Log),
+            "linear" => Ok(Self::Linear),
+            other => Err(format!("`loss_scale` must be either log or linear, got `{other}`")),
+        }
     }
 }
 
@@ -119,6 +193,8 @@ macro_rules! sr_options_spec {
                     (u64, 0, "max-evals"),
                 timeout_in_seconds:
                     (f64, 0.0, "timeout-in-seconds"),
+                loss_scale:
+                    (LossScale, LossScale::Log, "loss-scale"),
             }
             neg_flags {
                 use_frequency:
@@ -212,6 +288,20 @@ macro_rules! __define_options {
             /// ```
             pub operators: Operators<Ops, D>,
             pub mutation_weights: MutationWeights,
+            /// The loss each equation minimizes; L2 (`L2DistLoss()`) by default. Losses written as
+            /// strings, as PySR's `elementwise_loss` takes them, come from
+            /// [`parse_loss`](crate::parse_loss):
+            ///
+            /// ```
+            /// use symbolic_regression::{Options, parse_loss};
+            /// use symbolic_regression::prelude::BuiltinOpsF64;
+            ///
+            /// let options = Options::<f64, BuiltinOpsF64, 2> {
+            ///     loss: parse_loss("myloss(x, y) = abs(x - y)^1.5").unwrap(),
+            ///     ..Default::default()
+            /// };
+            /// assert_eq!(options.loss.loss(&[3.0], &[-1.0], None), 8.0);
+            /// ```
             pub loss: LossObject<T>,
 
             pub output_style: OutputStyle,
@@ -227,7 +317,8 @@ macro_rules! __define_options {
             pub nested_constraints: crate::check_constraints::NestedConstraints,
 
             /// Optional early-stop callback. Matches SymbolicRegression.jl `early_stop_condition`:
-            /// search terminates as soon as any hall-of-fame member satisfies `f(loss, complexity)`.
+            /// the search stops as soon as any hall-of-fame member satisfies `f(loss, complexity)`.
+            /// [`parse_early_stop`] reads PySR-style strings.
             pub early_stop_condition: Option<EarlyStopCondition<T>>,
         }
 
@@ -239,7 +330,7 @@ macro_rules! __define_options {
                     $($pname: $pdefault,)*
                     operators: Operators::default(),
                     mutation_weights: MutationWeights::default(),
-                    loss: mse::<T>(),
+                    loss: Arc::new(BuiltinLoss::L2Dist),
                     output_style: OutputStyle::Auto,
                     variable_complexities: None,
                     operator_complexity_overrides: std::collections::HashMap::new(),
