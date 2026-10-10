@@ -1,5 +1,6 @@
 use num_traits::Float;
 
+use crate::loss_functions::max_zero;
 use crate::options::{LossScale, Options};
 use crate::pop_member::PopMember;
 
@@ -99,10 +100,6 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
     }
 }
 
-fn relu<T: Float>(x: T) -> T {
-    if x > T::zero() { x } else { T::zero() }
-}
-
 /// Julia's `eps(x)`: the distance from `|x|` to the next larger float.
 fn spacing<T: Float>(x: T) -> T {
     let x = x.abs();
@@ -119,12 +116,12 @@ fn spacing<T: Float>(x: T) -> T {
 }
 
 pub fn compute_direct_score<T: Float>(cur_loss: T, last_loss: T, delta_c: T) -> T {
-    relu(-(cur_loss - last_loss) / delta_c)
+    max_zero(-(cur_loss - last_loss) / delta_c)
 }
 
 pub fn compute_zero_centered_score<T: Float>(cur_loss: T, last_loss: T, delta_c: T) -> T {
-    let log_ratio = (relu(cur_loss / last_loss) + spacing(cur_loss)).ln();
-    relu(-log_ratio / delta_c)
+    let log_ratio = (max_zero(cur_loss / last_loss) + spacing(cur_loss)).ln();
+    max_zero(-log_ratio / delta_c)
 }
 
 /// The index of the equation SymbolicRegression.jl's `choose_best` (and PySR's

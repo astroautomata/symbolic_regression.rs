@@ -142,7 +142,7 @@ fn sign<T: Float>(x: T) -> T {
 }
 
 /// Julia's `max(0, x)`, which propagates NaN.
-fn max_zero<T: Float>(x: T) -> T {
+pub(crate) fn max_zero<T: Float>(x: T) -> T {
     if x < T::zero() { T::zero() } else { x }
 }
 
