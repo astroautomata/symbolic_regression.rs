@@ -160,7 +160,7 @@ The WASM binding (`WasmSearch`) accepts the same definitions in its operator lis
 
 ## Losses and early stopping
 
-`Options::loss` defaults to `L2DistLoss()`. `parse_loss` reads PySR's `elementwise_loss` strings: a built-in loss from SymbolicRegression.jl by its constructor, such as `"L1DistLoss()"`, `"HuberLoss(1.5)"`, `"LPDistLoss{3}()"`, or a classification loss such as `"L1HingeLoss()"` (see `BuiltinLoss`), or a definition taking `(prediction, target)`, or `(prediction, target, weight)` for datasets with weights. Definitions are differentiated once for constant optimization. `parse_early_stop` reads `early_stop_condition`: a loss threshold such as `"1e-6"`, or a definition of `(loss, complexity)` that returns Bool. `loss_scale` sets how the Pareto front is scored: `LossScale::Log` (the default) needs non-negative losses, and `LossScale::Linear` allows negative ones.
+`Options::loss` defaults to `L2DistLoss()`. `parse_loss` reads PySR's `elementwise_loss` strings: a built-in loss from SymbolicRegression.jl by its constructor, such as `"L1DistLoss()"`, `"HuberLoss(1.5)"`, `"LPDistLoss{3}()"`, or a classification loss such as `"L1HingeLoss()"` (see `BuiltinLoss`; `BuiltinLoss::into_loss` builds the same loss without a string), or a definition taking `(prediction, target)`, or `(prediction, target, weight)` for datasets with weights. Definitions are differentiated once for constant optimization. `parse_early_stop` reads `early_stop_condition`: a loss threshold such as `"1e-6"`, or a definition of `(loss, complexity)` that returns Bool. `loss_scale` sets how the Pareto front is scored: `LossScale::Log` (the default) needs non-negative losses, and `LossScale::Linear` allows negative ones.
 
 ```rust
 use symbolic_regression::prelude::*;

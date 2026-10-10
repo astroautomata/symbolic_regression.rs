@@ -330,7 +330,7 @@ macro_rules! __define_options {
                     $($pname: $pdefault,)*
                     operators: Operators::default(),
                     mutation_weights: MutationWeights::default(),
-                    loss: Arc::new(BuiltinLoss::L2Dist),
+                    loss: BuiltinLoss::L2Dist.into_loss(),
                     output_style: OutputStyle::Auto,
                     variable_complexities: None,
                     operator_complexity_overrides: std::collections::HashMap::new(),

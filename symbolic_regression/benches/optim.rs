@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::operator_enum::builtin;
@@ -16,7 +16,7 @@ use symbolic_regression::operator_selection::OperatorsSampling;
 use symbolic_regression::{
     Dataset, Evaluator, NextGenerationCtx, OptimizeConstantsCtx, Options, PopMember, Population,
     RunningSearchStatistics, TaggedDataset, best_of_sample, check_constraints, equation_search,
-    insert_random_op_in_place, next_generation, optimize_constants, rotate_tree_in_place,
+    insert_random_op_in_place, next_generation, optimize_constants, parse_loss, rotate_tree_in_place,
 };
 
 type T = f32;
@@ -461,5 +461,58 @@ fn bench_rotate_tree(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_search, bench_utils, bench_rotate_tree);
+fn bench_losses(c: &mut Criterion) {
+    const REGRESSION: &[&str] = &[
+        "L2DistLoss()",
+        "L1DistLoss()",
+        "HuberLoss(1.0)",
+        "LPDistLoss{3}()",
+        "PeriodicLoss(1.0)",
+        "L1EpsilonInsLoss(0.1)",
+        "L2EpsilonInsLoss(0.1)",
+        "LogitDistLoss()",
+        "QuantileLoss(0.3)",
+        "LogCoshLoss()",
+    ];
+    const CLASSIFICATION: &[&str] = &[
+        "ZeroOneLoss()",
+        "PerceptronLoss()",
+        "LogitMarginLoss()",
+        "L1HingeLoss()",
+        "L2HingeLoss()",
+        "SmoothedL1HingeLoss(0.5)",
+        "ModifiedHuberLoss()",
+        "L2MarginLoss()",
+        "ExpLoss()",
+        "SigmoidLoss()",
+        "DWDMarginLoss(1.0)",
+    ];
+    let mut group = c.benchmark_group("builtin_loss");
+    for (names, classification) in [(REGRESSION, false), (CLASSIFICATION, true)] {
+        for &name in names {
+            let loss = parse_loss::<T>(name).unwrap();
+            for n in [64usize, 256, 1000, 10000] {
+                let yhat: Vec<T> = (0..n).map(|i| (i as T * 0.37).sin()).collect();
+                let y: Vec<T> = (0..n)
+                    .map(|i| match classification {
+                        true if i % 3 == 0 => -1.0,
+                        true => 1.0,
+                        false => (i as T * 0.11).cos(),
+                    })
+                    .collect();
+                let mut out = vec![0.0; n];
+                group.throughput(Throughput::Elements(n as u64));
+                group.bench_with_input(BenchmarkId::new(format!("{name}/loss"), n), &n, |b, _| {
+                    b.iter(|| loss.loss(std::hint::black_box(&yhat), &y, None))
+                });
+                group.bench_with_input(BenchmarkId::new(format!("{name}/dloss"), n), &n, |b, _| {
+                    b.iter(|| loss.dloss_dyhat(std::hint::black_box(&yhat), &y, None, &mut out))
+                });
+            }
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_search, bench_utils, bench_rotate_tree, bench_losses);
 criterion_main!(benches);

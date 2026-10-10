@@ -332,15 +332,12 @@ fn builtin_losses_average_or_weight_like_lossfunctions() {
     let yhat = [1.0_f64, 0.0, 4.0];
     let y = [0.0_f64, 2.0, 3.0];
     let w = [1.0_f64, 3.0, 1.0];
-    let l2 = BuiltinLoss::L2Dist;
-    assert_eq!(crate::LossFn::<f64>::loss(&l2, &yhat, &y, None), 2.0);
-    assert_eq!(
-        crate::LossFn::<f64>::loss(&l2, &yhat, &y, Some(&w)),
-        (1.0 + 12.0 + 1.0) / 5.0
-    );
+    let l2 = BuiltinLoss::L2Dist.into_loss::<f64>();
+    assert_eq!(l2.loss(&yhat, &y, None), 2.0);
+    assert_eq!(l2.loss(&yhat, &y, Some(&w)), (1.0 + 12.0 + 1.0) / 5.0);
 
     let mut out = [0.0; 3];
-    crate::LossFn::<f64>::dloss_dyhat(&l2, &yhat, &y, Some(&w), &mut out);
+    l2.dloss_dyhat(&yhat, &y, Some(&w), &mut out);
     for (got, want) in out.iter().zip([2.0 / 5.0, -12.0 / 5.0, 2.0 / 5.0]) {
         assert!(close(*got, want, 1e-15), "{out:?}");
     }
@@ -408,7 +405,7 @@ fn dsl_losses_sum_across_chunks() {
     let yhat: Vec<f64> = (0..n).map(|i| (i as f64).sin()).collect();
     let y: Vec<f64> = (0..n).map(|i| (i as f64 * 0.5).cos()).collect();
     let loss = parse_loss::<f64>("(x, y) -> (x - y)^2").unwrap();
-    let want = crate::LossFn::<f64>::loss(&BuiltinLoss::L2Dist, &yhat, &y, None);
+    let want = BuiltinLoss::L2Dist.into_loss().loss(&yhat, &y, None);
     assert!(close(loss.loss(&yhat, &y, None), want, 1e-13));
 }
 

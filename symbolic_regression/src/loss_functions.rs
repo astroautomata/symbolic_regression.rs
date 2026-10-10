@@ -134,12 +134,10 @@ pub enum BuiltinLoss {
 
 /// Julia's `sign`: `±1`, or `x` itself for zeros and NaN.
 fn sign<T: Float>(x: T) -> T {
-    if x > T::zero() {
-        T::one()
-    } else if x < T::zero() {
-        -T::one()
-    } else {
+    if x == T::zero() || x.is_nan() {
         x
+    } else {
+        T::one().copysign(x)
     }
 }
 
@@ -154,6 +152,7 @@ fn indicator<T: Float>(condition: bool) -> T {
 
 impl BuiltinLoss {
     /// The loss of one prediction, following LossFunctions.jl v1.2.2.
+    #[inline(always)]
     pub fn value<T: Float>(&self, prediction: T, target: T) -> T {
         let c = |v: f64| T::from(v).unwrap();
         let (zero, one, two) = (T::zero(), T::one(), c(2.0));
@@ -231,6 +230,7 @@ impl BuiltinLoss {
 
     /// The derivative of [`Self::value`] with respect to the prediction, following
     /// LossFunctions.jl v1.2.2 `deriv`, including its choices at kinks.
+    #[inline(always)]
     pub fn deriv<T: Float>(&self, prediction: T, target: T) -> T {
         let c = |v: f64| T::from(v).unwrap();
         let (zero, one, two) = (T::zero(), T::one(), c(2.0));
@@ -305,39 +305,100 @@ impl BuiltinLoss {
     }
 }
 
-impl<T: Float> LossFn<T> for BuiltinLoss {
-    fn loss(&self, yhat: &[T], y: &[T], w: Option<&[T]>) -> T {
-        let pairs = yhat.iter().zip_eq(y);
-        match w {
-            None => {
-                let sum = pairs.fold(T::zero(), |acc, (&p, &t)| acc + self.value(p, t));
-                sum / T::from(y.len()).unwrap()
+#[inline(always)]
+fn mean_of<T: Float>(yhat: &[T], y: &[T], w: Option<&[T]>, point: impl Fn(T, T) -> T) -> T {
+    let pairs = yhat.iter().zip_eq(y);
+    match w {
+        None => pairs.fold(T::zero(), |acc, (&p, &t)| acc + point(p, t)) / T::from(y.len()).unwrap(),
+        Some(w) => {
+            let sum = pairs
+                .zip_eq(w)
+                .fold(T::zero(), |acc, ((&p, &t), &wi)| acc + wi * point(p, t));
+            sum / w.iter().fold(T::zero(), |acc, &wi| acc + wi)
+        }
+    }
+}
+
+#[inline(always)]
+fn mean_derivative_into<T: Float>(yhat: &[T], y: &[T], w: Option<&[T]>, out: &mut [T], point: impl Fn(T, T) -> T) {
+    let rows = out.iter_mut().zip_eq(yhat).zip_eq(y);
+    match w {
+        None => {
+            let inv = T::from(y.len()).unwrap().recip();
+            for ((o, &p), &t) in rows {
+                *o = inv * point(p, t);
             }
-            Some(w) => {
-                let sum = pairs
-                    .zip_eq(w)
-                    .fold(T::zero(), |acc, ((&p, &t), &wi)| acc + wi * self.value(p, t));
-                sum / w.iter().fold(T::zero(), |acc, &wi| acc + wi)
+        }
+        Some(w) => {
+            let inv = w.iter().fold(T::zero(), |acc, &wi| acc + wi).recip();
+            for (((o, &p), &t), &wi) in rows.zip_eq(w) {
+                *o = wi * inv * point(p, t);
             }
         }
     }
+}
+
+/// A built-in loss whose variant is written as a literal inside `value` and `deriv`, so the
+/// variant `match` folds away and each loss compiles to its own vectorizable row loop, reached
+/// directly through the `LossObject` vtable.
+struct Specialized<V, D> {
+    value: V,
+    deriv: D,
+}
+
+impl<T: Float, V, D> LossFn<T> for Specialized<V, D>
+where
+    V: Fn(T, T) -> T + Send + Sync,
+    D: Fn(T, T) -> T + Send + Sync,
+{
+    fn loss(&self, yhat: &[T], y: &[T], w: Option<&[T]>) -> T {
+        mean_of(yhat, y, w, &self.value)
+    }
 
     fn dloss_dyhat(&self, yhat: &[T], y: &[T], w: Option<&[T]>, out: &mut [T]) {
-        let rows = out.iter_mut().zip_eq(yhat).zip_eq(y);
-        match w {
-            None => {
-                let inv = T::from(y.len()).unwrap().recip();
-                for ((o, &p), &t) in rows {
-                    *o = inv * self.deriv(p, t);
-                }
-            }
-            Some(w) => {
-                let inv = w.iter().fold(T::zero(), |acc, &wi| acc + wi).recip();
-                for (((o, &p), &t), &wi) in rows.zip_eq(w) {
-                    *o = wi * inv * self.deriv(p, t);
-                }
-            }
+        mean_derivative_into(yhat, y, w, out, &self.deriv)
+    }
+}
+
+macro_rules! specialize {
+    ($loss:expr; $($pattern:pat => $variant:expr),* $(,)?) => {
+        match $loss {
+            $($pattern => Arc::new(Specialized {
+                value: move |a: T, b: T| $variant.value(a, b),
+                deriv: move |a: T, b: T| $variant.deriv(a, b),
+            }),)*
         }
+    };
+}
+
+impl BuiltinLoss {
+    /// This loss averaged over rows, or weighted by the dataset's weights, as SymbolicRegression.jl
+    /// does.
+    pub fn into_loss<T: Float>(self) -> LossObject<T> {
+        use BuiltinLoss as L;
+        specialize!(self;
+            L::LPDist { p } => L::LPDist { p },
+            L::L1Dist => L::L1Dist,
+            L::L2Dist => L::L2Dist,
+            L::Periodic { circumference } => L::Periodic { circumference },
+            L::Huber { d } => L::Huber { d },
+            L::L1EpsilonIns { eps } => L::L1EpsilonIns { eps },
+            L::L2EpsilonIns { eps } => L::L2EpsilonIns { eps },
+            L::LogitDist => L::LogitDist,
+            L::Quantile { tau } => L::Quantile { tau },
+            L::LogCosh => L::LogCosh,
+            L::ZeroOne => L::ZeroOne,
+            L::Perceptron => L::Perceptron,
+            L::LogitMargin => L::LogitMargin,
+            L::L1Hinge => L::L1Hinge,
+            L::L2Hinge => L::L2Hinge,
+            L::SmoothedL1Hinge { gamma } => L::SmoothedL1Hinge { gamma },
+            L::ModifiedHuber => L::ModifiedHuber,
+            L::L2Margin => L::L2Margin,
+            L::Exp => L::Exp,
+            L::Sigmoid => L::Sigmoid,
+            L::DWDMargin { q } => L::DWDMargin { q },
+        )
     }
 }
 
@@ -440,7 +501,7 @@ impl<T: DslFloat> LossFn<T> for DslLoss<T> {
 /// ```
 pub fn parse_loss<T: DslFloat>(src: &str) -> Result<LossObject<T>, DslError> {
     if let Some(builtin) = parse_builtin_loss(src)? {
-        return Ok(Arc::new(builtin));
+        return Ok(builtin.into_loss());
     }
     let def = parse_definition(src)?;
     let n = def.params.len();
