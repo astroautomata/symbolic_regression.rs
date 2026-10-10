@@ -289,7 +289,13 @@ impl TemplateStructure {
         Ops: OperatorSet<T = T>,
     {
         debug_assert_eq!(trees.len(), self.expressions.len());
-        debug_assert_eq!(params.len(), self.n_parameters());
+        assert_eq!(
+            params.len(),
+            self.n_parameters(),
+            "expected {} parameters, got {}",
+            self.n_parameters(),
+            params.len()
+        );
         assert!(x.is_standard_layout(), "X must be contiguous");
         let x_data = x.as_slice().expect("X must be contiguous");
         let n = x.ncols();
@@ -392,6 +398,9 @@ impl TemplateStructure {
         Ops: OperatorSet<T = T>,
     {
         let mut out = vec![T::zero(); x.ncols()];
+        if self.has_invalid_variables(trees) {
+            return (out, false);
+        }
         let plans = self.compile_plans(trees);
         let ok = self.eval_into(
             &mut out,

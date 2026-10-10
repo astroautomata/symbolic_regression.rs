@@ -97,9 +97,6 @@ pub(crate) fn lower_formula(formula: &Formula, scope: &TemplateScope<'_>) -> Res
     let Some((value, span)) = cx.body(&formula.stmts)? else {
         return Err(cx.err("the formula has no value".to_string(), formula.span));
     };
-    if value.ty == Ty::Bool {
-        return Err(cx.err("a template formula must return a number, not Bool".to_string(), span));
-    }
     let (graph, roots) = cx.graph.extract(&[value.id]);
     if !varies(&graph, roots[0]) {
         return Err(cx.err(
