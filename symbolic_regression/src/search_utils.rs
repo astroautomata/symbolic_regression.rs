@@ -134,7 +134,7 @@ struct PopPools<T: Float + AddAssign, Ops, const D: usize> {
 
 /// Rejects a loss that cannot score `dataset`, before the search starts.
 fn check_loss_weights<T: Float, Ops, const D: usize>(dataset: &Dataset<T>, options: &Options<T, Ops, D>) {
-    if let Err(message) = options.loss.check_weights(dataset.weights.is_some()) {
+    if let Err(message) = options.loss.check_weights(dataset.weights_slice().is_some()) {
         panic!("{message}");
     }
 }

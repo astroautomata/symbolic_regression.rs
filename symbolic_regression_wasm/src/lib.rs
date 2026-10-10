@@ -450,7 +450,7 @@ fn eval_member_on_dataset(
 
 fn compute_metrics(yhat: &[f64], dataset: &Dataset<f64>) -> WasmMetrics {
     let y = dataset.y.as_slice().unwrap_or(&[]);
-    let w = dataset.weights.as_ref().and_then(|w| w.as_slice());
+    let w = dataset.weights_slice();
     let n = y.len();
 
     let mut mse = 0.0;

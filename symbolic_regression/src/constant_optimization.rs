@@ -63,7 +63,7 @@ impl<'a, T: Float + AddAssign, Ops: OperatorSet<T = T>, const D: usize> EvalWork
         let loss = self.options.loss.loss(
             &self.evaluator.yhat,
             self.dataset.y.as_slice().unwrap(),
-            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+            self.dataset.weights_slice(),
         );
         if !loss.is_finite() {
             return None;
@@ -99,11 +99,10 @@ impl<'a, T: Float + AddAssign, Ops: OperatorSet<T = T>, const D: usize> EvalWork
             return None;
         }
 
-        let loss = self.options.loss.loss(
-            &yhat,
-            self.dataset.y.as_slice().unwrap(),
-            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
-        );
+        let loss = self
+            .options
+            .loss
+            .loss(&yhat, self.dataset.y.as_slice().unwrap(), self.dataset.weights_slice());
         if !loss.is_finite() {
             return None;
         }
@@ -111,7 +110,7 @@ impl<'a, T: Float + AddAssign, Ops: OperatorSet<T = T>, const D: usize> EvalWork
         self.options.loss.dloss_dyhat(
             &yhat,
             self.dataset.y.as_slice().unwrap(),
-            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+            self.dataset.weights_slice(),
             &mut self.dloss_dyhat,
         );
 

@@ -83,3 +83,29 @@ fn two_argument_loss_with_weights_fails_before_search() {
     };
     equation_search::<f64, Ops, 2>(&weighted, &options);
 }
+
+#[test]
+fn strided_weights_score_like_contiguous_ones() {
+    let data = dataset();
+    let mut strided = Array1::from_iter((0..2 * data.n_rows).map(|i| 1.0 + (i / 2) as f64));
+    strided.slice_collapse(ndarray::s![..;2]);
+    assert!(strided.as_slice().is_none());
+    let contiguous = strided.to_vec();
+
+    let options = Options {
+        loss: parse_loss("(x, y, w) -> w * abs(x - y)").unwrap(),
+        niterations: 1,
+        ..options()
+    };
+    let run = |weights: Array1<f64>| {
+        let weighted = Dataset::with_weights_and_names(data.x.clone(), data.y.clone(), Some(weights), Vec::new());
+        let result = equation_search::<f64, Ops, 2>(&weighted, &options);
+        result
+            .hall_of_fame
+            .pareto_front()
+            .iter()
+            .map(|m| m.loss)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(run(strided), run(Array1::from(contiguous)));
+}

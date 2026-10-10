@@ -147,11 +147,9 @@ where
             return false;
         }
 
-        let loss = options.loss.loss(
-            &evaluator.yhat,
-            dataset.y.as_slice().unwrap(),
-            dataset.weights.as_ref().and_then(|w| w.as_slice()),
-        );
+        let loss = options
+            .loss
+            .loss(&evaluator.yhat, dataset.y.as_slice().unwrap(), dataset.weights_slice());
         if loss.is_nan() {
             self.loss = loss;
             self.cost = T::nan();
