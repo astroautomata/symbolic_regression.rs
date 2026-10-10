@@ -363,6 +363,120 @@ fn min_max_and_abs_partials_follow_diffrules() {
     assert_eq!(d_at("D(f, 1)(x)", &["x"], &abs(arg(1)), &[0.0]), Some(1.0));
 }
 
+/// `tree` with the unary operator `name` applied to it.
+fn apply(ops: &BuiltinOpsF64<CustomOps<f64>>, name: &str, mut tree: CustomTree) -> CustomTree {
+    let op = ops.lookup_with_arity(name, 1).unwrap();
+    tree.nodes.push(PNode::Op { arity: 1, op: op.id });
+    tree
+}
+
+fn assert_d(got: Option<f64>, want: Option<f64>, what: &str) {
+    match (got, want) {
+        (Some(g), Some(w)) => assert_close(&[g], &[w]),
+        _ => assert_eq!(got, want, "{what}"),
+    }
+}
+
+/// SymbolicRegression.jl's `D` differentiates each operator on its own, with its argument's
+/// derivative seeded at +1, and multiplies by the argument's actual derivative. So a comparison
+/// tie at an operator's boundary resolves by +1 even when the argument decreases. Expected values
+/// are SymbolicRegression.jl f97764fb's `D` (DynamicDiff 0.3.2, ForwardDiff 1.4.6).
+#[test]
+fn operators_are_differentiated_at_their_own_boundaries() {
+    let ops = custom_ops(&["s(u) = u < 0 ? NaN : sqrt(u)", "c(u) = ifelse(u > 0, u, 0)"]);
+    let x = || CustomTree::new(vec![PNode::Var { feature: 0 }], vec![], Metadata::default());
+    // (tree, x, [D, D^2])
+    let cases = [
+        (apply(&ops, "s", -x()), 0.0, [None, None]),
+        (apply(&ops, "s", -x()), -1.0, [Some(-0.5), Some(-0.25)]),
+        (apply(&ops, "s", -x()), -4.0, [Some(-0.25), Some(-0.03125)]),
+        (apply(&ops, "s", -x()), 1.0, [Some(0.0), Some(0.0)]),
+        (apply(&ops, "s", x()), 0.0, [None, None]),
+        (apply(&ops, "c", -x()), 0.0, [Some(-1.0), Some(0.0)]),
+        (apply(&ops, "c", -x()), -1.0, [Some(-1.0), Some(0.0)]),
+        (apply(&ops, "c", -x()), 1.0, [Some(0.0), Some(0.0)]),
+        (apply(&ops, "c", x()), 0.0, [Some(1.0), Some(0.0)]),
+    ];
+    for (tree, x0, want) in cases {
+        for (order, want) in (1..=2).zip(want) {
+            let t = template(&nested_d(order, 1, "x"), &["f"], None, &["x"], &[], &ops);
+            let got = eval(&t, &tree, &[], &ops, &[&[x0]]).unwrap().map(|v| v[0]);
+            assert_d(got, want, &format!("D^{order} of {:?} at {x0}", tree.nodes));
+        }
+    }
+
+    use dynamic_expressions::operators::{asin, sqrt};
+    let builtin = [
+        (sqrt(-arg(1)), 0.0, [None, None]),
+        (asin(-arg(1)), -1.0, [Some(0.0), Some(0.0)]),
+        (asin(-arg(1)), 1.0, [None, None]),
+    ];
+    for (tree, x0, want) in builtin {
+        for (order, want) in (1..=2).zip(want) {
+            let got = d_at(&nested_d(order, 1, "x"), &["x"], &tree, &[x0]);
+            assert_d(got, want, &format!("D^{order} of {:?} at {x0}", tree.nodes));
+        }
+    }
+
+    let tree = pow(arg(1), -arg(2));
+    let ln2 = 2.0_f64.ln();
+    let srcs = [
+        "D(f, 1)(x, p)",
+        "D(f, 2)(x, p)",
+        "D(D(f, 1), 2)(x, p)",
+        "D(D(f, 2), 1)(x, p)",
+        "D(D(f, 2), 2)(x, p)",
+    ];
+    let cases = [
+        (0.0, [Some(0.0), None, None, None, Some(0.0)]),
+        (2.0, [Some(0.0), Some(-ln2), Some(-0.5), Some(-0.5), Some(ln2 * ln2)]),
+    ];
+    for (x0, want) in cases {
+        for (src, want) in srcs.iter().zip(want) {
+            assert_d(
+                d_at(src, &["x", "p"], &tree, &[x0, 0.0]),
+                want,
+                &format!("{src} at x={x0}, p=0"),
+            );
+        }
+    }
+}
+
+/// `min` and `max` are Julia's, so a NaN argument makes the result NaN and SymbolicRegression.jl
+/// rejects the expression, in a subexpression or in the combining formula.
+#[test]
+fn min_and_max_propagate_nan() {
+    use dynamic_expressions::Operator;
+    use dynamic_expressions::operator_enum::builtin::{Max, Min};
+    use dynamic_expressions::operators::{max, min};
+    let min_of = |x: f64, y: f64| <Min as Operator<f64, 2>>::eval(&[x, y]);
+    let max_of = |x: f64, y: f64| <Max as Operator<f64, 2>>::eval(&[x, y]);
+    assert!(min_of(f64::NAN, 1.0).is_nan() && min_of(1.0, f64::NAN).is_nan());
+    assert!(max_of(f64::NAN, 1.0).is_nan() && max_of(1.0, f64::NAN).is_nan());
+    assert_eq!((min_of(1.0, 2.0), max_of(1.0, 2.0)), (1.0, 2.0));
+    assert!(min_of(0.0, -0.0).is_sign_negative() && min_of(-0.0, 0.0).is_sign_negative());
+    assert!(max_of(0.0, -0.0).is_sign_positive() && max_of(-0.0, 0.0).is_sign_positive());
+    assert_eq!(min_of(f64::INFINITY, f64::INFINITY), f64::INFINITY);
+    assert_eq!(max_of(f64::NEG_INFINITY, f64::NEG_INFINITY), f64::NEG_INFINITY);
+
+    let ops = BuiltinOpsF64::new();
+    let xs = [1.0, -2.0];
+    for (combine, tree) in [
+        ("f(x)", min(arg(1), constant(f64::NAN))),
+        ("f(x)", max(constant(f64::NAN), arg(1))),
+        ("min(NaN, f(x))", arg(1)),
+        ("max(f(x), NaN)", arg(1)),
+    ] {
+        let t = template(combine, &["f"], None, &["x"], &[], &ops);
+        assert_eq!(
+            eval(&t, &tree, &[], &ops, &[&xs]).unwrap(),
+            None,
+            "{combine} with {:?}",
+            tree.nodes
+        );
+    }
+}
+
 #[test]
 fn cached_derivatives_follow_constants_and_operator_definitions() {
     let x = features(&[&[1.0, 2.0, 3.0]]);

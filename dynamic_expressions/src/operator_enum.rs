@@ -378,10 +378,14 @@ pub mod builtin {
         },
     });
 
+    // Julia's `min` and `max`: NaN if either argument is NaN, and `-0.0` below `0.0`.
     crate::op!(Min for<T> {
         commutative: true,
         associative: true,
-        eval: |[x, y]| { x.min(y) },
+        eval: |[x, y]| {
+            let diff = x - y;
+            if x.is_nan() || y.is_nan() { diff } else if diff.is_sign_negative() { x } else { y }
+        },
         partial: |[x, y], idx| {
             #[allow(clippy::collapsible_else_if)]
             if x.is_nan() || y.is_nan() {
@@ -397,7 +401,10 @@ pub mod builtin {
     crate::op!(Max for<T> {
         commutative: true,
         associative: true,
-        eval: |[x, y]| { x.max(y) },
+        eval: |[x, y]| {
+            let diff = x - y;
+            if x.is_nan() || y.is_nan() { diff } else if diff.is_sign_negative() { y } else { x }
+        },
         partial: |[x, y], idx| {
             #[allow(clippy::collapsible_else_if)]
             if x.is_nan() || y.is_nan() {

@@ -7,23 +7,44 @@ use super::kernels::Kernel;
 /// comparisons and logical operators have derivative 0, and every other kernel uses the chain rule
 /// with its `Partial` nodes. Zero terms are dropped as they are built.
 pub fn differentiate(graph: &mut Graph, root: NodeId, wrt: u16) -> NodeId {
-    derivative(graph, root, wrt, false)
+    derivative(graph, root, wrt, Rules::Kernel)
 }
 
 /// [`differentiate`] with each partial written in other kernels instead of a `Partial` node, so
-/// the result can be differentiated again. The partials are those of SymbolicRegression.jl's `D`,
-/// which takes each operator's partial with ForwardDiff: 0 where a safe operator returns NaN,
-/// 0 for `x^y` with respect to `x` when `y` is 0, and DiffRules' `min` and `max`, which give a
-/// tie to the first argument of `min` and the second of `max`. `IfElse` conditions compare
-/// derivatives at ties, as comparisons of dual numbers do.
+/// the result can be differentiated again. The partials are ForwardDiff's, as SymbolicRegression.jl's
+/// `D` takes them of one operator with its arguments as dual numbers: 0 where a safe operator
+/// returns NaN, 0 for `x^y` with respect to `x` when `y` is 0, and DiffRules' `min` and `max`,
+/// which give a tie to the first argument of `min` and the second of `max`. `IfElse` conditions
+/// compare derivatives at ties, as comparisons of dual numbers do.
 pub fn differentiate_closed(graph: &mut Graph, root: NodeId, wrt: u16) -> NodeId {
-    derivative(graph, root, wrt, true)
+    derivative(graph, root, wrt, Rules::Closed)
 }
 
-fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, closed: bool) -> NodeId {
+/// Differentiates a graph whose operators are `Call { expr, wrt, args }` nodes: function `expr`,
+/// differentiated with respect to each of its arguments in `wrt`, applied to `args`. The chain rule
+/// adds `Call` nodes for the functions' partials, which stay opaque, so each operator is
+/// differentiated on its own, as SymbolicRegression.jl's `D` does. `is_zero_partial(expr, wrt)`
+/// tells which partials are 0, so their terms are dropped.
+pub fn differentiate_calls(
+    graph: &mut Graph,
+    root: NodeId,
+    wrt: u16,
+    is_zero_partial: &mut dyn FnMut(u16, &[u16]) -> bool,
+) -> NodeId {
+    derivative(graph, root, wrt, Rules::Calls(is_zero_partial))
+}
+
+enum Rules<'a> {
+    Kernel,
+    Closed,
+    Calls(&'a mut dyn FnMut(u16, &[u16]) -> bool),
+}
+
+fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, mut rules: Rules<'_>) -> NodeId {
     let n = root.index() + 1;
     let mut reachable = graph.reachable(&[root]);
     reachable.truncate(n);
+    let closed = !matches!(rules, Rules::Kernel);
 
     let mut d: Vec<NodeId> = Vec::with_capacity(n);
     for (i, &live) in reachable.iter().enumerate() {
@@ -31,12 +52,34 @@ fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, closed: bool) -> NodeId
             d.push(NodeId(u32::MAX));
             continue;
         }
-        let di = match graph.nodes()[i].clone() {
-            Node::Const(_) => zero(graph),
-            Node::Arg(k) => graph.constant(if k == wrt { 1.0 } else { 0.0 }),
-            Node::Op { kernel, args } => op_derivative(graph, kernel, &args, &d, closed),
-            Node::Partial { .. } => unreachable!("partial nodes are never differentiated"),
-            Node::Call { .. } | Node::Param { .. } => unreachable!("template nodes are never differentiated"),
+        let di = match (graph.nodes()[i].clone(), &mut rules) {
+            (Node::Const(_), _) => zero(graph),
+            (Node::Arg(k), _) => graph.constant(if k == wrt { 1.0 } else { 0.0 }),
+            (Node::Op { kernel, args }, _) => op_derivative(graph, kernel, &args, &d, closed),
+            (Node::Call { expr, wrt: w, args }, Rules::Calls(is_zero_partial)) => {
+                let mut total = zero(graph);
+                for (j, arg) in (0u16..).zip(&args) {
+                    let da = d[arg.index()];
+                    if is_zero(graph, da) {
+                        continue;
+                    }
+                    let mut partial_wrt = w.clone();
+                    partial_wrt.push(j);
+                    if is_zero_partial(expr, &partial_wrt) {
+                        continue;
+                    }
+                    let partial = graph.intern(Node::Call {
+                        expr,
+                        wrt: partial_wrt,
+                        args: args.clone(),
+                    });
+                    let term = mul(graph, partial, da);
+                    total = add(graph, total, term);
+                }
+                total
+            }
+            (Node::Partial { .. }, _) => unreachable!("partial nodes are never differentiated"),
+            (Node::Call { .. } | Node::Param { .. }, _) => unreachable!("template nodes are never differentiated"),
         };
         d.push(di);
     }

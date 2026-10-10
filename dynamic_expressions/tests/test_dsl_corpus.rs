@@ -963,6 +963,13 @@ fn corpus_templates_match_hand_written_rust() {
                 case.id,
                 case.src
             );
+            assert!(
+                (g - want).abs() <= 1e-12 * want.abs(),
+                "{} `{}` row {r}: got {g}, want {want}, relative error {}",
+                case.id,
+                case.src,
+                (g - want).abs() / want.abs()
+            );
         }
     }
 }

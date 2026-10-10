@@ -6,8 +6,9 @@ use core::fmt;
 
 use ndarray::{Array2, ArrayView2};
 use num_traits::Float;
+use rustc_hash::FxHashMap;
 
-use super::diff::differentiate_closed;
+use super::diff::{differentiate_calls, differentiate_closed};
 use super::ir::{Graph, Node, NodeId, OpIr};
 use super::lower::{Lowered, TemplateScope, lower_formula};
 use super::program::Program;
@@ -597,10 +598,11 @@ where
     Ok(&slot.as_ref().expect("the slot was just filled").program)
 }
 
-/// Lowers `tree` to IR, with constant `i` as input `i` and feature `f` as input
-/// `consts.len() + f`, differentiates it with respect to each feature in `wrt` as
-/// SymbolicRegression.jl's `D` does (see [`differentiate_closed`]), and compiles the result. A
-/// feature the tree cannot read has derivative 0.
+/// Lowers `tree` to IR, with constant `i` as input `i`, feature `f` as input `consts.len() + f`,
+/// and each operator as an opaque call, differentiates it with respect to each feature in `wrt`,
+/// and compiles the result. As in SymbolicRegression.jl's `D`, each operator's partials are taken
+/// on the operator alone (see [`differentiate_calls`]) and joined by the chain rule. A feature
+/// the tree cannot read has derivative 0.
 fn compile_derivative<T, Ops, const D: usize>(
     tree: &PostfixExpr<T, Ops, D>,
     ops: &Ops,
@@ -612,6 +614,7 @@ where
 {
     let n_consts = tree.consts.len();
     let input = |i: usize| u16::try_from(i).expect("a subexpression has at most 65535 inputs");
+    let mut functions = Functions::default();
     let mut g = Graph::default();
     let mut stack: Vec<NodeId> = Vec::with_capacity(tree.nodes.len());
     for node in &tree.nodes {
@@ -620,12 +623,12 @@ where
             PNode::Const { idx } => g.arg(idx),
             PNode::Op { arity, op } => {
                 let args = stack.split_off(stack.len() - usize::from(arity));
-                let op = OpId { arity, id: op };
-                match ops.ir(op) {
-                    Some(OpIr::Kernel(kernel)) => g.op(kernel, args),
-                    Some(OpIr::Defined(def)) => g.inline(&def.graph, def.root, &args),
-                    None => return Err(TemplateEvalError::UnsupportedOperator(ops.name(op).to_string())),
-                }
+                let expr = functions.of(ops, OpId { arity, id: op })?;
+                g.intern(Node::Call {
+                    expr,
+                    wrt: Vec::new(),
+                    args,
+                })
             }
         };
         stack.push(id);
@@ -633,10 +636,82 @@ where
     let mut root = stack.pop().expect("a tree has a value");
     for &w in wrt {
         root = match u16::try_from(n_consts + usize::from(w)) {
-            Ok(arg) => differentiate_closed(&mut g, root, arg),
+            Ok(arg) => differentiate_calls(&mut g, root, arg, &mut |f, w| functions.is_zero(f, w)),
             Err(_) => g.constant(0.0),
         };
     }
-    let (g, roots) = g.extract(&[root]);
-    Ok(Program::compile(&g, roots[0]))
+    let (g, root) = functions.inline(&g, root);
+    Ok(Program::compile(&g, root))
+}
+
+/// The operators of one tree as functions of their arguments (`Arg(i)`), and the partial
+/// derivatives `D` needs, each taken on the function alone.
+#[derive(Default)]
+struct Functions {
+    ops: Vec<OpId>,
+    graphs: FxHashMap<(u16, Vec<u16>), (Graph, NodeId)>,
+}
+
+impl Functions {
+    /// The function for `op`.
+    fn of<Ops: OperatorSet>(&mut self, ops: &Ops, op: OpId) -> Result<u16, TemplateEvalError> {
+        if let Some(f) = self.ops.iter().position(|&o| o == op) {
+            return Ok(f as u16);
+        }
+        let function = match ops.ir(op) {
+            Some(OpIr::Kernel(kernel)) => {
+                let mut g = Graph::default();
+                let args = (0..u16::from(op.arity)).map(|i| g.arg(i)).collect();
+                let root = g.op(kernel, args);
+                (g, root)
+            }
+            Some(OpIr::Defined(def)) => (def.graph.clone(), def.root),
+            None => return Err(TemplateEvalError::UnsupportedOperator(ops.name(op).to_string())),
+        };
+        let f = u16::try_from(self.ops.len()).expect("a tree has at most 65535 distinct operators");
+        self.ops.push(op);
+        self.graphs.insert((f, Vec::new()), function);
+        Ok(f)
+    }
+
+    /// Function `f` differentiated with respect to each of its arguments in `wrt`.
+    fn get(&mut self, f: u16, wrt: &[u16]) -> &(Graph, NodeId) {
+        let key = (f, wrt.to_vec());
+        if !self.graphs.contains_key(&key) {
+            let (&last, rest) = wrt.split_last().expect("every operator's function is stored");
+            let (mut g, root) = self.get(f, rest).clone();
+            let d = differentiate_closed(&mut g, root, last);
+            let (g, roots) = g.extract(&[d]);
+            self.graphs.insert(key.clone(), (g, roots[0]));
+        }
+        &self.graphs[&key]
+    }
+
+    fn is_zero(&mut self, f: u16, wrt: &[u16]) -> bool {
+        let (g, root) = self.get(f, wrt);
+        g.const_value(*root) == Some(0.0)
+    }
+
+    /// `root` of `g` with every call replaced by its function's graph.
+    fn inline(&mut self, g: &Graph, root: NodeId) -> (Graph, NodeId) {
+        let reachable = g.reachable(&[root]);
+        let mut out = Graph::default();
+        let mut map = vec![NodeId(u32::MAX); g.len()];
+        for (i, node) in g.nodes().iter().enumerate() {
+            if !reachable[i] {
+                continue;
+            }
+            let args: Vec<NodeId> = node.args().iter().map(|a| map[a.index()]).collect();
+            map[i] = match node {
+                Node::Call { expr, wrt, .. } => {
+                    let (callee, callee_root) = self.get(*expr, wrt);
+                    out.inline(callee, *callee_root, &args)
+                }
+                Node::Op { kernel, .. } => out.op(*kernel, args),
+                Node::Const(_) | Node::Arg(_) => out.intern(node.clone()),
+                Node::Partial { .. } | Node::Param { .. } => unreachable!("a tree lowers to calls of its operators"),
+            };
+        }
+        (out, map[root.index()])
+    }
 }
