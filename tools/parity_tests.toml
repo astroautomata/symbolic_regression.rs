@@ -353,7 +353,7 @@ name = "Test argument-less template structure"
 pr = 3
 status = "done"
 rust = ["dynamic_expressions/tests/test_jl_templates.rs::argument_less_subexpressions"]
-note = "A combine formula must vary across rows, so the lone zero-argument call is checked as `f() * x1`."
+note = "A template formula that returns one value for every row fails with `TemplateEvalError::ScalarReturn`, so the lone zero-argument call is checked as `f() * x1`."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
@@ -1279,7 +1279,7 @@ name = "Test Number inputs"
 pr = 3
 status = "done"
 rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_accept_number_arguments"]
-note = "A combine formula must vary across rows, so constant-argument calls are scaled by a feature."
+note = "A template formula that returns one value for every row fails with `TemplateEvalError::ScalarReturn`, so constant-argument calls are scaled by a feature."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
@@ -2092,8 +2092,8 @@ line = 192
 name = "Template macro with num_features parameter"
 pr = 3
 status = "done"
-rust = ["dynamic_expressions/tests/test_jl_templates.rs::declared_num_features_must_match_the_calls"]
-note = "Deviation: SymbolicRegression.jl lets a declared num_features override the calls (f=5 for a two-argument call); Rust rejects a declaration that disagrees with the calls."
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::declared_num_features_override_inference"]
+note = "The port also evaluates the f=5 declaration: a tree that reads beyond the call's two arguments makes the result invalid."
 
 [[testitem]]
 file = "test/unit/templates/test_template_parameter_value_types.jl"

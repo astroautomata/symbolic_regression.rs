@@ -34,7 +34,7 @@ fn test_timeout_under_max_iterations() {
     // Start the wall-clock timer before constructing the engine, since the timeout clock starts in
     // `StopController::from_options(...)` during `SearchEngine::new(...)`.
     let start = Instant::now();
-    let mut engine = SearchEngine::<f64, SlowOps, D>::new(dataset, options);
+    let mut engine = SearchEngine::<f64, SlowOps, D>::new(dataset, options).unwrap();
     let total_cycles = engine.total_cycles();
     while engine.step(1).unwrap() > 0 {}
     let elapsed = start.elapsed();

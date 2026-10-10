@@ -2,12 +2,15 @@
 //! written in the DSL that calls subexpressions (`f(x1, x2)`), their derivatives (`D(f, 1)(x)`),
 //! and indexes learnable parameter vectors (`p[class]`).
 
+use core::fmt;
+
 use ndarray::{Array2, ArrayView2};
 use num_traits::Float;
 
-use super::dual::{Dual, Jet};
-use super::ir::{Graph, Node, NodeId};
-use super::lower::{TemplateScope, lower_formula};
+use super::diff::differentiate;
+use super::ir::{Graph, Node, NodeId, OpIr};
+use super::lower::{Lowered, TemplateScope, lower_formula};
+use super::program::Program;
 use super::{DslError, Span, parse_formula};
 use crate::compile::{EvalPlan, compile_plan};
 use crate::dispatch::SrcRef;
@@ -17,8 +20,32 @@ use crate::node::PNode;
 use crate::strings::{StringTreeOptions, format_g, string_tree};
 use crate::traits::{OpId, OperatorSet};
 
-/// `D` may be nested this deep, as in `D(D(D(f, 1), 1), 1)`.
-pub const MAX_DERIVATIVE_ORDER: usize = 3;
+/// Why a template cannot be evaluated at all, as opposed to evaluating to an invalid result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TemplateEvalError {
+    /// The formula's value is the same for every row, which SymbolicRegression.jl rejects.
+    ScalarReturn,
+    /// `D` differentiates a subexpression that uses this operator, which has no IR.
+    UnsupportedOperator(String),
+}
+
+impl fmt::Display for TemplateEvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ScalarReturn => write!(
+                f,
+                "the template formula returns a scalar; it must return one value per row, using a feature or \
+                 calling a subexpression on one"
+            ),
+            Self::UnsupportedOperator(name) => write!(
+                f,
+                "`D` cannot differentiate operator `{name}`; only built-in and DSL-defined operators support it"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TemplateEvalError {}
 
 const CHECKED: EvalOptions = EvalOptions {
     check_finite: true,
@@ -35,15 +62,20 @@ pub struct TemplateStructure {
     variable_names: Vec<String>,
     graph: Graph,
     root: NodeId,
+    /// The formula's value is the same for every row, so it cannot be evaluated.
+    scalar: bool,
     combine: String,
 }
 
-/// Reusable buffers for [`TemplateStructure::eval_into`].
+/// Reusable buffers for [`TemplateStructure::eval_into`], and one compiled derivative per `D`
+/// call.
 #[derive(Clone, Debug)]
 pub struct TemplateWorkspace<T> {
     cols: Vec<Vec<T>>,
     sub_x: Array2<T>,
     scratch: Array2<T>,
+    derivatives: Vec<Option<Derivative<T>>>,
+    temps: Vec<T>,
 }
 
 impl<T> Default for TemplateWorkspace<T> {
@@ -52,7 +84,37 @@ impl<T> Default for TemplateWorkspace<T> {
             cols: Vec::new(),
             sub_x: Array2::from_shape_vec((0, 0), Vec::new()).expect("empty array"),
             scratch: Array2::from_shape_vec((0, 0), Vec::new()).expect("empty array"),
+            derivatives: Vec::new(),
+            temps: Vec::new(),
         }
+    }
+}
+
+/// `D(...(D(tree, wrt[0]), ...), wrt[k])` compiled for one call, with what it was compiled from:
+/// the operator set type (which fixes the built-in kernels) and its DSL definitions, the call, and
+/// the tree. The tree's constants are program inputs, so new constant values reuse the program.
+#[derive(Clone, Debug)]
+struct Derivative<T> {
+    ops_type: &'static str,
+    expr: u16,
+    wrt: Vec<u16>,
+    nodes: Vec<PNode>,
+    definitions: Vec<Lowered>,
+    program: Program<T>,
+}
+
+impl<T> Derivative<T> {
+    fn compiled_from(&self, ops_type: &str, expr: u16, wrt: &[u16], nodes: &[PNode], definitions: &[Lowered]) -> bool {
+        self.expr == expr
+            && self.wrt == wrt
+            && self.nodes == nodes
+            && self.ops_type == ops_type
+            && self.definitions.len() == definitions.len()
+            && self
+                .definitions
+                .iter()
+                .zip(definitions)
+                .all(|(a, b)| a.arity == b.arity && a.root == b.root && a.graph.nodes() == b.graph.nodes())
     }
 }
 
@@ -65,15 +127,17 @@ enum Val<T> {
 
 impl TemplateStructure {
     /// Compiles `combine`, which reads the features `variable_names` (in dataset column order),
-    /// calls the subexpressions `expressions`, and indexes the parameter vectors `parameters`
-    /// (name and length). Each subexpression's arity is inferred from its calls unless
-    /// `num_features` gives them, in which case every call must agree.
-    pub fn new<S: AsRef<str>>(
+    /// calls the subexpressions `expressions`, indexes the parameter vectors `parameters` (name
+    /// and length), and may call the DSL-defined operators of `ops`. Each subexpression's arity
+    /// is inferred from its calls unless `num_features` gives them, as SymbolicRegression.jl's
+    /// `num_features` does.
+    pub fn new<S: AsRef<str>, Ops: OperatorSet>(
         combine: &str,
         expressions: &[S],
         num_features: Option<&[usize]>,
         variable_names: &[S],
         parameters: &[(S, usize)],
+        ops: &Ops,
     ) -> Result<Self, DslError> {
         let whole = Span::new(0, combine.len());
         let err = |message: String| DslError::new(message, whole, combine);
@@ -114,47 +178,34 @@ impl TemplateStructure {
                 variables: &variable_names,
                 expressions: &expressions,
                 parameters: &parameters,
+                num_features,
             },
+            ops.definitions(),
         )?;
 
-        let mut arities = Vec::with_capacity(expressions.len());
-        for (k, (name, called)) in expressions.iter().zip(&lowered.arities).enumerate() {
-            let declared = num_features.map(|n| n[k]);
-            let arity = match (called, declared) {
-                (Some(c), Some(d)) if usize::from(*c) != d => {
-                    return Err(err(format!(
-                        "`{name}` is declared with {d} features but called with {c} arguments"
-                    )));
-                }
-                (Some(c), _) => usize::from(*c),
-                (None, Some(d)) => d,
-                (None, None) => {
-                    return Err(err(format!(
-                        "failed to infer the number of features used by `{name}`: the formula never calls it"
-                    )));
-                }
-            };
-            arities.push(arity);
-        }
-
-        for node in lowered.graph.nodes() {
-            if let Node::Call { wrt, .. } = node {
-                if wrt.len() > MAX_DERIVATIVE_ORDER {
-                    return Err(err(format!(
-                        "`D` is nested {} deep; at most {MAX_DERIVATIVE_ORDER} is supported",
-                        wrt.len()
-                    )));
-                }
-            }
-        }
+        let num_features = match num_features {
+            Some(n) => n.to_vec(),
+            None => expressions
+                .iter()
+                .zip(&lowered.arities)
+                .map(|(name, called)| {
+                    called.map(usize::from).ok_or_else(|| {
+                        err(format!(
+                            "failed to infer the number of features used by `{name}`: the formula never calls it"
+                        ))
+                    })
+                })
+                .collect::<Result<_, _>>()?,
+        };
 
         Ok(Self {
             expressions,
-            num_features: arities,
+            num_features,
             parameters,
             variable_names,
             graph: lowered.graph,
             root: lowered.root,
+            scalar: lowered.scalar,
             combine: combine.to_string(),
         })
     }
@@ -201,11 +252,10 @@ impl TemplateStructure {
     /// Whether some subexpression uses a feature beyond its arity, which makes the expression
     /// invalid.
     pub fn has_invalid_variables<T, Ops, const D: usize>(&self, trees: &[PostfixExpr<T, Ops, D>]) -> bool {
-        trees.iter().zip(&self.num_features).any(|(tree, &n)| {
-            tree.nodes
-                .iter()
-                .any(|node| matches!(node, PNode::Var { feature } if usize::from(*feature) >= n))
-        })
+        trees
+            .iter()
+            .zip(&self.num_features)
+            .any(|(tree, &n)| reads_beyond(tree, n))
     }
 
     /// Checks that every parameter index that depends only on the features is a valid 1-based
@@ -244,21 +294,16 @@ impl TemplateStructure {
         })
     }
 
-    /// Checks that `ops` can evaluate every operator on dual numbers, which `D` needs.
-    pub fn check_operators<Ops: OperatorSet>(&self, ops: &Ops, operators: &[OpId]) -> Result<(), String> {
+    /// Checks that `D` can differentiate every operator in `operators`: built-in and DSL-defined
+    /// operators have IR, Rust closures do not.
+    pub fn check_operators<Ops: OperatorSet>(&self, ops: &Ops, operators: &[OpId]) -> Result<(), TemplateEvalError> {
         if !self.uses_derivatives() {
             return Ok(());
         }
-        for &op in operators {
-            let args = vec![Dual::constant(1.0f64); usize::from(op.arity)];
-            if ops.eval_scalar(op, &args).is_none() {
-                return Err(format!(
-                    "`D` cannot differentiate operator `{}`; only built-in and DSL-defined operators support it",
-                    ops.name(op)
-                ));
-            }
+        match operators.iter().find(|&&op| ops.ir(op).is_none()) {
+            Some(&op) => Err(TemplateEvalError::UnsupportedOperator(ops.name(op).to_string())),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     /// Compiles one evaluation plan per subexpression.
@@ -270,9 +315,11 @@ impl TemplateStructure {
     }
 
     /// Evaluates the template on `x` (features by rows) into `out`. `params` holds the parameter
-    /// vectors concatenated in declaration order. Returns `false` when the expression is invalid:
-    /// a subexpression uses a feature beyond its arity, a parameter index is not an integer in
-    /// range, or any intermediate value is not finite, as SymbolicRegression.jl's `ValidVector`.
+    /// vectors concatenated in declaration order. Returns `Ok(false)` when the expression is
+    /// invalid: a subexpression uses a feature beyond its arity or its call's arguments, a
+    /// parameter index is not an integer in range, or any intermediate value is not finite, as
+    /// SymbolicRegression.jl's `ValidVector`. Fails when the formula returns a scalar, or `D`
+    /// differentiates an operator without IR.
     #[allow(clippy::too_many_arguments)]
     pub fn eval_into<T, Ops, const D: usize>(
         &self,
@@ -283,7 +330,7 @@ impl TemplateStructure {
         ops: &Ops,
         x: ArrayView2<'_, T>,
         ws: &mut TemplateWorkspace<T>,
-    ) -> bool
+    ) -> Result<bool, TemplateEvalError>
     where
         T: Float,
         Ops: OperatorSet<T = T>,
@@ -300,12 +347,16 @@ impl TemplateStructure {
         let x_data = x.as_slice().expect("X must be contiguous");
         let n = x.ncols();
         assert_eq!(out.len(), n);
+        if self.scalar {
+            return Err(TemplateEvalError::ScalarReturn);
+        }
         if self.has_invalid_variables(trees) {
-            return false;
+            return Ok(false);
         }
 
         let nodes = self.graph.nodes();
         ws.cols.resize_with(nodes.len(), Vec::new);
+        ws.derivatives.resize_with(nodes.len(), || None);
         let mut vals: Vec<Val<T>> = Vec::with_capacity(nodes.len());
         for (i, node) in nodes.iter().enumerate() {
             let (done, rest) = ws.cols.split_at_mut(i);
@@ -324,7 +375,7 @@ impl TemplateStructure {
                 Node::Op { kernel, .. } => {
                     col.resize(n, T::zero());
                     if !(kernel.eval_fn::<T>())(col, &args, &CHECKED) {
-                        return false;
+                        return Ok(false);
                     }
                     Val::Col(i)
                 }
@@ -340,7 +391,7 @@ impl TemplateStructure {
                             SrcRef::Const(c) => c,
                         };
                         let Some(k) = index_of(idx, len) else {
-                            return false;
+                            return Ok(false);
                         };
                         *o = entries[k];
                     }
@@ -348,28 +399,24 @@ impl TemplateStructure {
                 }
                 Node::Call { expr, wrt, .. } => {
                     let k = usize::from(*expr);
+                    let tree = &trees[k];
+                    if reads_beyond(tree, args.len()) {
+                        return Ok(false);
+                    }
                     col.resize(n, T::zero());
                     let ok = if wrt.is_empty() {
                         fill_rows(&mut ws.sub_x, &args, n);
-                        eval_plan_array_into(
-                            col,
-                            &plans[k],
-                            &trees[k],
-                            ops,
-                            ws.sub_x.view(),
-                            &mut ws.scratch,
-                            &CHECKED,
-                        )
+                        eval_plan_array_into(col, &plans[k], tree, ops, ws.sub_x.view(), &mut ws.scratch, &CHECKED)
                     } else {
-                        let tree = &trees[k];
-                        match wrt.len() {
-                            1 => eval_jet::<Dual<T>, T, Ops, D>(col, tree, ops, &args, wrt),
-                            2 => eval_jet::<Dual<Dual<T>>, T, Ops, D>(col, tree, ops, &args, wrt),
-                            _ => eval_jet::<Dual<Dual<Dual<T>>>, T, Ops, D>(col, tree, ops, &args, wrt),
-                        }
+                        let program = derivative(&mut ws.derivatives[i], *expr, wrt, tree, ops)?;
+                        let mut inputs: Vec<SrcRef<'_, T>> = tree.consts.iter().map(|&c| SrcRef::Const(c)).collect();
+                        inputs.extend_from_slice(&args);
+                        ws.temps.resize(program.n_temps() * n, T::zero());
+                        program.run(col, &inputs, &mut ws.temps);
+                        col.iter().all(|v| v.is_finite())
                     };
                     if !ok {
-                        return false;
+                        return Ok(false);
                     }
                     Val::Col(i)
                 }
@@ -382,7 +429,7 @@ impl TemplateStructure {
             Val::Feature(f) => out.copy_from_slice(&x_data[f * n..(f + 1) * n]),
             Val::Col(c) => out.copy_from_slice(&ws.cols[c]),
         }
-        out.iter().all(|v| v.is_finite())
+        Ok(out.iter().all(|v| v.is_finite()))
     }
 
     /// Evaluates the template once, compiling plans and buffers for the call.
@@ -392,14 +439,17 @@ impl TemplateStructure {
         params: &[T],
         ops: &Ops,
         x: ArrayView2<'_, T>,
-    ) -> (Vec<T>, bool)
+    ) -> Result<(Vec<T>, bool), TemplateEvalError>
     where
         T: Float,
         Ops: OperatorSet<T = T>,
     {
         let mut out = vec![T::zero(); x.ncols()];
+        if self.scalar {
+            return Err(TemplateEvalError::ScalarReturn);
+        }
         if self.has_invalid_variables(trees) {
-            return (out, false);
+            return Ok((out, false));
         }
         let plans = self.compile_plans(trees);
         let ok = self.eval_into(
@@ -410,8 +460,8 @@ impl TemplateStructure {
             ops,
             x,
             &mut TemplateWorkspace::default(),
-        );
-        (out, ok)
+        )?;
+        Ok((out, ok))
     }
 
     /// Prints the template as SymbolicRegression.jl does: each subexpression with its arguments
@@ -497,51 +547,83 @@ fn fill_rows<T: Float>(sub_x: &mut Array2<T>, args: &[SrcRef<'_, T>], n: usize) 
     }
 }
 
-/// Evaluates `D(...(D(tree, wrt[0]), ...), wrt[k])` at every row by running the tree's operators on
-/// nested dual numbers.
-fn eval_jet<J, T, Ops, const D: usize>(
-    out: &mut [T],
+/// Whether `tree` uses a feature at or beyond `n`.
+fn reads_beyond<T, Ops, const D: usize>(tree: &PostfixExpr<T, Ops, D>, n: usize) -> bool {
+    tree.nodes
+        .iter()
+        .any(|node| matches!(node, PNode::Var { feature } if usize::from(*feature) >= n))
+}
+
+/// The program for `D(...(D(tree, wrt[0]), ...), wrt[k])`, compiled into `slot` unless it already
+/// holds one compiled from the same subexpression, operators, and `D` call.
+fn derivative<'w, T, Ops, const D: usize>(
+    slot: &'w mut Option<Derivative<T>>,
+    expr: u16,
+    wrt: &[u16],
     tree: &PostfixExpr<T, Ops, D>,
     ops: &Ops,
-    args: &[SrcRef<'_, T>],
-    wrt: &[u16],
-) -> bool
+) -> Result<&'w Program<T>, TemplateEvalError>
 where
-    J: Jet<T>,
     T: Float,
     Ops: OperatorSet<T = T>,
 {
-    let seeds: Vec<Vec<bool>> = (0..args.len())
-        .map(|a| wrt.iter().map(|&w| usize::from(w) == a).collect())
-        .collect();
-    let mut stack: Vec<J> = Vec::with_capacity(tree.nodes.len());
-    let mut operands: Vec<J> = Vec::with_capacity(D);
-    for (r, o) in out.iter_mut().enumerate() {
-        stack.clear();
-        for node in &tree.nodes {
-            let v = match *node {
-                PNode::Var { feature } => {
-                    let f = usize::from(feature);
-                    let x = match args[f] {
-                        SrcRef::Slice(s) => s[r],
-                        SrcRef::Const(c) => c,
-                    };
-                    J::seed(x, &seeds[f])
-                }
-                PNode::Const { idx } => J::seed(tree.consts[usize::from(idx)], &[false; MAX_DERIVATIVE_ORDER]),
-                PNode::Op { arity, op } => {
-                    operands.clear();
-                    operands.extend(stack.drain(stack.len() - usize::from(arity)..));
-                    ops.eval_scalar(OpId { arity, id: op }, &operands)
-                        .expect("template setup checks that every operator supports `D`")
-                }
-            };
-            stack.push(v);
-        }
-        *o = stack.pop().expect("a tree has a value").top();
-        if !o.is_finite() {
-            return false;
-        }
+    let ops_type = core::any::type_name::<Ops>();
+    let definitions = ops.definitions();
+    let cached = slot
+        .as_ref()
+        .is_some_and(|d| d.compiled_from(ops_type, expr, wrt, &tree.nodes, definitions));
+    if !cached {
+        *slot = Some(Derivative {
+            ops_type,
+            expr,
+            wrt: wrt.to_vec(),
+            nodes: tree.nodes.clone(),
+            definitions: definitions.to_vec(),
+            program: compile_derivative(tree, ops, wrt)?,
+        });
     }
-    true
+    Ok(&slot.as_ref().expect("the slot was just filled").program)
+}
+
+/// Lowers `tree` to IR, with constant `i` as input `i` and feature `f` as input
+/// `consts.len() + f`, differentiates it with respect to each feature in `wrt`, and compiles the
+/// result. A feature the tree cannot read has derivative 0.
+fn compile_derivative<T, Ops, const D: usize>(
+    tree: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
+    wrt: &[u16],
+) -> Result<Program<T>, TemplateEvalError>
+where
+    T: Float,
+    Ops: OperatorSet<T = T>,
+{
+    let n_consts = tree.consts.len();
+    let input = |i: usize| u16::try_from(i).expect("a subexpression has at most 65535 inputs");
+    let mut g = Graph::default();
+    let mut stack: Vec<NodeId> = Vec::with_capacity(tree.nodes.len());
+    for node in &tree.nodes {
+        let id = match *node {
+            PNode::Var { feature } => g.arg(input(n_consts + usize::from(feature))),
+            PNode::Const { idx } => g.arg(idx),
+            PNode::Op { arity, op } => {
+                let args = stack.split_off(stack.len() - usize::from(arity));
+                let op = OpId { arity, id: op };
+                match ops.ir(op) {
+                    Some(OpIr::Kernel(kernel)) => g.op(kernel, args),
+                    Some(OpIr::Defined(def)) => g.inline(&def.graph, def.root, &args),
+                    None => return Err(TemplateEvalError::UnsupportedOperator(ops.name(op).to_string())),
+                }
+            }
+        };
+        stack.push(id);
+    }
+    let mut root = stack.pop().expect("a tree has a value");
+    for &w in wrt {
+        root = match u16::try_from(n_consts + usize::from(w)) {
+            Ok(arg) => differentiate(&mut g, root, arg),
+            Err(_) => g.constant(0.0),
+        };
+    }
+    let (g, roots) = g.extract(&[root]);
+    Ok(Program::compile(&g, roots[0]))
 }

@@ -1,4 +1,4 @@
-use super::ir::Ty;
+use super::ir::{OpIr, Ty};
 use super::lower::{Lowered, lower};
 use super::program::{DslFloat, ScalarFn};
 use super::{DslError, parse_definition};
@@ -159,8 +159,11 @@ impl<T: DslFloat> CustomTable<T> for CustomOps<T> {
         self.funcs[usize::from(local)].grad(ctx)
     }
 
-    fn eval_scalar<S: num_traits::Float>(&self, local: u16, args: &[S]) -> Option<S> {
-        let lowered = &self.lowered[usize::from(local)];
-        Some(lowered.graph.eval_scalar(lowered.root, args))
+    fn ir(&self, local: u16) -> Option<OpIr<'_>> {
+        Some(OpIr::Defined(&self.lowered[usize::from(local)]))
+    }
+
+    fn definitions(&self) -> &[Lowered] {
+        &self.lowered
     }
 }

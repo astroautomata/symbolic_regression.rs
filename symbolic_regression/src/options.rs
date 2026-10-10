@@ -338,6 +338,7 @@ macro_rules! __define_options {
             ///     None,
             ///     &["x1", "x2", "category"],
             ///     &[("p1", 3), ("p2", 3)],
+            ///     &BuiltinOpsF64::new(),
             /// )
             /// .unwrap();
             /// assert_eq!(template.num_features(), &[4]);
@@ -466,6 +467,8 @@ impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T,
         }
         template.check_indices(dataset.x.view())?;
         let ops: Vec<_> = self.operators.ops_by_arity.iter().flatten().copied().collect();
-        template.check_operators(&self.operators.set, &ops)
+        template
+            .check_operators(&self.operators.set, &ops)
+            .map_err(|e| e.to_string())
     }
 }

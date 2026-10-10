@@ -55,13 +55,6 @@ macro_rules! op {
 
         impl $crate::traits::OpTag for $Op {
             const ARITY: u8 = $crate::op!(@count $($eval_arg),+) as u8;
-
-            #[inline]
-            fn eval_scalar<S: $crate::num_traits::Float>(args: &[S]) -> Option<S> {
-                Some(<$Op as $crate::traits::Operator<S, { $crate::op!(@count $($eval_arg),+) }>>::eval(
-                    &core::array::from_fn(|i| args[i]),
-                ))
-            }
         }
 
         impl<$T: $crate::num_traits::Float> $crate::traits::Operator<$T, { $crate::op!(@count $($eval_arg),+) }> for $Op {
@@ -260,27 +253,29 @@ pub mod builtin {
         partial: |[x], _idx| { x.exp() },
     });
 
+    // Outside the domain, where `eval` returns NaN, the derivative is 0, as for SymbolicRegression.jl's
+    // `safe_log` under ForwardDiff.
     crate::op!(Log for<T> {
         eval: |[x]| { if x <= T::zero() { T::nan() } else { x.ln() } },
-        partial: |[x], _idx| { T::one() / x },
+        partial: |[x], _idx| { if x <= T::zero() { T::zero() } else { T::one() / x } },
     });
 
     crate::op!(Log2 for<T> {
         eval: |[x]| { if x <= T::zero() { T::nan() } else { x.log2() } },
-        partial: |[x], _idx| { T::one() / (x * two::<T>().ln()) },
+        partial: |[x], _idx| { if x <= T::zero() { T::zero() } else { T::one() / (x * two::<T>().ln()) } },
     });
 
     crate::op!(Log10 for<T> {
         eval: |[x]| { if x <= T::zero() { T::nan() } else { x.log10() } },
         partial: |[x], _idx| {
             let ten = T::from(10.0).expect("Float can represent 10.0");
-            T::one() / (x * ten.ln())
+            if x <= T::zero() { T::zero() } else { T::one() / (x * ten.ln()) }
         },
     });
 
     crate::op!(Log1p for<T> {
         eval: |[x]| { if x <= -T::one() { T::nan() } else { x.ln_1p() } },
-        partial: |[x], _idx| { T::one() / (T::one() + x) },
+        partial: |[x], _idx| { if x <= -T::one() { T::zero() } else { T::one() / (T::one() + x) } },
     });
 
     crate::op!(Exp2 for<T> {
@@ -877,16 +872,20 @@ macro_rules! opset {
                 }
             }
 
-            #[inline]
-            fn eval_scalar<S: $crate::num_traits::Float>(&self, op: $crate::traits::OpId, args: &[S]) -> Option<S> {
+            fn ir(&self, op: $crate::traits::OpId) -> Option<$crate::dsl::ir::OpIr<'_>> {
                 match op.id {
                     $(
                         $crate::paste::paste! { [<__opset_ $Ops>]::[<ID_ $op_name>] } => {
-                            <$crate::opset!(@op_ty $op_name $(= $op_path)?) as $crate::traits::OpTag>::eval_scalar(args)
+                            $crate::dsl::kernels::Kernel::of::<$crate::opset!(@op_ty $op_name $(= $op_path)?)>()
+                                .map($crate::dsl::ir::OpIr::Kernel)
                         }
                     )*
-                    id => self.custom.eval_scalar(id - $crate::paste::paste! { [<__opset_ $Ops>]::N_BUILTIN }, args),
+                    id => self.custom.ir(id - $crate::paste::paste! { [<__opset_ $Ops>]::N_BUILTIN }),
                 }
+            }
+
+            fn definitions(&self) -> &[$crate::dsl::lower::Lowered] {
+                self.custom.definitions()
             }
         }
 

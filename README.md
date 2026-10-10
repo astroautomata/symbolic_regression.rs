@@ -188,6 +188,7 @@ let template = TemplateStructure::new(
     None,
     &["x1", "x2", "category"],
     &[("p1", 3), ("p2", 3)],
+    &BuiltinOpsF64::new(),
 )
 .unwrap();
 let options = Options::<f64, BuiltinOpsF64, 2> {
@@ -196,7 +197,7 @@ let options = Options::<f64, BuiltinOpsF64, 2> {
 };
 ```
 
-`variable_names` names the dataset's features in column order. Each member's `expr` holds one tree per subexpression (`trees`) and the parameter vectors concatenated in declaration order (`params`); `expr.string(&options, ..)` prints it as `f = #1 * #3; p1 = [..]; p2 = [..]`.
+`variable_names` names the dataset's features in column order, and `num_features` (here `None`) may fix each subexpression's arity instead of inferring it from the calls. The formula may call the DSL-defined operators of the operator set passed last, and `D` differentiates built-in and DSL-defined operators to any order; operators written as Rust closures cannot be differentiated, which the search reports before it starts. A formula whose value is the same for every row, such as `f()`, fails when evaluated. Each member's `expr` holds one tree per subexpression (`trees`) and the parameter vectors concatenated in declaration order (`params`); `expr.string(&options, ..)` prints it as `f = #1 * #3; p1 = [..]; p2 = [..]`.
 
 ## WASM
 

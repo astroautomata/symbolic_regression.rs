@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::ops::AddAssign;
 
+use dynamic_expressions::dsl::TemplateEvalError;
 use dynamic_expressions::expression::PostfixExpr;
 use fastrand::Rng;
 use num_traits::Float;
@@ -173,7 +174,7 @@ where
     let stats = RunningSearchStatistics::new(options.maxsize, 100_000);
     let mut hall = HallOfFame::new(options.maxsize);
 
-    let pools = init_populations(full_dataset, options, &controller, &mut hall);
+    let pools = init_populations(full_dataset, options, &controller, &mut hall).map_err(|e| e.to_string())?;
     let counters = SearchCounters {
         total_cycles: options.niterations * pools.pops.len(),
         cycles_started: 0,
@@ -412,7 +413,8 @@ where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    pub fn new(dataset: Dataset<T>, options: Options<T, Ops, D>) -> Self {
+    /// Builds the initial populations. Fails when the template cannot be evaluated.
+    pub fn new(dataset: Dataset<T>, options: Options<T, Ops, D>) -> Result<Self, String> {
         check_dataset(&dataset, &options);
         let baseline_loss = if options.use_baseline {
             baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, &options.operators.set, options.loss.as_ref())
@@ -426,7 +428,7 @@ where
         let mut hall = HallOfFame::new(options.maxsize);
 
         let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
-        let pools = init_populations(full_dataset, &options, &controller, &mut hall);
+        let pools = init_populations(full_dataset, &options, &controller, &mut hall).map_err(|e| e.to_string())?;
         let counters = SearchCounters {
             total_cycles: options.niterations * pools.pops.len(),
             cycles_started: 0,
@@ -451,13 +453,13 @@ where
             progress_finished: false,
         };
 
-        Self {
+        Ok(Self {
             dataset,
             baseline_loss,
             options,
             controller,
             core,
-        }
+        })
     }
 
     pub fn total_cycles(&self) -> usize {
@@ -653,12 +655,14 @@ where
     )
 }
 
+/// Builds and scores the initial populations. Fails when the template cannot be evaluated,
+/// which the first member's evaluation finds.
 fn init_populations<T, Ops, const D: usize>(
     full_dataset: TaggedDataset<'_, T>,
     options: &Options<T, Ops, D>,
     controller: &StopController,
     hall: &mut HallOfFame<T, Ops, D>,
-) -> PopPools<T, Ops, D>
+) -> Result<PopPools<T, Ops, D>, TemplateEvalError>
 where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
@@ -688,6 +692,9 @@ where
                 options.maxsize,
             );
             let mut m = PopMember::from_expr(new_expression(tree, options, &mut rng), dataset.n_features, options);
+            if options.template.is_some() && pops.is_empty() && members.is_empty() {
+                evaluator.eval_checked(&m.expr, &m.plans, options, dataset.x.view())?;
+            }
             let _ = m.evaluate(&full_dataset, options, &mut evaluator);
             total_evals += full_dataset.dataset_fraction();
             hall.consider(&m, options);
@@ -712,11 +719,11 @@ where
         best_sub_pops[i] = migration::best_sub_pop(&st.pop, options.topn);
     }
 
-    PopPools {
+    Ok(PopPools {
         pops,
         best_sub_pops,
         total_evals,
-    }
+    })
 }
 
 /// SymbolicRegression.jl's `create_expression`: a template starts with a copy of `tree` in every
@@ -778,7 +785,7 @@ mod batching_search_tests {
             ..Default::default()
         };
 
-        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options.clone());
+        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options.clone()).unwrap();
         assert!(
             engine.core.pools.pops[0]
                 .as_ref()
@@ -828,7 +835,7 @@ mod batching_search_tests {
             ..Default::default()
         };
 
-        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options);
+        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options).unwrap();
         let _ = engine.step(1);
 
         let pop_state = engine.core.pools.pops[0].as_ref().expect("pop exists");

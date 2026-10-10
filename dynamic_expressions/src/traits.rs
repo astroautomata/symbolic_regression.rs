@@ -39,13 +39,6 @@ pub struct OpMeta<'a> {
 /// Rust can't (in general) infer `A` from `Tag: Operator<T, A>`, so we attach arity directly.
 pub trait OpTag {
     const ARITY: u8;
-
-    /// Evaluates the operator on one row of any float type, such as a
-    /// [`crate::dsl::dual::Dual`] number. `None` for operators defined for one float type only.
-    #[inline]
-    fn eval_scalar<S: Float>(_args: &[S]) -> Option<S> {
-        None
-    }
 }
 
 pub trait HasOp<Tag: OpTag> {
@@ -125,9 +118,11 @@ pub trait OperatorSet: Sized {
     fn diff(&self, op: OpId, ctx: crate::dispatch::DiffKernelCtx<'_, '_, Self::T>) -> bool;
     fn grad(&self, op: OpId, ctx: crate::dispatch::GradKernelCtx<'_, '_, Self::T>) -> bool;
 
-    /// Evaluates `op` on one row of any float type, such as a [`crate::dsl::dual::Dual`] number.
-    /// `None` when a runtime operator cannot.
-    fn eval_scalar<S: Float>(&self, op: OpId, args: &[S]) -> Option<S>;
+    /// `op` as IR, for `D` in template formulas; `None` when no IR is known for it.
+    fn ir(&self, op: OpId) -> Option<crate::dsl::ir::OpIr<'_>>;
+
+    /// DSL definitions that template formulas may call, in definition order.
+    fn definitions(&self) -> &[crate::dsl::lower::Lowered];
 
     // ---- Token lookup ----
 

@@ -914,8 +914,15 @@ const TEMPLATES: &[TemplateCase] = &[
 ];
 
 fn compile_template(case: &TemplateCase) -> TemplateStructure {
-    TemplateStructure::new(case.src, case.expressions, None, case.variables, case.parameters)
-        .unwrap_or_else(|e| panic!("{} `{}`: {e}", case.id, case.src))
+    TemplateStructure::new(
+        case.src,
+        case.expressions,
+        None,
+        case.variables,
+        case.parameters,
+        &BuiltinOpsF64::new(),
+    )
+    .unwrap_or_else(|e| panic!("{} `{}`: {e}", case.id, case.src))
 }
 
 /// Random features in (-2, 2), with category columns drawn from `1..=n`.
@@ -942,7 +949,7 @@ fn corpus_templates_match_hand_written_rust() {
             .collect();
         let params: Vec<f64> = (0..template.n_parameters()).map(|i| 0.5 + 0.25 * i as f64).collect();
         let x = template_inputs(case, 7);
-        let (got, ok) = template.eval(&trees, &params, &ops, x.view());
+        let (got, ok) = template.eval(&trees, &params, &ops, x.view()).unwrap();
         assert!(ok, "{} `{}` is invalid", case.id, case.src);
         for (r, &g) in got.iter().enumerate() {
             let value = |name: &str| {
@@ -966,7 +973,7 @@ fn corpus_template_derivative_matches_central_differences() {
     let template = compile_template(case);
     let trees = vec![sub_tree(0, 1)];
     let x = template_inputs(case, 11);
-    let (got, ok) = template.eval(&trees, &[], &BuiltinOpsF64::new(), x.view());
+    let (got, ok) = template.eval(&trees, &[], &BuiltinOpsF64::new(), x.view()).unwrap();
     assert!(ok);
     let h = 1e-5;
     for (r, &g) in got.iter().enumerate() {
@@ -1008,7 +1015,8 @@ fn corpus_templates_for_custom_value_types_fail_at_setup_naming_the_function() {
         ),
     ];
     for (id, src, expressions, variables, parameters, name) in cases {
-        let err = TemplateStructure::new(src, &expressions, None, &variables, &parameters).expect_err(id);
+        let err = TemplateStructure::new(src, &expressions, None, &variables, &parameters, &BuiltinOpsF64::new())
+            .expect_err(id);
         assert!(err.message.contains(name), "{id} `{src}`: {}", err.message);
     }
 }

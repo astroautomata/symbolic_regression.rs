@@ -1,6 +1,8 @@
 use num_traits::Float;
 
 use crate::dispatch::{DiffKernelCtx, EvalKernelCtx, GradKernelCtx};
+use crate::dsl::ir::OpIr;
+use crate::dsl::lower::Lowered;
 use crate::traits::OpMeta;
 
 /// Runtime operators appended after an operator set's built-ins. `local` ids start at 0; the
@@ -15,9 +17,13 @@ pub trait CustomTable<T: Float>: Clone + Default + core::fmt::Debug + Send + Syn
     fn eval(&self, local: u16, ctx: EvalKernelCtx<'_, '_, T>) -> bool;
     fn diff(&self, local: u16, ctx: DiffKernelCtx<'_, '_, T>) -> bool;
     fn grad(&self, local: u16, ctx: GradKernelCtx<'_, '_, T>) -> bool;
-    /// Evaluates the operator on one row of any float type; `None` when the table cannot.
-    fn eval_scalar<S: Float>(&self, _local: u16, _args: &[S]) -> Option<S> {
+    /// The operator as IR, for `D` in template formulas; `None` when the table has no IR for it.
+    fn ir(&self, _local: u16) -> Option<OpIr<'_>> {
         None
+    }
+    /// DSL definitions that template formulas may call, in definition order.
+    fn definitions(&self) -> &[Lowered] {
+        &[]
     }
 }
 

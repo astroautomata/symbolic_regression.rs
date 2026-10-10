@@ -324,3 +324,39 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
         "with only one operator available, mutate_operator should be a no-op"
     );
 }
+
+/// SymbolicRegression.jl conditions `mutate_feature` on `max_features(dataset, options)`: in
+/// `f(x1) + g(x2)` each tree reads one argument, so a feature mutation can never apply.
+#[test]
+fn template_feature_mutation_sees_subexpression_arity() {
+    let operators = OperatorLibrary::sr_default::<TestOps, D>();
+    let template = dynamic_expressions::dsl::TemplateStructure::new(
+        "f(x1) + g(x2)",
+        &["f", "g"],
+        None,
+        &["x1", "x2"],
+        &[],
+        &operators.set,
+    )
+    .unwrap();
+    let options = Options::<T, TestOps, D> {
+        operators,
+        template: Some(template),
+        ..Default::default()
+    };
+    let expr = crate::expression::Expression {
+        trees: vec![leaf_expr(0), leaf_expr(0)],
+        params: Vec::new(),
+    };
+    let member = PopMember::from_expr(expr, 2, &options);
+    let weights = mutate::next_generation_weights(&member, &options, options.maxsize, 2);
+    assert_eq!(weights.mutate_feature, 0.0);
+
+    let plain = Options::<T, TestOps, D> {
+        operators: OperatorLibrary::sr_default::<TestOps, D>(),
+        ..Default::default()
+    };
+    let member = PopMember::from_expr(leaf_expr(0), 2, &plain);
+    let weights = mutate::next_generation_weights(&member, &plain, plain.maxsize, 2);
+    assert!(weights.mutate_feature > 0.0);
+}

@@ -1,4 +1,3 @@
-use num_traits::Float;
 use rustc_hash::FxHashMap;
 
 use super::kernels::Kernel;
@@ -57,6 +56,14 @@ impl Node {
             Node::Param { index, .. } => core::slice::from_ref(index),
         }
     }
+}
+
+/// An operator as IR, which `D` differentiates symbolically: a built-in kernel, or a DSL
+/// definition whose graph is inlined at each call.
+#[derive(Copy, Clone, Debug)]
+pub enum OpIr<'a> {
+    Kernel(Kernel),
+    Defined(&'a super::lower::Lowered),
 }
 
 /// A hash-consed DAG: structurally equal nodes share one id, and every node's arguments have
@@ -157,26 +164,6 @@ impl Graph {
             map.push(id);
         }
         map[root.index()]
-    }
-
-    /// Evaluates the scalar function rooted at `root` on one row of any float type. Template
-    /// nodes need their template, so the graph must not contain them.
-    pub fn eval_scalar<S: Float>(&self, root: NodeId, args: &[S]) -> S {
-        let mut values: Vec<S> = Vec::with_capacity(root.index() + 1);
-        let mut operands: Vec<S> = Vec::new();
-        for node in &self.nodes[..=root.index()] {
-            operands.clear();
-            operands.extend(node.args().iter().map(|a| values[a.index()]));
-            let v = match node {
-                Node::Const(bits) => S::from(f64::from_bits(*bits)).expect("every f64 converts to a float"),
-                Node::Arg(i) => args[usize::from(*i)],
-                Node::Op { kernel, .. } => kernel.eval_scalar(&operands),
-                Node::Partial { kernel, idx, .. } => kernel.partial_scalar(&operands, usize::from(*idx)),
-                Node::Call { .. } | Node::Param { .. } => unreachable!("template nodes outside a template"),
-            };
-            values.push(v);
-        }
-        values[root.index()]
     }
 }
 

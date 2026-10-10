@@ -264,7 +264,7 @@ impl WasmSearch {
             .check_weights(train.weights.is_some())
             .map_err(|e| JsValue::from_str(&e))?;
 
-        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options);
+        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options).map_err(|e| JsValue::from_str(&e))?;
 
         Ok(WasmSearch {
             engine,
@@ -890,7 +890,7 @@ mod tests {
             progress: false,
             ..Default::default()
         };
-        super::SearchEngine::new(super::Dataset::new(x, y), options)
+        super::SearchEngine::new(super::Dataset::new(x, y), options).unwrap()
     }
 
     #[test]

@@ -200,7 +200,7 @@ fn early_stop_condition() {
         ..Default::default()
     };
 
-    let mut engine = SearchEngine::new(dataset, options);
+    let mut engine = SearchEngine::new(dataset, options).unwrap();
     // SymbolicRegression.jl evolves every population as its own task, so all 20 are in flight
     // whatever the core count. Inside a pool one thread runs the search loop, so a thread per
     // population plus one keeps all 20 in flight here too, even on two cores.

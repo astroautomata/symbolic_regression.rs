@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dynamic_expressions::dsl::TemplateWorkspace;
+use dynamic_expressions::dsl::{TemplateEvalError, TemplateWorkspace};
 use dynamic_expressions::{EvalOptions, EvalPlan};
 use ndarray::ArrayView2;
 use num_traits::Float;
@@ -93,7 +93,8 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
         }
     }
 
-    /// Evaluates `expr` on `x` into `yhat`; `false` when the result is invalid.
+    /// Evaluates `expr` on `x` into `yhat`; `false` when the result is invalid. The search calls
+    /// [`Self::eval_checked`] once before any other evaluation, so a template cannot fail here.
     pub fn eval<Ops>(
         &mut self,
         expr: &Expression<T, Ops, D>,
@@ -104,8 +105,23 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
     where
         Ops: dynamic_expressions::OperatorSet<T = T>,
     {
+        self.eval_checked(expr, plans, options, x)
+            .expect("the search checks that the template can be evaluated before it starts")
+    }
+
+    /// [`Self::eval`], failing when the template cannot be evaluated at all.
+    pub fn eval_checked<Ops>(
+        &mut self,
+        expr: &Expression<T, Ops, D>,
+        plans: &[EvalPlan<D>],
+        options: &Options<T, Ops, D>,
+        x: ArrayView2<'_, T>,
+    ) -> Result<bool, TemplateEvalError>
+    where
+        Ops: dynamic_expressions::OperatorSet<T = T>,
+    {
         match &options.template {
-            None => dynamic_expressions::eval_plan_array_into(
+            None => Ok(dynamic_expressions::eval_plan_array_into(
                 &mut self.yhat,
                 &plans[0],
                 &expr.trees[0],
@@ -113,7 +129,7 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
                 x,
                 &mut self.scratch,
                 &self.eval_opts,
-            ),
+            )),
             Some(template) => template.eval_into(
                 &mut self.yhat,
                 &expr.trees,

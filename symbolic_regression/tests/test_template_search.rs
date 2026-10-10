@@ -14,7 +14,7 @@ fn template(
     variable_names: &[&str],
     parameters: &[(&str, usize)],
 ) -> TemplateStructure {
-    TemplateStructure::new(combine, expressions, None, variable_names, parameters).unwrap()
+    TemplateStructure::new(combine, expressions, None, variable_names, parameters, &Ops::new()).unwrap()
 }
 
 /// Options that stop the search once a member of at most `complexity` reaches loss `tol`.
@@ -179,7 +179,9 @@ fn search_recovers_migration_guide_parameters() {
         _ => (j % 3 + 1) as f64,
     });
     let template = options.template.as_ref().unwrap();
-    let (yhat, ok) = template.eval(&best.expr.trees, params, &options.operators.set, probe.view());
+    let (yhat, ok) = template
+        .eval(&best.expr.trees, params, &options.operators.set, probe.view())
+        .unwrap();
     assert!(ok);
     let slope: Vec<f64> = (0..3).map(|c| yhat[3 + c] - yhat[c]).collect();
     assert_close(&yhat[..3], &shift, 1e-6);
@@ -221,12 +223,14 @@ fn search_with_parametric_template_expression() {
     let result = search(&dataset, &options);
     let best = simplest_below(&result, &options, 1e-5);
     let template = options.template.as_ref().unwrap();
-    let (yhat, ok) = template.eval(
-        &best.expr.trees,
-        &best.expr.params,
-        &options.operators.set,
-        dataset.x.view(),
-    );
+    let (yhat, ok) = template
+        .eval(
+            &best.expr.trees,
+            &best.expr.params,
+            &options.operators.set,
+            dataset.x.view(),
+        )
+        .unwrap();
     assert!(ok);
     let mse = yhat.iter().zip(&dataset.y).map(|(a, b)| (a - b).powi(2)).sum::<f64>() / n_rows as f64;
     assert!(mse < 1e-5, "mse {mse:e}");

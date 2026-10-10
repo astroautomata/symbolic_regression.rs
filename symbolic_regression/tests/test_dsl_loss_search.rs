@@ -64,7 +64,7 @@ fn string_early_stop_ends_search_sooner() {
             early_stop_condition: early_stop.map(|s| parse_early_stop(s).unwrap()),
             ..options()
         };
-        let mut engine = SearchEngine::new(dataset(), options);
+        let mut engine = SearchEngine::new(dataset(), options).unwrap();
         engine.step(usize::MAX).unwrap();
         (engine.cycles_completed(), engine.total_evals(), engine.total_cycles())
     };
@@ -132,7 +132,7 @@ fn negative_losses_fail_a_log_scale_search() {
         "{err}"
     );
 
-    let mut engine = SearchEngine::new(dataset(), negative(LossScale::Log));
+    let mut engine = SearchEngine::new(dataset(), negative(LossScale::Log)).unwrap();
     let err = engine.step(usize::MAX).unwrap_err();
     assert!(err.contains("negative loss"), "{err}");
     assert!(engine.cycles_completed() < engine.total_cycles());

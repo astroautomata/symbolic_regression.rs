@@ -329,6 +329,28 @@ impl MutationChoice {
     }
 }
 
+/// `options.mutation_weights` conditioned on `member`, as SymbolicRegression.jl's
+/// `next_generation` does: feature mutations see the features a tree may use, not the dataset's.
+pub(crate) fn next_generation_weights<T: Float + AddAssign, Ops, const D: usize>(
+    member: &PopMember<T, Ops, D>,
+    options: &Options<T, Ops, D>,
+    curmaxsize: usize,
+    n_features: usize,
+) -> MutationWeights
+where
+    Ops: dynamic_expressions::OperatorSet<T = T>,
+{
+    let mut weights = options.mutation_weights.clone();
+    condition_mutation_weights(
+        &mut weights,
+        member,
+        options,
+        curmaxsize,
+        options.max_features(n_features),
+    );
+    weights
+}
+
 pub fn next_generation<
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
     Ops,
@@ -355,8 +377,7 @@ where
     let _before_loss = member.loss.to_f64().unwrap_or(f64::INFINITY);
     let n_features = dataset.n_features;
 
-    let mut weights = options.mutation_weights.clone();
-    condition_mutation_weights(&mut weights, member, options, curmaxsize, n_features);
+    let weights = next_generation_weights(member, options, curmaxsize, n_features);
     let choice = sample_mutation(rng, &weights);
 
     let max_attempts = 10;

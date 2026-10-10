@@ -1,3 +1,5 @@
+use core::any::TypeId;
+
 use num_traits::Float;
 
 use crate::dispatch::SrcRef;
@@ -59,24 +61,23 @@ macro_rules! kernels {
                 }
             }
 
-            /// Evaluates the kernel on one row of any float type, such as a [`super::dual::Dual`].
-            pub fn eval_scalar<S: Float>(self, args: &[S]) -> S {
+            /// Evaluates the kernel on one row.
+            pub fn eval_scalar(self, args: &[f64]) -> f64 {
                 match self {
                     $(Kernel::$Op => {
                         const A: usize = <builtin::$Op as OpTag>::ARITY as usize;
-                        <builtin::$Op as Operator<S, A>>::eval(&core::array::from_fn(|i| args[i]))
+                        <builtin::$Op as Operator<f64, A>>::eval(&core::array::from_fn(|i| args[i]))
                     })*
                 }
             }
 
-            /// The partial derivative with respect to argument `idx`, on one row.
-            pub fn partial_scalar<S: Float>(self, args: &[S], idx: usize) -> S {
-                match self {
-                    $(Kernel::$Op => {
-                        const A: usize = <builtin::$Op as OpTag>::ARITY as usize;
-                        <builtin::$Op as Operator<S, A>>::partial(&core::array::from_fn(|i| args[i]), idx)
-                    })*
-                }
+            /// The kernel that the operator type `Op` is, if `Op` is one of the built-in types.
+            pub fn of<Op: 'static>() -> Option<Kernel> {
+                let id = TypeId::of::<Op>();
+                $(if id == TypeId::of::<builtin::$Op>() {
+                    return Some(Kernel::$Op);
+                })*
+                None
             }
         }
     };

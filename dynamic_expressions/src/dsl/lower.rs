@@ -16,19 +16,22 @@ pub struct Lowered {
 }
 
 /// The names a template formula sees: feature columns (`Arg(i)`), subexpressions, and parameter
-/// vectors with their lengths.
+/// vectors with their lengths. `num_features`, when given, fixes each subexpression's arity, so
+/// its calls need not agree.
 pub(crate) struct TemplateScope<'a> {
     pub variables: &'a [String],
     pub expressions: &'a [String],
     pub parameters: &'a [(String, usize)],
+    pub num_features: Option<&'a [usize]>,
 }
 
 /// A template formula lowered to IR, with the number of arguments each subexpression is called
-/// with (`None` for one that is never called).
+/// with (`None` for one that is never called), and whether its value is the same for every row.
 pub(crate) struct LoweredFormula {
     pub graph: Graph,
     pub root: NodeId,
     pub arities: Vec<Option<u8>>,
+    pub scalar: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -74,9 +77,14 @@ pub fn lower(def: &Definition, customs: &[Lowered]) -> Result<Lowered, DslError>
     })
 }
 
-/// Lowers a template combine formula. `Arg(i)` is feature column `i`.
-pub(crate) fn lower_formula(formula: &Formula, scope: &TemplateScope<'_>) -> Result<LoweredFormula, DslError> {
-    let mut cx = Lowerer::new(formula.source(), &[], None, Some(scope));
+/// Lowers a template combine formula. `Arg(i)` is feature column `i`; calls to `customs` are
+/// inlined.
+pub(crate) fn lower_formula(
+    formula: &Formula,
+    scope: &TemplateScope<'_>,
+    customs: &[Lowered],
+) -> Result<LoweredFormula, DslError> {
+    let mut cx = Lowerer::new(formula.source(), customs, None, Some(scope));
     for (i, name) in scope.variables.iter().enumerate() {
         let id = cx.graph.arg(i as u16);
         cx.bind(name, Binding::Value(Value { id, ty: Ty::Num }));
@@ -94,18 +102,12 @@ pub(crate) fn lower_formula(formula: &Formula, scope: &TemplateScope<'_>) -> Res
         cx.bind(name, Binding::Params(i));
     }
 
-    let Some((value, span)) = cx.body(&formula.stmts)? else {
+    let Some((value, _)) = cx.body(&formula.stmts)? else {
         return Err(cx.err("the formula has no value".to_string(), formula.span));
     };
     let (graph, roots) = cx.graph.extract(&[value.id]);
-    if !varies(&graph, roots[0]) {
-        return Err(cx.err(
-            "the formula's value is the same for every row; it must use a feature or call a subexpression on one"
-                .to_string(),
-            span,
-        ));
-    }
     Ok(LoweredFormula {
+        scalar: !varies(&graph, roots[0]),
         graph,
         root: roots[0],
         arities: cx.arities,
@@ -113,7 +115,7 @@ pub(crate) fn lower_formula(formula: &Formula, scope: &TemplateScope<'_>) -> Res
 }
 
 /// Whether the value at `root` can differ between rows. Every other formula value is a scalar
-/// in SymbolicRegression.jl, which rejects a scalar result.
+/// in SymbolicRegression.jl.
 fn varies(graph: &Graph, root: NodeId) -> bool {
     let mut row_dependent = Vec::with_capacity(graph.len());
     for node in graph.nodes() {
@@ -299,22 +301,13 @@ impl<'a> Lowerer<'a> {
         let n = u8::try_from(args.len())
             .map_err(|_| self.err("subexpressions take at most 255 arguments".to_string(), span))?;
         match self.arities[usize::from(expr)] {
-            Some(a) if a != n => {
+            Some(a) if a != n && scope.num_features.is_none() => {
                 return Err(self.err(
                     format!("inconsistent number of arguments passed to `{name}`: {a} and {n}"),
                     span,
                 ));
             }
             _ => self.arities[usize::from(expr)] = Some(n),
-        }
-        if let Some(&i) = wrt.iter().find(|&&i| i >= u16::from(n)) {
-            return Err(self.err(
-                format!(
-                    "`D` differentiates `{name}` with respect to argument {}, but it takes {n}",
-                    i + 1
-                ),
-                span,
-            ));
         }
         let ids = self.args(args)?.iter().map(|v| v.id).collect();
         Ok(Self::num(self.graph.intern(Node::Call { expr, wrt, args: ids })))

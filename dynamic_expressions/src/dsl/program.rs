@@ -79,7 +79,7 @@ pub struct Program<T> {
     n_temps: usize,
 }
 
-impl<T: DslFloat> Program<T> {
+impl<T: Float> Program<T> {
     pub fn compile(graph: &Graph, root: NodeId) -> Self {
         let n = root.index() + 1;
         let reachable = graph.reachable(&[root]);
@@ -183,11 +183,11 @@ impl<T: DslFloat> Program<T> {
     }
 }
 
-fn operand<T: DslFloat>(graph: &Graph, id: NodeId, temp_of: &[usize]) -> Operand<T> {
+fn operand<T: Float>(graph: &Graph, id: NodeId, temp_of: &[usize]) -> Operand<T> {
     match graph.node(id) {
         Node::Const(bits) => {
             let value = f64::from_bits(*bits);
-            Operand::Const(T::from(value).expect("every f64 converts to a DslFloat"))
+            Operand::Const(T::from(value).expect("f64 converts to every Float"))
         }
         Node::Arg(i) => Operand::Arg(*i),
         Node::Op { .. } | Node::Partial { .. } => Operand::Temp(temp_of[id.index()]),

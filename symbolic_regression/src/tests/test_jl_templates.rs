@@ -41,9 +41,11 @@ fn options(
     variables: &[&str],
     parameters: &[(&str, usize)],
 ) -> Options<T, TestOps, D> {
+    let operators = OperatorLibrary::sr_default::<TestOps, D>();
+    let template = TemplateStructure::new(combine, expressions, None, variables, parameters, &operators.set).unwrap();
     Options {
-        operators: OperatorLibrary::sr_default::<TestOps, D>(),
-        template: Some(TemplateStructure::new(combine, expressions, None, variables, parameters).unwrap()),
+        operators,
+        template: Some(template),
         ..Default::default()
     }
 }
@@ -62,12 +64,12 @@ fn vectors<'a>(expr: &'a Expr, options: &Options<T, TestOps, D>) -> Vec<&'a [T]>
 
 fn eval(expr: &Expr, options: &Options<T, TestOps, D>, rows: &[&[T]]) -> Vec<T> {
     let x = Array2::from_shape_fn((rows.len(), rows[0].len()), |(f, i)| rows[f][i]);
-    let (out, ok) =
-        options
-            .template
-            .as_ref()
-            .unwrap()
-            .eval(&expr.trees, &expr.params, &options.operators.set, x.view());
+    let (out, ok) = options
+        .template
+        .as_ref()
+        .unwrap()
+        .eval(&expr.trees, &expr.params, &options.operators.set, x.view())
+        .unwrap();
     assert!(ok);
     out
 }
@@ -127,7 +129,15 @@ fn template_loss_on_the_dataset_and_a_batch() {
     let options = Options::<f32, BuiltinOpsF32, 2> {
         operators: BuiltinOpsF32::new().from_names(["+", "*"]).unwrap(),
         template: Some(
-            TemplateStructure::new("f(x1) + p[1] + p[2]", &["f"], None, &["x1", "x2", "x3"], &[("p", 2)]).unwrap(),
+            TemplateStructure::new(
+                "f(x1) + p[1] + p[2]",
+                &["f"],
+                None,
+                &["x1", "x2", "x3"],
+                &[("p", 2)],
+                &BuiltinOpsF32::new(),
+            )
+            .unwrap(),
         ),
         ..Default::default()
     };
@@ -165,7 +175,17 @@ fn template_loss_on_the_dataset_and_a_batch() {
 fn float32_template_loss() {
     let options = Options::<f32, BuiltinOpsF32, 2> {
         operators: BuiltinOpsF32::new().from_names(["+", "*", "/", "sub"]).unwrap(),
-        template: Some(TemplateStructure::new("0.5 * f(x1, x2)", &["f"], None, &["x1", "x2"], &[]).unwrap()),
+        template: Some(
+            TemplateStructure::new(
+                "0.5 * f(x1, x2)",
+                &["f"],
+                None,
+                &["x1", "x2"],
+                &[],
+                &BuiltinOpsF32::new(),
+            )
+            .unwrap(),
+        ),
         ..Default::default()
     };
     let var =

@@ -26,7 +26,8 @@ fn constant(v: f64) -> Tree {
 }
 
 fn template(src: &str, expressions: &[&str], variables: &[&str], parameters: &[(&str, usize)]) -> TemplateStructure {
-    TemplateStructure::new(src, expressions, None, variables, parameters).unwrap_or_else(|e| panic!("`{src}`: {e}"))
+    TemplateStructure::new(src, expressions, None, variables, parameters, &BuiltinOpsF64::new())
+        .unwrap_or_else(|e| panic!("`{src}`: {e}"))
 }
 
 fn error(
@@ -36,10 +37,17 @@ fn error(
     variables: &[&str],
     parameters: &[(&str, usize)],
 ) -> String {
-    TemplateStructure::new(src, expressions, num_features, variables, parameters)
-        .map(|_| ())
-        .expect_err(src)
-        .message
+    TemplateStructure::new(
+        src,
+        expressions,
+        num_features,
+        variables,
+        parameters,
+        &BuiltinOpsF64::new(),
+    )
+    .map(|_| ())
+    .expect_err(src)
+    .message
 }
 
 /// Features by rows, one row per slice.
@@ -49,7 +57,9 @@ fn features<T: Copy>(rows: &[&[T]]) -> Array2<T> {
 
 /// Evaluates on `rows`; `None` when SymbolicRegression.jl would return `nothing`.
 fn eval(t: &TemplateStructure, trees: &[Tree], params: &[f64], rows: &[&[f64]]) -> Option<Vec<f64>> {
-    let (out, ok) = t.eval(trees, params, &BuiltinOpsF64::new(), features(rows).view());
+    let (out, ok) = t
+        .eval(trees, params, &BuiltinOpsF64::new(), features(rows).view())
+        .unwrap();
     ok.then_some(out)
 }
 
@@ -207,7 +217,17 @@ fn derivative_operator() {
 fn literal_powers() {
     let x: [&[f64]; 1] = [&[2.0, 3.0, 4.0]];
     let power = |src| template(src, &["f"], &["x"], &[]);
-    let with_f = |src: &str| TemplateStructure::new(src, &["f"], Some(&[1]), &["x"], &[] as &[(&str, usize)]).unwrap();
+    let with_f = |src: &str| {
+        TemplateStructure::new(
+            src,
+            &["f"],
+            Some(&[1]),
+            &["x"],
+            &[] as &[(&str, usize)],
+            &BuiltinOpsF64::new(),
+        )
+        .unwrap()
+    };
     assert_eq!(power("f(x)^2").num_features(), [1]);
     assert_close(&eval(&with_f("x^2"), &[arg(1)], &[], &x).unwrap(), &[4.0, 9.0, 16.0]);
     assert_close(&eval(&with_f("x^3"), &[arg(1)], &[], &x).unwrap(), &[8.0, 27.0, 64.0]);
@@ -245,7 +265,7 @@ fn float32_data_with_float64_literals() {
     let t = template("0.5 * f(x1, x2)", &["f"], &["x1", "x2"], &[]);
     let tree = arg32(1) + arg32(2);
     let x = features::<f32>(&[&[1.0, 2.0], &[3.0, 4.0]]);
-    let (out, ok): (Vec<f32>, bool) = t.eval(&[tree], &[], &BuiltinOpsF32::new(), x.view());
+    let (out, ok): (Vec<f32>, bool) = t.eval(&[tree], &[], &BuiltinOpsF32::new(), x.view()).unwrap();
     assert!(ok);
     assert_eq!(out, [2.0_f32, 3.0]);
 }
@@ -324,7 +344,7 @@ fn float32_parameters() {
     let t = template("f(x) + p[1] + p[2]", &["f"], &["x"], &[("p", 2)]);
     let tree = arg32(1) * 2.0;
     let x = features::<f32>(&[&[2.0]]);
-    let (out, ok): (Vec<f32>, bool) = t.eval(&[tree], &[10.0, 20.0], &BuiltinOpsF32::new(), x.view());
+    let (out, ok): (Vec<f32>, bool) = t.eval(&[tree], &[10.0, 20.0], &BuiltinOpsF32::new(), x.view()).unwrap();
     assert!(ok);
     assert_eq!(out, [34.0_f32]);
 }
@@ -442,7 +462,15 @@ fn formula_operators_on_columns() {
     let x = [1.0, 2.0, 3.0];
     let y = [0.0, 2.0, 4.0];
     let formula = |src: &str, rows: &[&[f64]]| {
-        let t = TemplateStructure::new(src, &["f"], Some(&[1]), &["x", "y"], &[] as &[(&str, usize)]).unwrap();
+        let t = TemplateStructure::new(
+            src,
+            &["f"],
+            Some(&[1]),
+            &["x", "y"],
+            &[] as &[(&str, usize)],
+            &BuiltinOpsF64::new(),
+        )
+        .unwrap();
         eval(&t, &[arg(1)], &[], rows)
     };
     let at = |src| formula(src, &[&x, &y]).unwrap();
@@ -492,7 +520,17 @@ fn division_by_zero_invalidates_the_result() {
 /// test/unit/expressions/test_composable_expression.jl | "Test Number inputs"
 #[test]
 fn subexpressions_accept_number_arguments() {
-    let call = |src| TemplateStructure::new(src, &["f"], None, &["x1"], &[] as &[(&str, usize)]).unwrap();
+    let call = |src| {
+        TemplateStructure::new(
+            src,
+            &["f"],
+            None,
+            &["x1"],
+            &[] as &[(&str, usize)],
+            &BuiltinOpsF64::new(),
+        )
+        .unwrap()
+    };
     let tree = || arg(1) + arg(2);
     assert_close(
         &eval(&call("f(2.0, 3.0) * x1"), &[tree()], &[], &[&[1.0]]).unwrap(),
@@ -533,8 +571,11 @@ fn one_workspace_serves_every_template() {
             let trees = &trees[..expressions.len()];
             let plans = t.compile_plans(trees);
             let mut out = vec![0.0; 4];
-            assert!(t.eval_into(&mut out, trees, &plans, &[], &ops, x.view(), &mut ws));
-            let (fresh, ok) = t.eval(trees, &[], &ops, x.view());
+            assert!(
+                t.eval_into(&mut out, trees, &plans, &[], &ops, x.view(), &mut ws)
+                    .unwrap()
+            );
+            let (fresh, ok) = t.eval(trees, &[], &ops, x.view()).unwrap();
             assert!(ok);
             assert_eq!(out, fresh, "{src}");
             assert_close(&out, want);
@@ -611,21 +652,29 @@ fn template_without_parameters() {
 
 /// test/unit/templates/test_template_macro.jl | "Template macro with num_features parameter"
 #[test]
-fn declared_num_features_must_match_the_calls() {
-    let t = TemplateStructure::new(
-        "x1^2 + f(x1, x2)",
-        &["f"],
-        Some(&[2]),
-        &["x1", "x2"],
-        &[] as &[(&str, usize)],
-    )
-    .unwrap();
-    assert_eq!(t.num_features(), [2]);
-    let msg = error("x1^2 + f(x1, x2)", &["f"], Some(&[5]), &["x1", "x2"], &[]);
-    assert!(
-        msg.contains("declared with 5 features but called with 2 arguments"),
-        "{msg}"
-    );
+fn declared_num_features_override_inference() {
+    let declared = |src: &str, n: usize| {
+        TemplateStructure::new(
+            src,
+            &["f"],
+            Some(&[n]),
+            &["x1", "x2"],
+            &[] as &[(&str, usize)],
+            &BuiltinOpsF64::new(),
+        )
+        .unwrap()
+    };
+    let t = declared("x1^2 + f(x1, x2)", 5);
+    assert_eq!(t.num_features(), [5]);
+    assert_eq!(t.max_features(), 5);
+    let rows: [&[f64]; 2] = [&[1.0, 2.0], &[3.0, 4.0]];
+    assert_close(&eval(&t, &[arg(1) * arg(2)], &[], &rows).unwrap(), &[4.0, 12.0]);
+    assert_eq!(eval(&t, &[arg(1) + arg(3)], &[], &rows), None);
+    assert_eq!(eval(&t, &[arg(6)], &[], &rows), None);
+
+    let t = declared("f(x1) + f(x1, x2)", 2);
+    assert_close(&eval(&t, &[arg(1)], &[], &rows).unwrap(), &[2.0, 4.0]);
+    assert_eq!(eval(&t, &[arg(2)], &[], &rows), None);
 }
 
 /// test/unit/templates/test_template_prototype.jl | "Default Float64 inference is unchanged by prototype option"
@@ -639,7 +688,15 @@ fn num_features_inference() {
         template("f(x1) + g()", &["f", "g"], &["x1"], &[]).num_features(),
         [1, 0]
     );
-    let declared = TemplateStructure::new("x1", &["f"], Some(&[1]), &["x1"], &[] as &[(&str, usize)]).unwrap();
+    let declared = TemplateStructure::new(
+        "x1",
+        &["f"],
+        Some(&[1]),
+        &["x1"],
+        &[] as &[(&str, usize)],
+        &BuiltinOpsF64::new(),
+    )
+    .unwrap();
     assert_eq!(declared.num_features(), [1]);
 }
 
