@@ -25,14 +25,18 @@ export type WasmMutationWeights = {
   break_connection: number;
 };
 
+export type LossScale = "log" | "linear";
+
 export type WasmSearchOptions = {
   has_headers: boolean;
   x_columns: number[] | null;
   y_column: number | null;
   weights_column: number | null;
   validation_fraction: number;
-  loss_kind: string;
-  huber_delta: number;
+  /** PySR `elementwise_loss`: a built-in such as "L1DistLoss()" or a definition such as "f(x, y) = abs(x - y)". */
+  loss: string;
+  /** PySR `early_stop_condition`: a loss threshold such as "1e-6", or a definition of (loss, complexity). */
+  early_stop_condition: string | null;
 
   seed: number;
   niterations: number;
@@ -58,6 +62,7 @@ export type WasmSearchOptions = {
   fraction_replaced_hof: number;
   topn: number;
   print_precision: number;
+  loss_scale: LossScale;
 
   use_frequency: boolean;
   use_frequency_in_tournament: boolean;
