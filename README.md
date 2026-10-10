@@ -175,6 +175,29 @@ let options = Options::<f64, BuiltinOpsF64, 2> {
 
 `WasmSearch` takes the same strings as its `loss` and `early_stop_condition` options, and `loss_scale` as `"log"` or `"linear"`.
 
+## Template expressions
+
+`Options::template` fixes the shape of the equation, as PySR's `TemplateExpressionSpec` does. The combine formula is a string in the same syntax; it calls subexpressions that the search evolves, takes derivatives with `D(f, i)`, and indexes learnable parameter vectors. Indexing a parameter vector by a category column (`p[class]`, with classes numbered from 1) gives each class its own constants, which replaces SymbolicRegression.jl's former `ParametricExpression`:
+
+```rust
+use symbolic_regression::prelude::*;
+
+let template = TemplateStructure::new(
+    "f(x1, x2, p1[category], p2[category])",
+    &["f"],
+    None,
+    &["x1", "x2", "category"],
+    &[("p1", 3), ("p2", 3)],
+)
+.unwrap();
+let options = Options::<f64, BuiltinOpsF64, 2> {
+    template: Some(template),
+    ..Default::default()
+};
+```
+
+`variable_names` names the dataset's features in column order. Each member's `expr` holds one tree per subexpression (`trees`) and the parameter vectors concatenated in declaration order (`params`); `expr.string(&options, ..)` prints it as `f = #1 * #3; p1 = [..]; p2 = [..]`.
+
 ## WASM
 
 This workspace includes a thin `wasm-bindgen` wrapper crate (`symbolic_regression_wasm`) at `symbolic_regression_wasm/` and a minimal browser UI at `web_ui/` (Vite + WebWorker).

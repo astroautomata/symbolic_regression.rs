@@ -10,6 +10,7 @@ mod test_frequency_in_tournament;
 mod test_jl_constraints;
 mod test_jl_losses;
 mod test_jl_options;
+mod test_jl_templates;
 mod test_loss;
 mod test_mutate_constant_regressions;
 mod test_mutation_regressions;

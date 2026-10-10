@@ -165,7 +165,7 @@ struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
 /// SymbolicRegression.jl's `mutate_constant` for a candidate: a template with parameters mutates
 /// its parameters instead of a tree constant half the time, and always when no tree has a
 /// constant.
-fn mutate_constant<T: Float, Ops, const D: usize>(
+pub(crate) fn mutate_constant<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut Expression<T, Ops, D>,
     temperature: f64,
@@ -449,7 +449,7 @@ where
 /// SymbolicRegression.jl's `crossover_trees`: each parent contributes one tree, a random
 /// subexpression of a template, chosen independently; children keep their parent's other trees
 /// and parameters.
-fn crossover_expressions<T: Float, Ops, const D: usize>(
+pub(crate) fn crossover_expressions<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     a: &Expression<T, Ops, D>,
     b: &Expression<T, Ops, D>,

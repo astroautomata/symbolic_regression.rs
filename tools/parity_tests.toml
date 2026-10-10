@@ -244,127 +244,151 @@ note = "Rust has one log/sqrt/pow, with the safe semantics; the port checks that
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 1
 name = "Test ParamVector setindex!"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "ParamVector is SymbolicRegression.jl's read-only wrapper for parameter vectors; Rust stores parameters as a plain slice of the expression, so there is no wrapper to make read-only."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 8
 name = "Test deprecated num_features warning"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "tests a deprecation warning for TemplateStructure's positional num_features argument, an API Rust never exposed."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 19
 name = "Test invalid combiner functions"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::combine_formulas_that_do_not_match_the_declaration_fail_at_construction"]
+note = "Julia checks the combine closure's signature; a Rust combine formula is a string, so the port checks that names the formula cannot resolve (an undeclared parameter vector, feature, or subexpression) fail at construction and name the culprit."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 38
 name = "Test get_variable_names"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_reads_its_variable_names"]
+note = "Rust prints templates with `#i` arguments and never substitutes variable names, so the override argument has no counterpart."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 53
 name = "Test parameter handling in scalar constants"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::parameters_are_scalar_constants_after_tree_constants"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 77
 name = "Test get_tree with parameters error"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "Rust never flattens a template into a single tree, so there is no `get_tree` to reject parameters."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 99
 name = "Test interface for TemplateExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::nested_calls_infer_arities_and_print"]
+note = "`Interfaces.test` is Julia's interface checker; instead of printing the flattened `get_tree`, the port checks that the template evaluates to x1 - x1 * x1."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 123
 name = "Printing and evaluation of TemplateExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::printing_and_evaluation"]
+note = "Calling a ComposableExpression directly becomes a formula that calls the subexpression."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 165
 name = "Test nothing return and type inference for TemplateExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::invalid_evaluations_return_nothing"]
+note = "`@inferred` has no Rust counterpart; an invalid ValidVector argument becomes an argument whose computation is invalid."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 195
 name = "Test compatibility with power laws"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::power_of_negative_base_is_invalid"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 214
 name = "Test constraints checking in TemplateExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::nested_constraints_apply_to_each_subexpression"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 239
 name = "Test feature constraints in TemplateExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_only_read_their_own_arguments"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 277
 name = "Test invalid structure"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::inconsistent_or_missing_calls_fail_at_construction"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 302
 name = "Test argument-less template structure"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::argument_less_subexpressions"]
+note = "A combine formula must vary across rows, so the lone zero-argument call is checked as `f() * x1`."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 326
 name = "Test TemplateExpression with differential operator"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::derivative_operator"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 348
 name = "Test literal_pow with ValidVector"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::literal_powers"]
+note = "`Base.literal_pow` is Julia lowering; the port checks `x^2` and `x^3` in a formula and that an invalid input stays invalid."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 368
 name = "Test nan behavior with argument-less expressions"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::argument_less_nan_is_invalid"]
+note = "Rust trees are floating point only, so the integer-constant case has no counterpart; a NaN value makes the evaluation invalid."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 387
 name = "Test higher-order derivatives of safe_log with DynamicDiff"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::higher_order_derivatives_of_log"]
+note = "Complex inputs have no Rust counterpart; each value is its own formula because a formula returns one number per row."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
@@ -378,42 +402,49 @@ file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 454
 name = "loss_function_expression with expressions and templates"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::template_loss_on_the_dataset_and_a_batch"]
+note = "`loss_function_expression` takes a Julia function of the whole expression and has no Rust counterpart; the port checks the template part: the built-in loss of a template with parameters on the full dataset and on a batch."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 570
 name = "New batching syntax"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::template_loss_on_the_dataset_and_a_batch"]
+note = "The batch is a `TaggedDataset::for_batch` over selected rows rather than Julia's `SubDataset`, and the loss is the built-in one."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 618
 name = "warning for loss_function with TemplateExpression"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "warns about a Julia `loss_function` of the whole expression; Rust has no such option."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 631
 name = "TemplateExpression guess validation"
-pr = 3
+pr = 5
 status = "todo"
+note = "Parses subexpressions from strings, as guesses do; ported with guesses (PR 5)."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 664
 name = "Template expression return validation"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "a combine formula is a scalar DSL string whose value is a number per row, so it cannot return a plain Vector."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 699
 name = "Test Float32/Float64 type conversion in TemplateExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::float32_data_with_float64_literals", "symbolic_regression/src/tests/test_jl_templates.rs::float32_template_loss"]
+note = "`_match_input_eltype` is a Julia helper; Rust's element type is fixed at compile time."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_turbo_nan.jl"
@@ -497,91 +528,111 @@ file = "test/integration/ext/mlj/parametric_search/test_parametric_template_sear
 line = 1
 name = "search with parametric template expressions"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_template_search.rs::search_with_parametric_template_expression"]
+note = "`equation_search` replaces the MLJ machine; a seeded serial search reaches MSE < 1e-5 on the training data."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 1
 name = "creation & parameter counts"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::creation_and_parameter_counts"]
+note = "`sum(p)` is written `p[1] + p[2]`: the DSL has no arrays."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 23
 name = "error conditions"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::wrong_parameter_counts_are_rejected"]
+note = "Rust has no TemplateExpression constructor that zero-fills missing parameters; evaluation rejects a parameter vector of the wrong length."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 76
 name = "check_combiner_applicability errors"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::combine_formulas_that_do_not_match_the_declaration_fail_at_construction"]
+note = "Julia checks the combine closure's signature; a Rust combine formula is a string, so the port checks that names the formula cannot resolve (an undeclared parameter vector, feature, or subexpression) fail at construction and name the culprit."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 96
 name = "basic evaluation"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::basic_parameter_evaluation"]
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 123
 name = "indexed evaluation"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::indexed_parameter_evaluation"]
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 163
 name = "parameters get mutated"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::constant_mutation_changes_parameters"]
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 201
 name = "Preallocated copying with parameters"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::copying_carries_current_parameters"]
+note = "`allocate_container`/`copy_into!` become `Clone::clone_from`."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 242
 name = "Zero-parameter edge case"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::zero_parameter_template"]
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 263
 name = "Non-Float64 parameter types"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::float32_parameters"]
+note = "Rust has no complex trees; Float32 parameters stand in for ComplexF32."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 290
 name = "multi-parameter expressions"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::multi_parameter_evaluation", "symbolic_regression/src/tests/test_jl_templates.rs::multi_parameter_constants_mutation_and_copying"]
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 365
 name = "printing"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::printing_parameters"]
+note = "Rust prints whole-number floats without `.0` (`[1, 2]`), as its tree printing does."
 
 [[testitem]]
 file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
 line = 391
 name = "indexed multi-parameter expressions"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::indexed_multi_parameter_evaluation"]
 
 [[testitem]]
 file = "test/integration/ext/symbolicutils/test_simplification.jl"
@@ -1175,84 +1226,98 @@ file = "test/unit/expressions/test_composable_expression.jl"
 line = 3
 name = "Test ComposableExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpression_reads_its_first_argument"]
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 16
 name = "Test interface for ComposableExpression"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_compose_with_themselves"]
+note = "Composition happens in the combine formula (`f(f(x1, x2), f(x1, x2))`), so the port checks the composed value; Rust neither builds nor prints the composed tree, and `Interfaces.test` is Julia's."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 35
 name = "Cover other operators"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::comparison_operators_print_as_infix"]
+note = "`x1 > 1.0` prints as `x1 > 1`."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 57
 name = "Test error handling"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::formula_operators_on_columns"]
+note = "ValidVector arithmetic becomes formula arithmetic, and invalid inputs are NaN columns; the String-input error and Float32/Float64 promotion have no Rust counterpart."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 123
 name = "Test validity propagation with NaN"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::division_by_zero_invalidates_the_result"]
+note = "Julia fills the result with NaN; Rust reports the evaluation invalid."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 145
 name = "ValidVector helpful error messages"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "tests Julia error messages for misusing the ValidVector type, which Rust does not have."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 182
 name = "Test Number inputs"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_accept_number_arguments"]
+note = "A combine formula must vary across rows, so constant-argument calls are scaled by a feature."
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
 line = 198
 name = "ValidVector operations with Union{} return type"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "tests Julia type inference (`Union{}`) and element-type promotion of ValidVector."
 
 [[testitem]]
 file = "test/unit/expressions/test_expression_builder.jl"
 line = 2
 name = "NamedTuple support in parse_expression"
-pr = 3
+pr = 5
 status = "todo"
+note = "Parses subexpressions from strings, as guesses do; ported with guesses (PR 5)."
 
 [[testitem]]
 file = "test/unit/expressions/test_template_inner_expression_type.jl"
 line = 1
 name = "TemplateExpressionSpec supports custom inner expression types"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "custom inner expression types are Julia types; Rust subexpressions are always PostfixExpr trees."
 
 [[testitem]]
 file = "test/unit/expressions/test_template_inner_expression_type.jl"
 line = 184
 name = "TemplateExpressionSpec initializes template parameters"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::new_candidates_copy_the_tree_and_draw_normal_parameters"]
+note = "`parameter_initializer` is a Julia callback with no Rust counterpart; the port checks the default standard-normal initialization."
 
 [[testitem]]
 file = "test/unit/expressions/test_template_inner_expression_type.jl"
 line = 240
 name = "TemplateExpressionSpec validates initialized template parameters"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "validates the output of a Julia `parameter_initializer` callback, which Rust does not have."
 
 [[testitem]]
 file = "test/unit/misc/test_custom_objectives.jl"
@@ -1935,137 +2000,156 @@ file = "test/unit/templates/test_template_expression_buffer.jl"
 line = 1
 name = "TemplateExpression uses one call-time evaluation arena"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::one_workspace_serves_every_template"]
+note = "Julia's ArrayBuffer arena becomes a reused `TemplateWorkspace`; the port checks that its results match fresh evaluation and the expected values. The local alias `f2 = f` is written directly."
 
 [[testitem]]
 file = "test/unit/templates/test_template_expression_mutation.jl"
 line = 1
 name = "template expression parameter mutation"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::parameter_mutation_changes_one_vector_and_conditions_weights"]
 
 [[testitem]]
 file = "test/unit/templates/test_template_expression_mutation.jl"
 line = 110
 name = "template crossover isolates shared graph nodes"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
 
 [[testitem]]
 file = "test/unit/templates/test_template_expression_mutation.jl"
 line = 180
 name = "template crossover isolates recipient candidate state"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::crossover_children_own_their_state"]
+note = "Rust ownership rules out aliasing, so the port checks values: parameters carried over, constants independent of the parents, and crossover accepted."
 
 [[testitem]]
 file = "test/unit/templates/test_template_expression_string.jl"
 line = 1
 name = "template expression color function"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "SymbolicRegression.jl colors each subexpression with StyledStrings; Rust prints plain text."
 
 [[testitem]]
 file = "test/unit/templates/test_template_expression_string.jl"
 line = 23
 name = "template expression string representation"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::compact_and_pretty_strings"]
+note = "Colors are not ported; whole-number floats print without `.0`."
 
 [[testitem]]
 file = "test/unit/templates/test_template_macro.jl"
 line = 1
 name = "Basic @template_spec macro functionality"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_with_parameters_and_category_indices"]
+note = "The macro's Rust counterpart is `TemplateStructure::new` with a combine string, as in PySR's TemplateExpressionSpec."
 
 [[testitem]]
 file = "test/unit/templates/test_template_macro.jl"
 line = 39
 name = "Template macro error handling"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_needs_a_subexpression"]
+note = "Only `expressions must be specified` has a Rust counterpart; the other errors check the macro's Julia syntax."
 
 [[testitem]]
 file = "test/unit/templates/test_template_macro.jl"
 line = 90
 name = "Template macro with complex structure"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_reusing_one_parameter_vector"]
+note = "The do-block's local assignments are inlined into the formula."
 
 [[testitem]]
 file = "test/unit/templates/test_template_macro.jl"
 line = 126
 name = "Template macro without parameters"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_without_parameters"]
 
 [[testitem]]
 file = "test/unit/templates/test_template_macro.jl"
 line = 158
 name = "Template macro additional error handling"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "checks the macro's keyword syntax (duplicate or unknown keywords, extra positional arguments); Rust takes typed arguments, so these cannot occur."
 
 [[testitem]]
 file = "test/unit/templates/test_template_macro.jl"
 line = 192
 name = "Template macro with num_features parameter"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::declared_num_features_must_match_the_calls"]
+note = "Deviation: SymbolicRegression.jl lets a declared num_features override the calls (f=5 for a two-argument call); Rust rejects a declaration that disagrees with the calls."
 
 [[testitem]]
 file = "test/unit/templates/test_template_parameter_value_types.jl"
 line = 1
 name = "template parameters route through the value interface"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "custom parameter value types are Julia-only; Rust parameters are the search's float type."
 
 [[testitem]]
 file = "test/unit/templates/test_template_parameter_value_types.jl"
 line = 82
 name = "template parser splits and validates flat parameter entries"
-pr = 3
+pr = 5
 status = "todo"
+note = "Parses subexpressions from strings, as guesses do; ported with guesses (PR 5)."
 
 [[testitem]]
 file = "test/unit/templates/test_template_parameter_value_types.jl"
 line = 123
 name = "template parser accepts custom value parameter vectors"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "custom parameter value types are Julia-only; Rust parameters are the search's float type."
 
 [[testitem]]
 file = "test/unit/templates/test_template_prototype.jl"
 line = 1
 name = "Prototype-based num_features inference for custom types"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "prototype inference serves custom Julia value types; Rust infers arities from the formula string."
 
 [[testitem]]
 file = "test/unit/templates/test_template_prototype.jl"
 line = 25
 name = "Prototype-based inference with zero-argument subexpression"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "prototype inference serves custom Julia value types; Rust infers arities from the formula string."
 
 [[testitem]]
 file = "test/unit/templates/test_template_prototype.jl"
 line = 44
 name = "Default Float64 inference is unchanged by prototype option"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::num_features_inference"]
 
 [[testitem]]
 file = "test/unit/templates/test_template_prototype.jl"
 line = 61
 name = "TemplateStructure keyword order is irrelevant"
-pr = 3
-status = "todo"
+status = "excluded"
+excluded = "Rust takes num_features and parameters as slices in expression and parameter order, so there is no keyword order."
 
 [[testitem]]
 file = "test/unit/templates/test_template_prototype.jl"
 line = 72
 name = "TemplateStructure requires disjoint expression and parameter names"
 pr = 3
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::expression_and_parameter_names_are_disjoint"]

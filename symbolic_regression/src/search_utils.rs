@@ -721,7 +721,7 @@ where
 
 /// SymbolicRegression.jl's `create_expression`: a template starts with a copy of `tree` in every
 /// subexpression and parameters drawn from a standard normal.
-fn new_expression<T: Float, Ops, const D: usize>(
+pub(crate) fn new_expression<T: Float, Ops, const D: usize>(
     tree: PostfixExpr<T, Ops, D>,
     options: &Options<T, Ops, D>,
     rng: &mut Rng,
