@@ -1,11 +1,11 @@
 //! Every scalar DSL string passed to a PySR option in PySR's docs and tests at commit c15a9eb.
-//! Custom operators compile and match hand-written Rust; losses, early-stop conditions, and
-//! template formulas parse here and compile in later PRs.
+//! Custom operators, elementwise losses, and early-stop conditions compile and match hand-written
+//! Rust; template formulas parse here and compile in PR 3.
 
 use dynamic_expressions::EvalOptions;
 use dynamic_expressions::custom::CustomTable;
 use dynamic_expressions::dispatch::{DiffKernelCtx, EvalKernelCtx, SrcRef};
-use dynamic_expressions::dsl::{CustomOps, parse_definition, parse_formula, parse_operator_tokens};
+use dynamic_expressions::dsl::{CustomOps, ScalarFn, parse_definition, parse_formula, parse_operator_tokens};
 
 const N_ROWS: usize = 257;
 const NO_CHECK: EvalOptions = EvalOptions {
@@ -285,62 +285,419 @@ fn corpus_operator_derivatives_match_central_differences() {
     }
 }
 
-/// Elementwise losses (compiled and checked in PR 2), with their PySR locations.
-const LOSSES: &[(&str, &str)] = &[
-    ("L1", "loss(prediction, target) = (prediction - target)^2"),
-    ("L2", "myloss(x, y, w) = w * (x - y)^2"),
-    ("L3", "myloss(x, y) = abs(x - y)^1.5"),
-    ("L4", "f(x, y) = abs(x - y)^1.5"),
-    ("L5", "loss(x, y) = abs(x * y)"),
-    ("L6", "myloss(x, y, w) = w * abs(x - y)"),
-    ("L7", "myloss(x, y, w) = abs(x - y)^2/w^2"),
-    (
-        "L8",
-        "function loss_fnc(prediction, target)\n    scatter_loss = abs(log((abs(prediction)+1f-20) / (abs(target)+1f-20)))\n    sign_loss = 10 * (sign(prediction) - sign(target))^2\n    return scatter_loss + sign_loss\nend\n",
-    ),
-    ("L9", "(pred, target) -> pred"),
-    ("L10", "my_loss(prediction, target) = (prediction - target)^2"),
-    ("L11", "myloss_bad_arity(a) = a"),
-    ("L12", "myloss2(prediction, target) = (prediction - target)^2"),
-    (
-        "L13",
-        "myloss3(prediction, target, weights) = weights * (prediction - target)^2",
-    ),
-    (
-        "L14",
-        "(prediction::Float32, target::Float32) -> (prediction - target)^2",
-    ),
-    ("L15", "(pred, targ) -> pred"),
-    ("L16", "g(x, y) = 0.0"),
-    ("L17", "(prediction, target) -> 0.0"),
-    ("L18", "(p, t) -> 0.0"),
+struct LossCase {
+    id: &'static str,
+    src: &'static str,
+    locations: &'static str,
+    arity: usize,
+    /// Hand-written loss of `(prediction, target[, weight])`.
+    reference: fn(&[f64]) -> f64,
+    /// Rows where a central finite difference in the prediction is not meaningful.
+    near_kink: fn(&[f64]) -> bool,
+}
+
+fn julia_sign(x: f64) -> f64 {
+    if x > 0.0 {
+        1.0
+    } else if x < 0.0 {
+        -1.0
+    } else {
+        x
+    }
+}
+
+/// Elementwise losses. L11 is PySR's bad-arity example; it compiles as a function here, and
+/// `symbolic_regression::parse_loss` rejects it as a loss.
+const LOSSES: &[LossCase] = &[
+    LossCase {
+        id: "L1",
+        src: "loss(prediction, target) = (prediction - target)^2",
+        locations: "README.md:167; pysr/test/test_main.py:183",
+        arity: 2,
+        reference: |a| (a[0] - a[1]).powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L2",
+        src: "myloss(x, y, w) = w * (x - y)^2",
+        locations: "docs/src/examples/getting-started.md:127",
+        arity: 3,
+        reference: |a| a[2] * (a[0] - a[1]).powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L3",
+        src: "myloss(x, y) = abs(x - y)^1.5",
+        locations: "docs/src/options.md:246",
+        arity: 2,
+        reference: |a| (a[0] - a[1]).abs().powf(1.5),
+        near_kink: |a| (a[0] - a[1]).abs() < 1e-3,
+    },
+    LossCase {
+        id: "L4",
+        src: "f(x, y) = abs(x - y)^1.5",
+        locations: "docs/src/options.md:256",
+        arity: 2,
+        reference: |a| (a[0] - a[1]).abs().powf(1.5),
+        near_kink: |a| (a[0] - a[1]).abs() < 1e-3,
+    },
+    LossCase {
+        id: "L5",
+        src: "loss(x, y) = abs(x * y)",
+        locations: "docs/src/options.md:262",
+        arity: 2,
+        reference: |a| (a[0] * a[1]).abs(),
+        near_kink: |a| a[0].abs() < 1e-3,
+    },
+    LossCase {
+        id: "L6",
+        src: "myloss(x, y, w) = w * abs(x - y)",
+        locations: "docs/src/options.md:268; examples/pysr_demo.ipynb:579; skills/pysr/SKILL.md:88",
+        arity: 3,
+        reference: |a| a[2] * (a[0] - a[1]).abs(),
+        near_kink: |a| (a[0] - a[1]).abs() < 1e-3,
+    },
+    LossCase {
+        id: "L7",
+        src: "myloss(x, y, w) = abs(x - y)^2/w^2",
+        locations: "docs/src/options.md:275",
+        arity: 3,
+        reference: |a| (a[0] - a[1]).abs().powi(2) / a[2].powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L8",
+        src: "function loss_fnc(prediction, target)\n    scatter_loss = abs(log((abs(prediction)+1f-20) / (abs(target)+1f-20)))\n    sign_loss = 10 * (sign(prediction) - sign(target))^2\n    return scatter_loss + sign_loss\nend\n",
+        locations: "docs/src/examples/physics.md:24",
+        arity: 2,
+        reference: |a| {
+            let scatter_loss = ((a[0].abs() + 1e-20) / (a[1].abs() + 1e-20)).ln().abs();
+            let sign_loss = 10.0 * (julia_sign(a[0]) - julia_sign(a[1])).powi(2);
+            scatter_loss + sign_loss
+        },
+        near_kink: |a| a[0].abs() < 1e-2 || (a[0].abs() - a[1].abs()).abs() < 1e-3,
+    },
+    LossCase {
+        id: "L9",
+        src: "(pred, target) -> pred",
+        locations: "docs/src/examples/expression-specifications.md:222",
+        arity: 2,
+        reference: |a| a[0],
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L10",
+        src: "my_loss(prediction, target) = (prediction - target)^2",
+        locations: "pysr/test/test_main.py:183",
+        arity: 2,
+        reference: |a| (a[0] - a[1]).powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L11",
+        src: "myloss_bad_arity(a) = a",
+        locations: "pysr/test/test_main.py:286",
+        arity: 1,
+        reference: |a| a[0],
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L12",
+        src: "myloss2(prediction, target) = (prediction - target)^2",
+        locations: "pysr/test/test_main.py:303",
+        arity: 2,
+        reference: |a| (a[0] - a[1]).powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L13",
+        src: "myloss3(prediction, target, weights) = weights * (prediction - target)^2",
+        locations: "pysr/test/test_main.py:323",
+        arity: 3,
+        reference: |a| a[2] * (a[0] - a[1]).powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L14",
+        src: "(prediction::Float32, target::Float32) -> (prediction - target)^2",
+        locations: "pysr/test/test_main.py:333, :352",
+        arity: 2,
+        reference: |a| (a[0] - a[1]).powi(2),
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L15",
+        src: "(pred, targ) -> pred",
+        locations: "pysr/test/test_main.py:1166",
+        arity: 2,
+        reference: |a| a[0],
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L16",
+        src: "g(x, y) = 0.0",
+        locations: "pysr/test/test_main.py:2488",
+        arity: 2,
+        reference: |_| 0.0,
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L17",
+        src: "(prediction, target) -> 0.0",
+        locations: "pysr/test/test_type_specs.py:241, :315, :1194, :1574",
+        arity: 2,
+        reference: |_| 0.0,
+        near_kink: no_kink,
+    },
+    LossCase {
+        id: "L18",
+        src: "(p, t) -> 0.0",
+        locations: "pysr/test/test_type_specs.py:1471",
+        arity: 2,
+        reference: |_| 0.0,
+        near_kink: no_kink,
+    },
 ];
 
-/// Early-stop conditions (compiled and checked in PR 2).
-const EARLY_STOPS: &[(&str, &str)] = &[
-    ("E1", "stop_if(loss, complexity) = loss < 1e-6 && complexity < 10"),
-    ("E2", "stop_if(loss, complexity) = loss < 1e-4 && complexity <= 5"),
-    ("E3", "stop_if(loss, complexity) = loss < 1e-4 && complexity == 1"),
-    ("E4", "stop_if(loss, complexity) = loss < 1e-10 && complexity == 1"),
-    ("E5", "stop_if(loss, complexity) = loss < 1e-4 && complexity == 3"),
-    ("E6", "stop_if_1(l, c) = l < 1e-8 && c <= 3"),
-    ("E7", "stop_if_2(l, c) = l < 1e-8 && c <= 2"),
-    ("E8", "stop_if(loss, complexity) = loss < 1e-4 && complexity == 2"),
-    ("E9", "(loss, complexity) -> loss <= 1e-4 && complexity <= 6"),
-    ("E10", "stop_if(loss, complexity) = loss < 0.05 && complexity == 2"),
-    ("E11", "stop_if(loss, complexity) = loss < 1e-3 && complexity == 7"),
-    ("E12", "stop_if(loss, complexity) = loss < 1e-10 && complexity == 6"),
-    ("E13", "stop_if(loss, complexity) = loss < 1e-10 && complexity <= 3"),
-    ("E14", "stop_if_under_n1(loss, complexity) = loss < -1.0"),
-    ("E15", "stop_if(loss, complexity) = loss < 1e-4 && complexity <= 7"),
-    ("E16", "stop_if(loss, complexity) = loss < 1e-4 && complexity <= 10"),
-    ("E17", "stop_if(loss, complexity) = loss < 1e-6 && complexity <= 5"),
-    ("E18", "(l, c) -> l < 1e-6 && c == 3"),
-    ("E19", "(l, c) -> l < 1e-6 && c == 1"),
-    ("E20", "checkpoint_early_stop(loss, complexity) = false"),
-    ("E21", "(loss, complexity) -> loss < 1.0e-8 && complexity == 5"),
-    ("E22", "(loss, complexity) -> false"),
+struct EarlyStopCase {
+    id: &'static str,
+    src: &'static str,
+    locations: &'static str,
+    reference: fn(f64, f64) -> bool,
+}
+
+/// Early-stop conditions, taking `(loss, complexity)`.
+const EARLY_STOPS: &[EarlyStopCase] = &[
+    EarlyStopCase {
+        id: "E1",
+        src: "stop_if(loss, complexity) = loss < 1e-6 && complexity < 10",
+        locations: "README.md:268; skills/pysr/SKILL.md:74",
+        reference: |l, c| l < 1e-6 && c < 10.0,
+    },
+    EarlyStopCase {
+        id: "E2",
+        src: "stop_if(loss, complexity) = loss < 1e-4 && complexity <= 5",
+        locations: "pysr/test/test_autodiff.py:32; pysr/test/test_main.py:1454",
+        reference: |l, c| l < 1e-4 && c <= 5.0,
+    },
+    EarlyStopCase {
+        id: "E3",
+        src: "stop_if(loss, complexity) = loss < 1e-4 && complexity == 1",
+        locations: "pysr/test/test_main.py:99, :109, :119, :1081",
+        reference: |l, c| l < 1e-4 && c == 1.0,
+    },
+    EarlyStopCase {
+        id: "E4",
+        src: "stop_if(loss, complexity) = loss < 1e-10 && complexity == 1",
+        locations: "pysr/test/test_main.py:147",
+        reference: |l, c| l < 1e-10 && c == 1.0,
+    },
+    EarlyStopCase {
+        id: "E5",
+        src: "stop_if(loss, complexity) = loss < 1e-4 && complexity == 3",
+        locations: "pysr/test/test_main.py:182, :461, :599",
+        reference: |l, c| l < 1e-4 && c == 3.0,
+    },
+    EarlyStopCase {
+        id: "E6",
+        src: "stop_if_1(l, c) = l < 1e-8 && c <= 3",
+        locations: "pysr/test/test_main.py:500 (f-string, case 1)",
+        reference: |l, c| l < 1e-8 && c <= 3.0,
+    },
+    EarlyStopCase {
+        id: "E7",
+        src: "stop_if_2(l, c) = l < 1e-8 && c <= 2",
+        locations: "pysr/test/test_main.py:500 (f-string, case 2)",
+        reference: |l, c| l < 1e-8 && c <= 2.0,
+    },
+    EarlyStopCase {
+        id: "E8",
+        src: "stop_if(loss, complexity) = loss < 1e-4 && complexity == 2",
+        locations: "pysr/test/test_main.py:554",
+        reference: |l, c| l < 1e-4 && c == 2.0,
+    },
+    EarlyStopCase {
+        id: "E9",
+        src: "(loss, complexity) -> loss <= 1e-4 && complexity <= 6",
+        locations: "pysr/test/test_main.py:584",
+        reference: |l, c| l <= 1e-4 && c <= 6.0,
+    },
+    EarlyStopCase {
+        id: "E10",
+        src: "stop_if(loss, complexity) = loss < 0.05 && complexity == 2",
+        locations: "pysr/test/test_main.py:654, :808",
+        reference: |l, c| l < 0.05 && c == 2.0,
+    },
+    EarlyStopCase {
+        id: "E11",
+        src: "stop_if(loss, complexity) = loss < 1e-3 && complexity == 7",
+        locations: "pysr/test/test_main.py:699",
+        reference: |l, c| l < 1e-3 && c == 7.0,
+    },
+    EarlyStopCase {
+        id: "E12",
+        src: "stop_if(loss, complexity) = loss < 1e-10 && complexity == 6",
+        locations: "pysr/test/test_main.py:863",
+        reference: |l, c| l < 1e-10 && c == 6.0,
+    },
+    EarlyStopCase {
+        id: "E13",
+        src: "stop_if(loss, complexity) = loss < 1e-10 && complexity <= 3",
+        locations: "pysr/test/test_main.py:1037",
+        reference: |l, c| l < 1e-10 && c <= 3.0,
+    },
+    EarlyStopCase {
+        id: "E14",
+        src: "stop_if_under_n1(loss, complexity) = loss < -1.0",
+        locations: "pysr/test/test_main.py:1168",
+        reference: |l, _| l < -1.0,
+    },
+    EarlyStopCase {
+        id: "E15",
+        src: "stop_if(loss, complexity) = loss < 1e-4 && complexity <= 7",
+        locations: "pysr/test/test_main.py:1180",
+        reference: |l, c| l < 1e-4 && c <= 7.0,
+    },
+    EarlyStopCase {
+        id: "E16",
+        src: "stop_if(loss, complexity) = loss < 1e-4 && complexity <= 10",
+        locations: "pysr/test/test_main.py:1200",
+        reference: |l, c| l < 1e-4 && c <= 10.0,
+    },
+    EarlyStopCase {
+        id: "E17",
+        src: "stop_if(loss, complexity) = loss < 1e-6 && complexity <= 5",
+        locations: "pysr/test/test_main.py:1264, :1276",
+        reference: |l, c| l < 1e-6 && c <= 5.0,
+    },
+    EarlyStopCase {
+        id: "E18",
+        src: "(l, c) -> l < 1e-6 && c == 3",
+        locations: "pysr/test/test_main.py:2852",
+        reference: |l, c| l < 1e-6 && c == 3.0,
+    },
+    EarlyStopCase {
+        id: "E19",
+        src: "(l, c) -> l < 1e-6 && c == 1",
+        locations: "pysr/test/test_main.py:2902",
+        reference: |l, c| l < 1e-6 && c == 1.0,
+    },
+    EarlyStopCase {
+        id: "E20",
+        src: "checkpoint_early_stop(loss, complexity) = false",
+        locations: "pysr/test/test_type_specs.py:624",
+        reference: |_, _| false,
+    },
+    EarlyStopCase {
+        id: "E21",
+        src: "(loss, complexity) -> loss < 1.0e-8 && complexity == 5",
+        locations: "pysr/test/test_type_specs.py:1140",
+        reference: |l, c| l < 1.0e-8 && c == 5.0,
+    },
+    EarlyStopCase {
+        id: "E22",
+        src: "(loss, complexity) -> false",
+        locations: "pysr/test/test_type_specs.py:391, :1413",
+        reference: |_, _| false,
+    },
 ];
+
+fn compile_fn(id: &str, src: &str, locations: &str) -> ScalarFn<f64> {
+    parse_definition(src)
+        .and_then(|def| ScalarFn::compile(&def))
+        .unwrap_or_else(|e| panic!("{id} ({locations}): {e}"))
+}
+
+/// `N_ROWS` rows per argument from a fixed seed: predictions and targets uniform in
+/// [-3, 3), weights uniform in [0.1, 2).
+fn loss_columns(arity: usize) -> Vec<Vec<f64>> {
+    let mut rng = fastrand::Rng::with_seed(0x1055);
+    (0..arity)
+        .map(|k| {
+            let (lo, hi) = if k == 2 { (0.1, 2.0) } else { (-3.0, 3.0) };
+            (0..N_ROWS).map(|_| lo + (hi - lo) * rng.f64()).collect()
+        })
+        .collect()
+}
+
+fn slices(cols: &[Vec<f64>]) -> Vec<SrcRef<'_, f64>> {
+    cols.iter().map(|c| SrcRef::Slice(c)).collect()
+}
+
+#[test]
+fn corpus_losses_match_hand_written_rust() {
+    for case in LOSSES {
+        let f = compile_fn(case.id, case.src, case.locations);
+        assert_eq!(usize::from(f.arity()), case.arity, "{}", case.id);
+        assert!(!f.returns_bool(), "{}", case.id);
+        let cols = loss_columns(case.arity);
+        let mut got = vec![0.0; N_ROWS];
+        f.eval(&mut got, &slices(&cols), &NO_CHECK);
+        for (r, &g) in got.iter().enumerate() {
+            let x = row(&cols, r);
+            let want = (case.reference)(&x);
+            assert!(
+                same_value(g, want),
+                "{} `{}` ({}) at {x:?}: got {g}, want {want}",
+                case.id,
+                case.src,
+                case.locations
+            );
+        }
+    }
+}
+
+#[test]
+fn corpus_loss_derivatives_match_central_differences() {
+    for case in LOSSES {
+        let f = compile_fn(case.id, case.src, case.locations);
+        let cols = loss_columns(case.arity);
+        let mut got = vec![0.0; N_ROWS];
+        f.partial(0, &mut got, &slices(&cols));
+        for (r, &g) in got.iter().enumerate() {
+            let x = row(&cols, r);
+            if (case.near_kink)(&x) {
+                continue;
+            }
+            let h = 1e-6 * x[0].abs().max(1.0);
+            let (mut hi, mut lo) = (x.clone(), x.clone());
+            hi[0] += h;
+            lo[0] -= h;
+            let fd = ((case.reference)(&hi) - (case.reference)(&lo)) / (2.0 * h);
+            assert!(
+                (g - fd).abs() <= 1e-6 * fd.abs().max(1.0),
+                "{} `{}` d/dprediction at {x:?}: got {g}, finite difference {fd}",
+                case.id,
+                case.src
+            );
+        }
+    }
+}
+
+#[test]
+fn corpus_early_stops_match_hand_written_rust() {
+    let losses = [
+        -2.0, -1.0, -0.5, 0.0, 1e-12, 1e-11, 1e-10, 2e-10, 1e-9, 1e-8, 2e-8, 1e-7, 1e-6, 2e-6, 1e-5, 1e-4, 2e-4, 1e-3,
+        2e-3, 0.01, 0.05, 0.06, 0.5, 1.0, 2.0,
+    ];
+    let (loss_col, complexity_col): (Vec<f64>, Vec<f64>) = losses
+        .iter()
+        .flat_map(|&l| (0..=12).map(move |c| (l, f64::from(c))))
+        .unzip();
+    let cols = [loss_col, complexity_col];
+    for case in EARLY_STOPS {
+        let f = compile_fn(case.id, case.src, case.locations);
+        assert_eq!(f.arity(), 2, "{}", case.id);
+        assert!(f.returns_bool(), "{}", case.id);
+        let mut got = vec![0.0; cols[0].len()];
+        f.eval(&mut got, &slices(&cols), &NO_CHECK);
+        for (r, &g) in got.iter().enumerate() {
+            let (l, c) = (cols[0][r], cols[1][r]);
+            let want = (case.reference)(l, c);
+            assert_eq!(g, f64::from(u8::from(want)), "{} `{}` at ({l}, {c})", case.id, case.src);
+        }
+    }
+}
 
 /// Template combine formulas (compiled and checked in PR 3).
 const TEMPLATES: &[(&str, &str)] = &[
@@ -371,15 +728,6 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("T19", "choose_parameter(p[1], f(x))"),
     ("T20", "f0(x) + f1(x) + f2(x) + f3(x) + f4(x)"),
 ];
-
-#[test]
-fn corpus_losses_and_early_stops_parse() {
-    for (id, src) in LOSSES.iter().chain(EARLY_STOPS) {
-        if let Err(e) = parse_definition(src) {
-            panic!("{id} `{src}`: {e}");
-        }
-    }
-}
 
 #[test]
 fn corpus_templates_parse() {

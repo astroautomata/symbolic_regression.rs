@@ -233,6 +233,18 @@ fn parser_rejects_unsupported_constructs() {
         "type `Int` is not supported; use Float32, Float64, Real, or a `where` type variable",
         span_of(src, "Int"),
     );
+    let src = "f(tree, dataset::Dataset{T,L}, options) where {T,L} = 0";
+    assert_def_error(
+        src,
+        "type `Dataset` is not supported; use Float32, Float64, Real, or a `where` type variable",
+        span_of(src, "Dataset"),
+    );
+    let src = "function f(x)\n    a, b = g(x)\n    a\nend";
+    assert_def_error(
+        src,
+        "destructuring assignment (`a, b = ...`) is not supported",
+        Span::new(span_of(src, "a, b").start, span_of(src, "a, b").start + 1),
+    );
     let src = "f(x) = 0 < x < 1";
     assert_def_error(
         src,

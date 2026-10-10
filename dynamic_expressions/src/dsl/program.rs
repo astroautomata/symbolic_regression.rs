@@ -2,10 +2,12 @@ use core::cell::RefCell;
 
 use num_traits::Float;
 
+use super::DslError;
+use super::ast::Definition;
 use super::diff::differentiate;
 use super::ir::{Graph, Node, NodeId, Ty};
 use super::kernels::{EvalFn, MAX_KERNEL_ARITY, PartialFn};
-use super::lower::Lowered;
+use super::lower::{Lowered, lower};
 use crate::dispatch::{DiffKernelCtx, GradKernelCtx, GradRef, SrcRef};
 use crate::evaluate::EvalOptions;
 
@@ -259,6 +261,12 @@ impl<T: DslFloat> ScalarFn<T> {
         }
     }
 
+    /// Compiles a standalone definition, such as an elementwise loss or an early-stop condition.
+    /// Its body may call built-in kernels.
+    pub fn compile(def: &Definition) -> Result<Self, DslError> {
+        Ok(Self::from_lowered(&lower(def, &[])?))
+    }
+
     pub fn arity(&self) -> u8 {
         self.arity
     }
@@ -291,6 +299,13 @@ impl<T: DslFloat> ScalarFn<T> {
             out.fill(T::nan());
         }
         finite
+    }
+
+    /// Writes the partial derivative with respect to argument `arg` into `out`, row-wise.
+    pub fn partial(&self, arg: usize, out: &mut [T], args: &[SrcRef<'_, T>]) {
+        debug_assert_eq!(args.len(), usize::from(self.arity));
+        let program = &self.partials[arg];
+        T::with_scratch(program.n_temps() * out.len(), |temps| program.run(out, args, temps));
     }
 
     /// Forward-mode derivative along `ctx.dargs`, with the same finiteness rule as

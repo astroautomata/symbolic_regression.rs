@@ -325,7 +325,7 @@ impl<'s> Parser<'s> {
                 return Err(self.err(format!("parameter `{}` appears more than once", name.name), name.span));
             }
             let ty = if self.eat(&Tok::ColonColon)? {
-                Some(self.ident("a type")?)
+                Some(self.type_name()?)
             } else {
                 None
             };
@@ -338,10 +338,26 @@ impl<'s> Parser<'s> {
         Ok(params)
     }
 
+    /// A type annotation. Only plain names are accepted, so parametric types such as
+    /// `Dataset{T,L}` are rejected by name here rather than as a stray `{`.
+    fn type_name(&mut self) -> Result<Ident, DslError> {
+        let ty = self.ident("a type")?;
+        if *self.peek()? == Tok::LBrace {
+            return Err(self.err(
+                format!(
+                    "type `{}` is not supported; use Float32, Float64, Real, or a `where` type variable",
+                    ty.name
+                ),
+                ty.span,
+            ));
+        }
+        Ok(ty)
+    }
+
     /// `[:: Type] [where T | where {T <: Bound, ...}]`
     fn signature_tail(&mut self) -> Result<(Option<Ident>, Vec<TypeVar>), DslError> {
         let return_type = if self.eat(&Tok::ColonColon)? {
-            Some(self.ident("a type")?)
+            Some(self.type_name()?)
         } else {
             None
         };
@@ -412,6 +428,10 @@ impl<'s> Parser<'s> {
                 self.bump();
                 Ok(Stmt::Return(self.expr()?))
             }
+            Tok::Ident(_) if self.nth(1).tok == Tok::Comma => Err(self.err(
+                "destructuring assignment (`a, b = ...`) is not supported",
+                self.cur().span,
+            )),
             Tok::Ident(_) if self.nth(1).tok == Tok::Assign => {
                 let name = self.ident("a variable name")?;
                 self.bump();
