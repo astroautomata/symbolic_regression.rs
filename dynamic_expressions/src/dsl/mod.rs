@@ -5,6 +5,7 @@ pub mod ast;
 mod custom_ops;
 #[doc(hidden)]
 pub mod diff;
+pub mod dual;
 #[doc(hidden)]
 pub mod ir;
 #[doc(hidden)]
@@ -16,6 +17,7 @@ pub mod lower;
 mod parser;
 #[doc(hidden)]
 pub mod program;
+mod template;
 
 use core::fmt;
 
@@ -23,6 +25,7 @@ pub use self::ast::{BinaryOp, DefKind, Definition, Expr, ExprKind, Formula, Iden
 pub use self::custom_ops::{CustomOps, Defined, is_definition, parse_operator_tokens};
 pub use self::parser::{parse_definition, parse_formula};
 pub use self::program::{DslFloat, ScalarFn};
+pub use self::template::{MAX_DERIVATIVE_ORDER, TemplateStructure, TemplateWorkspace};
 
 /// Byte offsets into the source string, `start..end`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]

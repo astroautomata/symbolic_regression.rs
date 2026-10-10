@@ -15,6 +15,10 @@ pub trait CustomTable<T: Float>: Clone + Default + core::fmt::Debug + Send + Syn
     fn eval(&self, local: u16, ctx: EvalKernelCtx<'_, '_, T>) -> bool;
     fn diff(&self, local: u16, ctx: DiffKernelCtx<'_, '_, T>) -> bool;
     fn grad(&self, local: u16, ctx: GradKernelCtx<'_, '_, T>) -> bool;
+    /// Evaluates the operator on one row of any float type; `None` when the table cannot.
+    fn eval_scalar<S: Float>(&self, _local: u16, _args: &[S]) -> Option<S> {
+        None
+    }
 }
 
 /// The empty table. Operator sets without runtime operators use it and stay zero-sized.

@@ -22,6 +22,7 @@ pub fn differentiate(graph: &mut Graph, root: NodeId, wrt: u16) -> NodeId {
             Node::Arg(k) => graph.constant(if k == wrt { 1.0 } else { 0.0 }),
             Node::Op { kernel, args } => op_derivative(graph, kernel, &args, &d),
             Node::Partial { .. } => unreachable!("partial nodes are never differentiated"),
+            Node::Call { .. } | Node::Param { .. } => unreachable!("template nodes are never differentiated"),
         };
         d.push(di);
     }

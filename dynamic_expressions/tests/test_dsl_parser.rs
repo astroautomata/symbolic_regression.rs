@@ -24,6 +24,10 @@ fn sexpr(e: &Expr) -> String {
             format!("({} {})", callee.name, args.join(" "))
         }
         ExprKind::Index { base, index } => format!("([] {} {})", sexpr(base), sexpr(index)),
+        ExprKind::Apply { func, args } => {
+            let args: Vec<String> = args.iter().map(sexpr).collect();
+            format!("(apply {} {})", sexpr(func), args.join(" "))
+        }
     }
 }
 

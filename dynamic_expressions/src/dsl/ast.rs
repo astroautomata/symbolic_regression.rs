@@ -89,6 +89,7 @@ impl Expr {
             ExprKind::Ternary { cond, then, otherwise } => cond.height.max(then.height).max(otherwise.height),
             ExprKind::Call { args, .. } => args.iter().map(|a| a.height).max().unwrap_or(0),
             ExprKind::Index { base, index } => base.height.max(index.height),
+            ExprKind::Apply { func, args } => args.iter().map(|a| a.height).fold(func.height, u32::max),
         };
         Self {
             kind,
@@ -125,6 +126,11 @@ pub enum ExprKind {
     Index {
         base: Box<Expr>,
         index: Box<Expr>,
+    },
+    /// `D(f, 1)(x)`: a call of a function-valued expression; only template formulas allow it.
+    Apply {
+        func: Box<Expr>,
+        args: Vec<Expr>,
     },
 }
 

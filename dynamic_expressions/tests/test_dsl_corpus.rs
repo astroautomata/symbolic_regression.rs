@@ -1,11 +1,15 @@
 //! Every scalar DSL string passed to a PySR option in PySR's docs and tests at commit c15a9eb.
-//! Custom operators, elementwise losses, and early-stop conditions compile and match hand-written
-//! Rust; template formulas parse here and compile in PR 3.
+//! Custom operators, elementwise losses, early-stop conditions, and template formulas compile and
+//! match hand-written Rust. Template formulas that call functions defined only for custom value
+//! types fail at setup.
 
-use dynamic_expressions::EvalOptions;
 use dynamic_expressions::custom::CustomTable;
 use dynamic_expressions::dispatch::{DiffKernelCtx, EvalKernelCtx, SrcRef};
-use dynamic_expressions::dsl::{CustomOps, ScalarFn, parse_definition, parse_formula, parse_operator_tokens};
+use dynamic_expressions::dsl::{CustomOps, ScalarFn, TemplateStructure, parse_definition, parse_operator_tokens};
+use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
+use dynamic_expressions::operators::cos;
+use dynamic_expressions::{EvalOptions, PNode, PostfixExpr};
+use ndarray::Array2;
 
 const N_ROWS: usize = 257;
 const NO_CHECK: EvalOptions = EvalOptions {
@@ -699,42 +703,313 @@ fn corpus_early_stops_match_hand_written_rust() {
     }
 }
 
-/// Template combine formulas (compiled and checked in PR 3).
-const TEMPLATES: &[(&str, &str)] = &[
-    ("T1", "sin(f(x1, x2)) + g(x3)"),
-    ("T2", "f(x1, x2, p1[category], p2[category])"),
-    (
-        "T3",
-        "\n        v = shared(x1, x2, x3)\n        y1_predicted = v + f1(x1, x2, x3)\n        y2_predicted = v + f2(x1, x2, x3)\n        y3_predicted = v + f3(x1, x2, x3)\n\n        residuals = (\n            abs2(y1 - y1_predicted) +\n            abs2(y2 - y2_predicted) +\n            abs2(y3 - y3_predicted)\n        )\n\n        residuals\n    ",
-    ),
-    ("T4", "df = D(f, 1); df(x)"),
-    ("T5", "sin(f(x1, x2)) + g(x3)^2"),
-    ("T6", "sin(f(x, y))"),
-    ("T7", "p[class] * x1^2 + f(x2)"),
-    (
-        "T8",
-        "mu = f_mu(x1, x2, x3); logvar = f_logvar(x1, x2, x3); 0.5f0 * (logvar + (mu - y)^2 / exp(logvar)) - 2",
-    ),
-    ("T9", "f(x0, x1)"),
-    ("T10", "p[1] * f(x) + p[2] * x + p[3]"),
-    ("T11", "p[1] * f(x) + p[2]"),
-    ("T12", "f(x)"),
-    ("T13", "f(x, y) + g(z)"),
-    ("T14", "p[1] * f(x)"),
-    ("T15", "p1[1]*f(x,y) + p2[1]*g(z)"),
-    ("T16", "f(var1) * g(var2)"),
-    ("T17", "alpha*f(x) + beta*g(y)"),
-    ("T18", "add_vectors(f(x1), g(x2))"),
-    ("T19", "choose_parameter(p[1], f(x))"),
-    ("T20", "f0(x) + f1(x) + f2(x) + f3(x) + f4(x)"),
+/// Looks up a feature of the current row by name.
+type Feature<'a> = &'a dyn Fn(&str) -> f64;
+
+struct TemplateCase {
+    id: &'static str,
+    src: &'static str,
+    expressions: &'static [&'static str],
+    variables: &'static [&'static str],
+    parameters: &'static [(&'static str, usize)],
+    /// Variables holding 1-based category indices, with the number of categories.
+    categories: &'static [(&'static str, usize)],
+    /// The whole formula, from a feature lookup and the concatenated parameters.
+    reference: fn(Feature<'_>, &[f64]) -> f64,
+}
+
+/// Subexpression `k` with `arity` arguments: `cos(#1 * w) + Σ_{i≥2} #i^2 * 0.5 / i + c`.
+fn sub_tree(k: usize, arity: usize) -> PostfixExpr<f64, BuiltinOpsF64, 3> {
+    let var = |f: u16| PostfixExpr::new(vec![PNode::Var { feature: f }], vec![], Default::default());
+    let offset = 0.3 + 0.2 * k as f64;
+    let mut tree = PostfixExpr::new(vec![PNode::Const { idx: 0 }], vec![offset], Default::default());
+    if arity >= 1 {
+        tree = cos(var(0) * (0.7 + 0.1 * k as f64)) + tree;
+    }
+    for i in 2..=arity {
+        tree = tree + var(i as u16 - 1) * var(i as u16 - 1) * (0.5 / i as f64);
+    }
+    tree
+}
+
+fn sub(k: usize, args: &[f64]) -> f64 {
+    let mut v = 0.3 + 0.2 * k as f64;
+    if let Some(a) = args.first() {
+        v += (a * (0.7 + 0.1 * k as f64)).cos();
+    }
+    for (i, a) in args.iter().enumerate().skip(1) {
+        v += a * a * (0.5 / (i + 1) as f64);
+    }
+    v
+}
+
+/// Template combine formulas from PySR's docs and tests.
+const TEMPLATES: &[TemplateCase] = &[
+    TemplateCase {
+        id: "T1",
+        src: "sin(f(x1, x2)) + g(x3)",
+        expressions: &["f", "g"],
+        variables: &["x1", "x2", "x3"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("x1"), v("x2")]).sin() + sub(1, &[v("x3")]),
+    },
+    TemplateCase {
+        id: "T2",
+        src: "f(x1, x2, p1[category], p2[category])",
+        expressions: &["f"],
+        variables: &["x1", "x2", "category"],
+        parameters: &[("p1", 3), ("p2", 3)],
+        categories: &[("category", 3)],
+        reference: |v, p| {
+            let c = v("category") as usize - 1;
+            sub(0, &[v("x1"), v("x2"), p[c], p[3 + c]])
+        },
+    },
+    TemplateCase {
+        id: "T3",
+        src: "\n        v = shared(x1, x2, x3)\n        y1_predicted = v + f1(x1, x2, x3)\n        y2_predicted = v + f2(x1, x2, x3)\n        y3_predicted = v + f3(x1, x2, x3)\n\n        residuals = (\n            abs2(y1 - y1_predicted) +\n            abs2(y2 - y2_predicted) +\n            abs2(y3 - y3_predicted)\n        )\n\n        residuals\n    ",
+        expressions: &["shared", "f1", "f2", "f3"],
+        variables: &["x1", "x2", "x3", "y1", "y2", "y3"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| {
+            let x = [v("x1"), v("x2"), v("x3")];
+            let s = sub(0, &x);
+            (v("y1") - (s + sub(1, &x))).powi(2)
+                + (v("y2") - (s + sub(2, &x))).powi(2)
+                + (v("y3") - (s + sub(3, &x))).powi(2)
+        },
+    },
+    TemplateCase {
+        id: "T4",
+        src: "df = D(f, 1); df(x)",
+        expressions: &["f"],
+        variables: &["x"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| -(0.7 * v("x")).sin() * 0.7,
+    },
+    TemplateCase {
+        id: "T5",
+        src: "sin(f(x1, x2)) + g(x3)^2",
+        expressions: &["f", "g"],
+        variables: &["x1", "x2", "x3"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("x1"), v("x2")]).sin() + sub(1, &[v("x3")]).powi(2),
+    },
+    TemplateCase {
+        id: "T6",
+        src: "sin(f(x, y))",
+        expressions: &["f"],
+        variables: &["x", "y"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("x"), v("y")]).sin(),
+    },
+    TemplateCase {
+        id: "T7",
+        src: "p[class] * x1^2 + f(x2)",
+        expressions: &["f"],
+        variables: &["x1", "x2", "class"],
+        parameters: &[("p", 3)],
+        categories: &[("class", 3)],
+        reference: |v, p| p[v("class") as usize - 1] * v("x1").powi(2) + sub(0, &[v("x2")]),
+    },
+    TemplateCase {
+        id: "T8",
+        src: "mu = f_mu(x1, x2, x3); logvar = f_logvar(x1, x2, x3); 0.5f0 * (logvar + (mu - y)^2 / exp(logvar)) - 2",
+        expressions: &["f_mu", "f_logvar"],
+        variables: &["x1", "x2", "x3", "y"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| {
+            let x = [v("x1"), v("x2"), v("x3")];
+            let (mu, logvar) = (sub(0, &x), sub(1, &x));
+            0.5 * (logvar + (mu - v("y")).powi(2) / logvar.exp()) - 2.0
+        },
+    },
+    TemplateCase {
+        id: "T9",
+        src: "f(x0, x1)",
+        expressions: &["f"],
+        variables: &["x0", "x1"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("x0"), v("x1")]),
+    },
+    TemplateCase {
+        id: "T10",
+        src: "p[1] * f(x) + p[2] * x + p[3]",
+        expressions: &["f"],
+        variables: &["x"],
+        parameters: &[("p", 3)],
+        categories: &[],
+        reference: |v, p| p[0] * sub(0, &[v("x")]) + p[1] * v("x") + p[2],
+    },
+    TemplateCase {
+        id: "T11",
+        src: "p[1] * f(x) + p[2]",
+        expressions: &["f"],
+        variables: &["x"],
+        parameters: &[("p", 2)],
+        categories: &[],
+        reference: |v, p| p[0] * sub(0, &[v("x")]) + p[1],
+    },
+    TemplateCase {
+        id: "T12",
+        src: "f(x)",
+        expressions: &["f"],
+        variables: &["x"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("x")]),
+    },
+    TemplateCase {
+        id: "T13",
+        src: "f(x, y) + g(z)",
+        expressions: &["f", "g"],
+        variables: &["x", "y", "z"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("x"), v("y")]) + sub(1, &[v("z")]),
+    },
+    TemplateCase {
+        id: "T14",
+        src: "p[1] * f(x)",
+        expressions: &["f"],
+        variables: &["x"],
+        parameters: &[("p", 1)],
+        categories: &[],
+        reference: |v, p| p[0] * sub(0, &[v("x")]),
+    },
+    TemplateCase {
+        id: "T15",
+        src: "p1[1]*f(x,y) + p2[1]*g(z)",
+        expressions: &["f", "g"],
+        variables: &["x", "y", "z"],
+        parameters: &[("p1", 1), ("p2", 1)],
+        categories: &[],
+        reference: |v, p| p[0] * sub(0, &[v("x"), v("y")]) + p[1] * sub(1, &[v("z")]),
+    },
+    TemplateCase {
+        id: "T16",
+        src: "f(var1) * g(var2)",
+        expressions: &["f", "g"],
+        variables: &["var1", "var2"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| sub(0, &[v("var1")]) * sub(1, &[v("var2")]),
+    },
+    TemplateCase {
+        id: "T20",
+        src: "f0(x) + f1(x) + f2(x) + f3(x) + f4(x)",
+        expressions: &["f0", "f1", "f2", "f3", "f4"],
+        variables: &["x"],
+        parameters: &[],
+        categories: &[],
+        reference: |v, _| (0..5).map(|k| sub(k, &[v("x")])).sum(),
+    },
 ];
 
-#[test]
-fn corpus_templates_parse() {
-    for (id, src) in TEMPLATES {
-        if let Err(e) = parse_formula(src) {
-            panic!("{id} `{src}`: {e}");
+fn compile_template(case: &TemplateCase) -> TemplateStructure {
+    TemplateStructure::new(case.src, case.expressions, None, case.variables, case.parameters)
+        .unwrap_or_else(|e| panic!("{} `{}`: {e}", case.id, case.src))
+}
+
+/// Random features in (-2, 2), with category columns drawn from `1..=n`.
+fn template_inputs(case: &TemplateCase, seed: u64) -> Array2<f64> {
+    let mut rng = fastrand::Rng::with_seed(seed);
+    Array2::from_shape_fn((case.variables.len(), N_ROWS), |(f, _)| {
+        match case.categories.iter().find(|(name, _)| *name == case.variables[f]) {
+            Some((_, n)) => (rng.usize(0..*n) + 1) as f64,
+            None => rng.f64() * 4.0 - 2.0,
         }
+    })
+}
+
+#[test]
+fn corpus_templates_match_hand_written_rust() {
+    let ops = BuiltinOpsF64::new();
+    for case in TEMPLATES {
+        let template = compile_template(case);
+        let trees: Vec<_> = template
+            .num_features()
+            .iter()
+            .enumerate()
+            .map(|(k, &arity)| sub_tree(k, arity))
+            .collect();
+        let params: Vec<f64> = (0..template.n_parameters()).map(|i| 0.5 + 0.25 * i as f64).collect();
+        let x = template_inputs(case, 7);
+        let (got, ok) = template.eval(&trees, &params, &ops, x.view());
+        assert!(ok, "{} `{}` is invalid", case.id, case.src);
+        for (r, &g) in got.iter().enumerate() {
+            let value = |name: &str| {
+                let f = case.variables.iter().position(|v| *v == name).expect("a variable");
+                x[[f, r]]
+            };
+            let want = (case.reference)(&value, &params);
+            assert!(
+                (g - want).abs() <= 1e-12 * want.abs().max(1.0),
+                "{} `{}` row {r}: got {g}, want {want}",
+                case.id,
+                case.src
+            );
+        }
+    }
+}
+
+#[test]
+fn corpus_template_derivative_matches_central_differences() {
+    let case = TEMPLATES.iter().find(|c| c.id == "T4").expect("T4");
+    let template = compile_template(case);
+    let trees = vec![sub_tree(0, 1)];
+    let x = template_inputs(case, 11);
+    let (got, ok) = template.eval(&trees, &[], &BuiltinOpsF64::new(), x.view());
+    assert!(ok);
+    let h = 1e-5;
+    for (r, &g) in got.iter().enumerate() {
+        let x0 = x[[0, r]];
+        let fd = (sub(0, &[x0 + h]) - sub(0, &[x0 - h])) / (2.0 * h);
+        assert!(
+            (g - fd).abs() <= 1e-8 * fd.abs().max(1.0),
+            "row {r}: D(f, 1) = {g}, central difference {fd}"
+        );
+    }
+}
+
+#[test]
+fn corpus_templates_for_custom_value_types_fail_at_setup_naming_the_function() {
+    let cases = [
+        (
+            "T18",
+            "add_vectors(f(x1), g(x2))",
+            vec!["f", "g"],
+            vec!["x1", "x2"],
+            vec![],
+            "`add_vectors`",
+        ),
+        (
+            "T19",
+            "choose_parameter(p[1], f(x))",
+            vec!["f"],
+            vec!["x"],
+            vec![("p", 1)],
+            "`choose_parameter`",
+        ),
+        (
+            "T17",
+            "alpha*f(x) + beta*g(y)",
+            vec!["f", "g"],
+            vec!["x", "y"],
+            vec![("alpha", 1), ("beta", 2)],
+            "`alpha` is a parameter vector",
+        ),
+    ];
+    for (id, src, expressions, variables, parameters, name) in cases {
+        let err = TemplateStructure::new(src, &expressions, None, &variables, &parameters).expect_err(id);
+        assert!(err.message.contains(name), "{id} `{src}`: {}", err.message);
     }
 }
 

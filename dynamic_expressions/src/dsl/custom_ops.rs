@@ -158,4 +158,9 @@ impl<T: DslFloat> CustomTable<T> for CustomOps<T> {
     fn grad(&self, local: u16, ctx: GradKernelCtx<'_, '_, T>) -> bool {
         self.funcs[usize::from(local)].grad(ctx)
     }
+
+    fn eval_scalar<S: num_traits::Float>(&self, local: u16, args: &[S]) -> Option<S> {
+        let lowered = &self.lowered[usize::from(local)];
+        Some(lowered.graph.eval_scalar(lowered.root, args))
+    }
 }

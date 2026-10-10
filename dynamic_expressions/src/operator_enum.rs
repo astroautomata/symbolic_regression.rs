@@ -55,6 +55,13 @@ macro_rules! op {
 
         impl $crate::traits::OpTag for $Op {
             const ARITY: u8 = $crate::op!(@count $($eval_arg),+) as u8;
+
+            #[inline]
+            fn eval_scalar<S: $crate::num_traits::Float>(args: &[S]) -> Option<S> {
+                Some(<$Op as $crate::traits::Operator<S, { $crate::op!(@count $($eval_arg),+) }>>::eval(
+                    &core::array::from_fn(|i| args[i]),
+                ))
+            }
         }
 
         impl<$T: $crate::num_traits::Float> $crate::traits::Operator<$T, { $crate::op!(@count $($eval_arg),+) }> for $Op {
@@ -867,6 +874,18 @@ macro_rules! opset {
                         }
                     )*
                     id => self.custom.grad(id - $crate::paste::paste! { [<__opset_ $Ops>]::N_BUILTIN }, ctx),
+                }
+            }
+
+            #[inline]
+            fn eval_scalar<S: $crate::num_traits::Float>(&self, op: $crate::traits::OpId, args: &[S]) -> Option<S> {
+                match op.id {
+                    $(
+                        $crate::paste::paste! { [<__opset_ $Ops>]::[<ID_ $op_name>] } => {
+                            <$crate::opset!(@op_ty $op_name $(= $op_path)?) as $crate::traits::OpTag>::eval_scalar(args)
+                        }
+                    )*
+                    id => self.custom.eval_scalar(id - $crate::paste::paste! { [<__opset_ $Ops>]::N_BUILTIN }, args),
                 }
             }
         }

@@ -58,6 +58,26 @@ macro_rules! kernels {
                     $(Kernel::$Op => partial_nary::<{ <builtin::$Op as OpTag>::ARITY as usize }, T, builtin::$Op>,)*
                 }
             }
+
+            /// Evaluates the kernel on one row of any float type, such as a [`super::dual::Dual`].
+            pub fn eval_scalar<S: Float>(self, args: &[S]) -> S {
+                match self {
+                    $(Kernel::$Op => {
+                        const A: usize = <builtin::$Op as OpTag>::ARITY as usize;
+                        <builtin::$Op as Operator<S, A>>::eval(&core::array::from_fn(|i| args[i]))
+                    })*
+                }
+            }
+
+            /// The partial derivative with respect to argument `idx`, on one row.
+            pub fn partial_scalar<S: Float>(self, args: &[S], idx: usize) -> S {
+                match self {
+                    $(Kernel::$Op => {
+                        const A: usize = <builtin::$Op as OpTag>::ARITY as usize;
+                        <builtin::$Op as Operator<S, A>>::partial(&core::array::from_fn(|i| args[i]), idx)
+                    })*
+                }
+            }
         }
     };
 }

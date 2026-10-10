@@ -15,6 +15,11 @@ fn ir_string(graph: &Graph, id: NodeId) -> String {
             let args: Vec<String> = args.iter().map(|a| ir_string(graph, *a)).collect();
             format!("(d{idx}{} {})", kernel.name(), args.join(" "))
         }
+        Node::Call { expr, wrt, args } => {
+            let args: Vec<String> = args.iter().map(|a| ir_string(graph, *a)).collect();
+            format!("(call{expr}{wrt:?} {})", args.join(" "))
+        }
+        Node::Param { vector, index } => format!("(param{vector} {})", ir_string(graph, *index)),
     }
 }
 

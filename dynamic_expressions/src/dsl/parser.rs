@@ -604,6 +604,12 @@ impl<'s> Parser<'s> {
                     let span = base.span.to(self.toks[self.pos - 1].span);
                     base = self.node(ExprKind::Call { callee, args }, span)?;
                 }
+                (Tok::LParen, ExprKind::Call { .. } | ExprKind::Apply { .. }) if self.template => {
+                    let args = self.call_args()?;
+                    let span = base.span.to(self.toks[self.pos - 1].span);
+                    let func = Box::new(base);
+                    base = self.node(ExprKind::Apply { func, args }, span)?;
+                }
                 (Tok::LBracket, _) => {
                     if !self.template {
                         return Err(self.err(

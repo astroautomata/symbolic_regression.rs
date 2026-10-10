@@ -126,6 +126,7 @@ impl<T: DslFloat> Program<T> {
                 Node::Op { kernel, .. } => StepFn::Eval(kernel.eval_fn()),
                 Node::Partial { kernel, idx, .. } => StepFn::Partial(kernel.partial_fn(), usize::from(*idx)),
                 Node::Const(_) | Node::Arg(_) => unreachable!("leaves are operands, not steps"),
+                Node::Call { .. } | Node::Param { .. } => unreachable!("template nodes are never compiled to steps"),
             };
             steps.push(Step {
                 func,
@@ -190,6 +191,7 @@ fn operand<T: DslFloat>(graph: &Graph, id: NodeId, temp_of: &[usize]) -> Operand
         }
         Node::Arg(i) => Operand::Arg(*i),
         Node::Op { .. } | Node::Partial { .. } => Operand::Temp(temp_of[id.index()]),
+        Node::Call { .. } | Node::Param { .. } => unreachable!("template nodes are never compiled to steps"),
     }
 }
 
