@@ -129,8 +129,9 @@ fn pareto_curve_header_shows_score_only_for_log_scale() {
 
     let hall = hall_with_x1(0.5);
     let ops = Options::<T, TestOps, D>::default().operators.set;
-    let table =
-        |loss_scale, ansi| format_hall_of_fame(&hall, &ops, 100, usize::MAX, RenderOptions { ansi, loss_scale }, 5);
+    let table = |loss_scale, ansi| {
+        format_hall_of_fame(&hall, &ops, 100, usize::MAX, RenderOptions { ansi, loss_scale }, 5).unwrap()
+    };
 
     let log = table(LossScale::Log, false);
     for column in ["Complexity", "Loss", "Score", "Equation"] {
@@ -149,6 +150,31 @@ fn pareto_curve_header_shows_score_only_for_log_scale() {
         let row_col = lines[2].find("x0").unwrap();
         assert_eq!(header_col, row_col, "equation column misaligned:\n{plain}");
     }
+}
+
+#[cfg(feature = "progress")]
+#[test]
+fn pareto_curve_rejects_negative_losses_under_log_scale() {
+    use crate::progress_bars::{RenderOptions, format_hall_of_fame};
+
+    let hall = hall_with_x1(-1.0);
+    let ops = Options::<T, TestOps, D>::default().operators.set;
+    let table = |loss_scale| {
+        format_hall_of_fame(
+            &hall,
+            &ops,
+            100,
+            usize::MAX,
+            RenderOptions {
+                ansi: false,
+                loss_scale,
+            },
+            5,
+        )
+    };
+    let err = table(LossScale::Log).unwrap_err();
+    assert!(err.contains("negative loss (-1)"), "{err}");
+    assert!(table(LossScale::Linear).unwrap().contains("-1.000e0"));
 }
 
 #[test]
@@ -175,7 +201,7 @@ fn early_stop_condition() {
     };
 
     let mut engine = SearchEngine::new(dataset, options);
-    engine.step(usize::MAX);
+    engine.step(usize::MAX).unwrap();
     assert!(engine.is_finished());
     assert!(engine.cycles_completed() < engine.total_cycles());
     assert!(

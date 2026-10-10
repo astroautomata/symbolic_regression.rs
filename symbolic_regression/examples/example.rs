@@ -67,7 +67,7 @@ fn main() {
         ..Default::default()
     };
 
-    let result = equation_search::<_, BuiltinOpsF32, D>(&dataset, &options);
+    let result = equation_search::<_, BuiltinOpsF32, D>(&dataset, &options).unwrap();
     let dominating = result.hall_of_fame.pareto_front();
 
     println!("Final Pareto front:");

@@ -186,7 +186,8 @@ pub struct SearchSnapshot {
     pub total_cycles: usize,
     pub cycles_completed: usize,
     pub total_evals: u64,
-    pub best: EquationSummary,
+    /// The equation SymbolicRegression.jl reports as best (`choose_best` under `loss_scale`).
+    pub best: Option<EquationSummary>,
     pub pareto_points: Vec<EquationPoint>,
 }
 
@@ -282,8 +283,8 @@ impl WasmSearch {
     }
 
     pub fn step(&mut self, n_cycles: usize) -> Result<JsValue, JsValue> {
-        let _ = self.engine.step(n_cycles);
-        let snap = snapshot(&self.engine, self.pareto_k);
+        self.engine.step(n_cycles).map_err(|e| JsValue::from_str(&e))?;
+        let snap = snapshot(&self.engine, self.pareto_k).map_err(|e| JsValue::from_str(&e))?;
         to_value(&snap).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -348,8 +349,8 @@ fn options_from_wasm(
     Ok(out)
 }
 
-fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> SearchSnapshot {
-    let best = summary_from_member(engine, engine.best());
+fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> Result<SearchSnapshot, String> {
+    let best = engine.best()?.map(|m| summary_from_member(engine, &m));
 
     let mut pareto = engine.hall_of_fame().pareto_front();
     if pareto.len() > pareto_k {
@@ -365,13 +366,13 @@ fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> SearchSn
         })
         .collect();
 
-    SearchSnapshot {
+    Ok(SearchSnapshot {
         total_cycles: engine.total_cycles(),
         cycles_completed: engine.cycles_completed(),
         total_evals: engine.total_evals(),
         best,
         pareto_points,
-    }
+    })
 }
 
 fn summary_from_member(
@@ -416,10 +417,6 @@ fn find_member_by_id(
         .members()
         .find(|m| m.expr.hash_nodes() == member_id)
         .cloned()
-        .or_else(|| {
-            let b = engine.best();
-            (b.expr.hash_nodes() == member_id).then(|| b.clone())
-        })
 }
 
 fn eval_member_on_dataset(
@@ -866,5 +863,34 @@ mod tests {
         assert!(err.contains("`SpecialFunctions.erf`"), "{err}");
         let err = super::operators_from_tokens(&[], &tokens(&["p(a, b) = Primes.prime(a) + b"]), &[]).unwrap_err();
         assert!(err.contains("`Primes.prime`"), "{err}");
+    }
+
+    fn engine(loss: &str, loss_scale: symbolic_regression::LossScale) -> super::SearchEngine<f64, super::WasmOps, 3> {
+        let x = ndarray::Array2::from_shape_fn((1, 32), |(_, i)| i as f64 / 8.0);
+        let y = x.row(0).mapv(|v| v * v - 1.0);
+        let options = super::Options::<f64, super::WasmOps, 3> {
+            operators: super::operators_from_tokens(&[], &tokens(&["+", "*"]), &[]).unwrap(),
+            loss: super::parse_loss(loss).unwrap(),
+            loss_scale,
+            niterations: 2,
+            populations: 4,
+            progress: false,
+            ..Default::default()
+        };
+        super::SearchEngine::new(super::Dataset::new(x, y), options)
+    }
+
+    #[test]
+    fn search_errors_on_negative_losses_under_log_scale() {
+        use symbolic_regression::LossScale;
+
+        let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Log);
+        let err = super::snapshot(&search, 10).unwrap_err();
+        assert!(err.contains("negative loss"), "{err}");
+        assert!(search.step(usize::MAX).unwrap_err().contains("negative loss"));
+
+        let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Linear);
+        search.step(usize::MAX).unwrap();
+        assert!(super::snapshot(&search, 10).unwrap().best.unwrap().loss < 0.0);
     }
 }

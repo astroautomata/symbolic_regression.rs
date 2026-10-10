@@ -96,12 +96,13 @@ mod imp {
             total_evals: u64,
             cycles_remaining: usize,
             print_precision: usize,
-        ) where
+        ) -> Result<(), String>
+        where
             T: Float + num_traits::ToPrimitive + Display,
             Ops: OperatorSet,
         {
             if !self.show {
-                return;
+                return Ok(());
             }
             self.bar.inc(1);
             update_progress_msg(ProgressMsgCtx {
@@ -115,7 +116,7 @@ mod imp {
                 total_evals,
                 cycles_remaining,
                 print_precision,
-            });
+            })
         }
 
         pub(crate) fn finish(&self) {
@@ -138,7 +139,7 @@ mod imp {
         print_precision: usize,
     }
 
-    fn update_progress_msg<T, Ops, const D: usize>(ctx: ProgressMsgCtx<'_, T, Ops, D>)
+    fn update_progress_msg<T, Ops, const D: usize>(ctx: ProgressMsgCtx<'_, T, Ops, D>) -> Result<(), String>
     where
         T: Float + num_traits::ToPrimitive + Display,
         Ops: OperatorSet,
@@ -169,7 +170,7 @@ mod imp {
         }
 
         if now.duration_since(progress.last_msg_update) < msg_min_interval && cycles_remaining != 0 {
-            return;
+            return Ok(());
         }
 
         let term_width = {
@@ -197,7 +198,7 @@ mod imp {
             ),
         };
 
-        let hof = format_hall_of_fame(hall, ops, term_width, usize::MAX, render, print_precision);
+        let hof = format_hall_of_fame(hall, ops, term_width, usize::MAX, render, print_precision)?;
         let hof_title = "Hall of Fame:".to_string();
         pb.set_message(format!(
             "{}\n{}\n{}",
@@ -207,6 +208,7 @@ mod imp {
         ));
 
         progress.last_msg_update = now;
+        Ok(())
     }
 
     pub(crate) fn format_hall_of_fame<T, Ops, const D: usize>(
@@ -216,7 +218,7 @@ mod imp {
         max_entries: usize,
         render: RenderOptions,
         print_precision: usize,
-    ) -> String
+    ) -> Result<String, String>
     where
         T: Float + num_traits::ToPrimitive + Display,
         Ops: OperatorSet,
@@ -249,15 +251,7 @@ mod imp {
         out.push_str(&truncate_to_width(&header, terminal_width, render));
         out.push('\n');
 
-        let scores = match hall.pareto_scores(render.loss_scale) {
-            Ok(scores) => scores,
-            Err(message) => {
-                out.push_str(&message);
-                out.push('\n');
-                out.push_str(&border);
-                return out;
-            }
-        };
+        let scores = hall.pareto_scores(render.loss_scale)?;
         for (m, score) in hall.pareto_front().into_iter().zip(scores).take(max_entries) {
             let loss = m.loss.to_f64().unwrap_or(f64::INFINITY);
             let mut stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
@@ -293,7 +287,7 @@ mod imp {
         }
 
         out.push_str(&border);
-        out
+        Ok(out)
     }
 
     fn wrap_equation(eqn: &str, terminal_width: usize, left_cols_width: usize) -> Vec<String> {
@@ -360,7 +354,8 @@ mod imp {
             _total_evals: u64,
             _cycles_remaining: usize,
             _print_precision: usize,
-        ) {
+        ) -> Result<(), String> {
+            Ok(())
         }
 
         pub(crate) fn finish(&self) {}

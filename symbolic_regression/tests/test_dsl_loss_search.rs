@@ -1,6 +1,7 @@
 //! Seeded searches driven by a loss and an early-stop condition written as strings.
 
 use ndarray::{Array1, Array2};
+use symbolic_regression::choose_best;
 use symbolic_regression::prelude::*;
 
 type Ops = BuiltinOpsF64;
@@ -32,7 +33,7 @@ fn search_recovers_target_under_string_loss() {
         loss: parse_loss("myloss(x, y) = abs(x - y)^1.5").unwrap(),
         ..options()
     };
-    let result = equation_search::<f64, Ops, 2>(&dataset(), &options);
+    let result = equation_search::<f64, Ops, 2>(&dataset(), &options).unwrap();
     let best = result
         .hall_of_fame
         .pareto_front()
@@ -59,7 +60,7 @@ fn string_early_stop_ends_search_sooner() {
             ..options()
         };
         let mut engine = SearchEngine::new(dataset(), options);
-        engine.step(usize::MAX);
+        engine.step(usize::MAX).unwrap();
         (engine.cycles_completed(), engine.total_evals(), engine.total_cycles())
     };
     let (full_cycles, full_evals, total_cycles) = run(None);
@@ -81,7 +82,7 @@ fn two_argument_loss_with_weights_fails_before_search() {
         niterations: 1,
         ..options()
     };
-    equation_search::<f64, Ops, 2>(&weighted, &options);
+    let _ = equation_search::<f64, Ops, 2>(&weighted, &options);
 }
 
 #[test]
@@ -99,7 +100,7 @@ fn strided_weights_score_like_contiguous_ones() {
     };
     let run = |weights: Array1<f64>| {
         let weighted = Dataset::with_weights_and_names(data.x.clone(), data.y.clone(), Some(weights), Vec::new());
-        let result = equation_search::<f64, Ops, 2>(&weighted, &options);
+        let result = equation_search::<f64, Ops, 2>(&weighted, &options).unwrap();
         result
             .hall_of_fame
             .pareto_front()
@@ -108,4 +109,67 @@ fn strided_weights_score_like_contiguous_ones() {
             .collect::<Vec<_>>()
     };
     assert_eq!(run(strided), run(Array1::from(contiguous)));
+}
+
+#[test]
+fn negative_losses_fail_a_log_scale_search() {
+    let negative = |loss_scale| Options {
+        loss: parse_loss("(x, y) -> abs(x - y) - 100").unwrap(),
+        loss_scale,
+        niterations: 2,
+        ..options()
+    };
+    let err = equation_search::<f64, Ops, 2>(&dataset(), &negative(LossScale::Log))
+        .err()
+        .unwrap();
+    assert!(
+        err.contains("negative loss") && err.contains("set the `loss_scale` to linear"),
+        "{err}"
+    );
+
+    let mut engine = SearchEngine::new(dataset(), negative(LossScale::Log));
+    let err = engine.step(usize::MAX).unwrap_err();
+    assert!(err.contains("negative loss"), "{err}");
+    assert!(engine.cycles_completed() < engine.total_cycles());
+    assert!(engine.best().is_err());
+
+    let result = equation_search::<f64, Ops, 2>(&dataset(), &negative(LossScale::Linear)).unwrap();
+    assert!(result.best.unwrap().loss < 0.0);
+}
+
+#[test]
+fn reported_best_is_the_choose_best_pick() {
+    let clean = dataset();
+    let noisy = Dataset::new(
+        clean.x.clone(),
+        Array1::from_iter(
+            clean
+                .y
+                .iter()
+                .enumerate()
+                .map(|(i, y)| y + 0.3 * (37.0 * i as f64).sin()),
+        ),
+    );
+    for loss_scale in [LossScale::Log, LossScale::Linear] {
+        let options = Options {
+            loss_scale,
+            ..options()
+        };
+        let result = equation_search::<f64, Ops, 2>(&noisy, &options).unwrap();
+        let front = result.hall_of_fame.pareto_front();
+        let losses: Vec<f64> = front.iter().map(|m| m.loss).collect();
+        let scores = result.hall_of_fame.pareto_scores(loss_scale).unwrap();
+        let pick = choose_best(&losses, &scores, loss_scale).unwrap();
+        let lowest_loss = front.len() - 1;
+        match loss_scale {
+            LossScale::Log => assert_ne!(pick, lowest_loss, "{losses:?} {scores:?}"),
+            LossScale::Linear => assert_eq!(pick, lowest_loss),
+        }
+        let best = result.best.unwrap();
+        assert_eq!(
+            (best.complexity, best.loss),
+            (front[pick].complexity, front[pick].loss),
+            "{loss_scale:?}"
+        );
+    }
 }

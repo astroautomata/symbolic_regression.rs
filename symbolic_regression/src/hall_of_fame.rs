@@ -58,30 +58,46 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
             .any(|m| f(m.loss, m.complexity))
     }
 
-    pub fn pareto_front(&self) -> Vec<PopMember<T, Ops, D>> {
-        let mut out = Vec::new();
+    /// The members with a lower loss than every simpler member, from simplest to most complex.
+    fn front(&self) -> impl Iterator<Item = &PopMember<T, Ops, D>> {
         let mut best_loss = T::infinity();
-        for m in self.best_by_complexity.iter().flatten() {
-            if m.loss < best_loss {
+        self.best_by_complexity.iter().flatten().filter(move |m| {
+            let improves = m.loss < best_loss;
+            if improves {
                 best_loss = m.loss;
-                out.push(m.clone());
             }
+            improves
+        })
+    }
+
+    pub fn pareto_front(&self) -> Vec<PopMember<T, Ops, D>> {
+        self.front().cloned().collect()
+    }
+
+    /// SymbolicRegression.jl's `format_hall_of_fame` check: scoring with `LossScale::Log` needs
+    /// every loss on the Pareto front to be non-negative.
+    pub fn check_loss_scale(&self, loss_scale: LossScale) -> Result<(), String> {
+        if loss_scale == LossScale::Linear {
+            return Ok(());
         }
-        out
+        match self.front().find(|m| m.loss < T::zero()) {
+            Some(m) => Err(format!(
+                "the Pareto front has a negative loss ({}). Your loss function must be non-negative. To allow negative losses, set the `loss_scale` to linear, or consider wrapping your loss inside an exponential.",
+                m.loss.to_f64().unwrap_or(f64::NAN)
+            )),
+            None => Ok(()),
+        }
     }
 
     /// The score of each [`Self::pareto_front`] member, as SymbolicRegression.jl's
     /// `format_hall_of_fame` computes it: the first member scores 0, and each later one scores
     /// the drop in loss (`LossScale::Linear`) or log-loss (`LossScale::Log`) per unit of
-    /// complexity since the previous member. `LossScale::Log` rejects negative losses.
+    /// complexity since the previous member. Fails as [`Self::check_loss_scale`] does.
     pub fn pareto_scores(&self, loss_scale: LossScale) -> Result<Vec<T>, String> {
-        let front = self.pareto_front();
-        if loss_scale == LossScale::Log && front.iter().any(|m| m.loss < T::zero()) {
-            return Err("Your loss function must be non-negative. To allow negative losses, set the `loss_scale` to linear, or consider wrapping your loss inside an exponential.".to_string());
-        }
+        self.check_loss_scale(loss_scale)?;
         let mut last: Option<(T, usize)> = None;
-        Ok(front
-            .iter()
+        Ok(self
+            .front()
             .map(|m| {
                 let score = match last {
                     None => T::zero(),
@@ -97,6 +113,14 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
                 score
             })
             .collect())
+    }
+
+    /// The Pareto front member [`choose_best`] picks, as SymbolicRegression.jl reports the best
+    /// equation; `None` when no member has a finite loss. Fails as [`Self::check_loss_scale`] does.
+    pub fn best(&self, loss_scale: LossScale) -> Result<Option<PopMember<T, Ops, D>>, String> {
+        let scores = self.pareto_scores(loss_scale)?;
+        let losses: Vec<T> = self.front().map(|m| m.loss).collect();
+        Ok(choose_best(&losses, &scores, loss_scale).and_then(|i| self.front().nth(i).cloned()))
     }
 }
 

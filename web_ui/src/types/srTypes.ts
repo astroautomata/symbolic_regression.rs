@@ -100,7 +100,8 @@ export type SearchSnapshot = {
   total_cycles: number;
   cycles_completed: number;
   total_evals: number;
-  best: EquationSummary;
+  /** The equation SymbolicRegression.jl reports as best (`choose_best` under `loss_scale`). */
+  best: EquationSummary | null;
   pareto_points: EquationPoint[];
 };
 

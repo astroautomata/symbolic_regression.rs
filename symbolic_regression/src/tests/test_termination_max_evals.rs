@@ -23,7 +23,7 @@ fn search_engine_honors_max_evals_budget() {
     };
 
     let mut engine = SearchEngine::<T, TestOps, D>::new(dataset, options);
-    let completed = engine.step(1000);
+    let completed = engine.step(1000).unwrap();
 
     assert_eq!(completed, 0);
     assert!(engine.is_finished());

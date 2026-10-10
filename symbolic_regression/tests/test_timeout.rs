@@ -36,7 +36,7 @@ fn test_timeout_under_max_iterations() {
     let start = Instant::now();
     let mut engine = SearchEngine::<f64, SlowOps, D>::new(dataset, options);
     let total_cycles = engine.total_cycles();
-    while engine.step(1) > 0 {}
+    while engine.step(1).unwrap() > 0 {}
     let elapsed = start.elapsed();
 
     assert!(engine.is_finished());

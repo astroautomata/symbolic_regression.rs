@@ -24,7 +24,7 @@ fn search_recovers_target_through_string_operator() {
         ..Default::default()
     };
 
-    let result = equation_search::<f64, BuiltinOpsF64<CustomOps<f64>>, 2>(&dataset, &options);
+    let result = equation_search::<f64, BuiltinOpsF64<CustomOps<f64>>, 2>(&dataset, &options).unwrap();
     let best = result
         .hall_of_fame
         .pareto_front()

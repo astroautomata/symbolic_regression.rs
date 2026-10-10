@@ -35,6 +35,6 @@ fn equation_search_runs() {
         ..Default::default()
     };
 
-    let result = equation_search::<T, TestOps, D>(&dataset, &options);
-    assert!(result.best.loss.is_finite());
+    let result = equation_search::<T, TestOps, D>(&dataset, &options).unwrap();
+    assert!(result.best.unwrap().loss.is_finite());
 }
