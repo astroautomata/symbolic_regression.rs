@@ -981,14 +981,17 @@ file = "test/unit/evaluation/test_early_stop.jl"
 line = 1
 name = "Early stop condition"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::early_stop_condition"]
+note = "The condition is the same Julia function written as a DSL string; the search is seeded and deterministic, and the port also asserts that it stopped before its cycle budget."
 
 [[testitem]]
 file = "test/unit/evaluation/test_early_stop.jl"
 line = 24
 name = "State preservation with niterations=0"
-pr = 2
+pr = 5
 status = "todo"
+note = "Despite its file, the subject is resuming from `saved_state` with `return_state`, which PR 5 adds."
 
 [[testitem]]
 file = "test/unit/evaluation/test_evaluation.jl"
@@ -1255,8 +1258,8 @@ status = "todo"
 file = "test/unit/misc/test_custom_objectives.jl"
 line = 1
 name = "Test whether custom objectives work."
-pr = 2
-status = "todo"
+status = "excluded"
+excluded = "Full-objective `loss_function` (not supported). `parse_loss` rejects full-objective definitions at setup by naming the construct: symbolic_regression/src/tests/test_loss.rs::dsl_loss_errors_name_the_construct."
 
 [[testitem]]
 file = "test/unit/misc/test_external_stop.jl"
@@ -1440,28 +1443,34 @@ file = "test/unit/misc/test_loss_scale.jl"
 line = 1
 name = "loss_scale parameter validation"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_parameter_validation"]
+note = "Rust's `LossScale` enum makes an invalid scale unrepresentable; the port checks the string boundary (`\"invalid\".parse::<LossScale>()`) instead of an assertion in `Options`."
 
 [[testitem]]
 file = "test/unit/misc/test_loss_scale.jl"
 line = 15
 name = "loss_scale score computation"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_score_computation"]
 
 [[testitem]]
 file = "test/unit/misc/test_loss_scale.jl"
 line = 27
 name = "loss_scale in choose_best"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_in_choose_best"]
+note = "Indices are 0-based; `choose_best` returns `None` for an empty front where Julia's MLJ dispatch returns 0."
 
 [[testitem]]
 file = "test/unit/misc/test_loss_scale.jl"
 line = 60
 name = "loss_scale in pareto_volume"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_in_pareto_volume"]
 
 [[testitem]]
 file = "test/unit/misc/test_loss_scale.jl"
@@ -1475,21 +1484,27 @@ file = "test/unit/misc/test_loss_scale.jl"
 line = 93
 name = "loss_scale error handling"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_error_handling"]
+note = "`HallOfFame::pareto_scores` returns the DomainError message as an `Err` instead of throwing."
 
 [[testitem]]
 file = "test/unit/misc/test_loss_scale.jl"
 line = 134
 name = "string_dominating_pareto_curve header display"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::pareto_curve_header_shows_score_only_for_log_scale"]
+note = "Checks the progress display's Pareto table, which is Rust's `string_dominating_pareto_curve`; the port also checks that the Equation column stays aligned."
 
 [[testitem]]
 file = "test/unit/misc/test_losses.jl"
 line = 1
 name = "Test custom losses"
 pr = 2
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::custom_losses_match_their_definitions"]
+note = "Julia's single `customloss` with 2- and 3-argument methods becomes two DSL strings. The batched `loss_function` objective is not supported, and mismatched element types cannot type-check in Rust."
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
