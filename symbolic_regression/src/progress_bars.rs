@@ -5,7 +5,7 @@ mod imp {
     use std::time::{Duration, Instant};
 
     use dynamic_expressions::OperatorSet;
-    use dynamic_expressions::strings::{StringTreeOptions, string_tree};
+    use dynamic_expressions::strings::StringTreeOptions;
     use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
     use num_traits::Float;
 
@@ -92,7 +92,7 @@ mod imp {
         pub(crate) fn on_cycle_complete<T, Ops, const D: usize>(
             &mut self,
             hall: &HallOfFame<T, Ops, D>,
-            ops: &Ops,
+            options: &Options<T, Ops, D>,
             total_evals: u64,
             cycles_remaining: usize,
             print_precision: usize,
@@ -108,7 +108,7 @@ mod imp {
             update_progress_msg(ProgressMsgCtx {
                 pb: &self.bar,
                 hall,
-                ops,
+                options,
                 start_time: self.start_time,
                 msg_min_interval: self.msg_min_interval,
                 progress: &mut self.tracking,
@@ -129,7 +129,7 @@ mod imp {
     struct ProgressMsgCtx<'a, T: Float, Ops, const D: usize> {
         pb: &'a ProgressBar,
         hall: &'a HallOfFame<T, Ops, D>,
-        ops: &'a Ops,
+        options: &'a Options<T, Ops, D>,
         start_time: Instant,
         msg_min_interval: Duration,
         progress: &'a mut ProgressTracking,
@@ -147,7 +147,7 @@ mod imp {
         let ProgressMsgCtx {
             pb,
             hall,
-            ops,
+            options,
             start_time,
             msg_min_interval,
             progress,
@@ -198,7 +198,7 @@ mod imp {
             ),
         };
 
-        let hof = format_hall_of_fame(hall, ops, term_width, usize::MAX, render, print_precision)?;
+        let hof = format_hall_of_fame(hall, options, term_width, usize::MAX, render, print_precision)?;
         let hof_title = "Hall of Fame:".to_string();
         pb.set_message(format!(
             "{}\n{}\n{}",
@@ -213,7 +213,7 @@ mod imp {
 
     pub(crate) fn format_hall_of_fame<T, Ops, const D: usize>(
         hall: &HallOfFame<T, Ops, D>,
-        ops: &Ops,
+        options: &Options<T, Ops, D>,
         terminal_width: usize,
         max_entries: usize,
         render: RenderOptions,
@@ -260,9 +260,8 @@ mod imp {
             }
             let left_cols_width = stats.chars().count();
 
-            let eqn_plain = string_tree(
-                &m.expr,
-                ops,
+            let eqn_plain = m.expr.string(
+                options,
                 StringTreeOptions {
                     print_precision: Some(print_precision),
                     ..Default::default()
@@ -350,7 +349,7 @@ mod imp {
         pub(crate) fn on_cycle_complete<T: Float, Ops, const D: usize>(
             &mut self,
             _hall: &HallOfFame<T, Ops, D>,
-            _ops: &Ops,
+            _options: &Options<T, Ops, D>,
             _total_evals: u64,
             _cycles_remaining: usize,
             _print_precision: usize,

@@ -1,20 +1,19 @@
 use std::ops::AddAssign;
 
-use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
 use fastrand::Rng;
 use num_traits::Float;
 
 use crate::adaptive_parsimony::RunningSearchStatistics;
-use crate::check_constraints::check_constraints;
-use crate::complexity::compute_complexity;
+use crate::check_constraints::check_expression;
 use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
+use crate::expression::Expression;
 use crate::loss_functions::loss_to_cost;
 use crate::mutation_functions;
 use crate::options::{MutationWeights, Options};
 use crate::pop_member::{Evaluator, PopMember};
-use crate::random::usize_range_inclusive;
+use crate::random::{usize_range, usize_range_inclusive};
 use crate::selection::weighted_index;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -57,6 +56,12 @@ fn count_constants(nodes: &[PNode]) -> usize {
     nodes.iter().filter(|n| matches!(n, PNode::Const { .. })).count()
 }
 
+/// SymbolicRegression.jl's `get_contents_for_mutation`: the tree a mutation edits, one of a
+/// template's subexpressions at random.
+fn tree_to_mutate(rng: &mut Rng, n_trees: usize) -> usize {
+    if n_trees == 1 { 0 } else { usize_range(rng, 0..n_trees) }
+}
+
 pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
     weights: &mut MutationWeights,
     member: &PopMember<T, Ops, D>,
@@ -64,8 +69,24 @@ pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
     curmaxsize: usize,
     nfeatures: usize,
 ) {
-    let tree_is_leaf = member
-        .expr
+    if options.template.is_some() {
+        // SymbolicRegression.jl's template method skips the leaf checks and keeps the
+        // mutate-constant weight unscaled.
+        if nfeatures <= 1 {
+            weights.mutate_feature = 0.0;
+        }
+        if member.complexity >= curmaxsize {
+            weights.add_node = 0.0;
+            weights.insert_node = 0.0;
+        }
+        if !options.should_simplify {
+            weights.simplify = 0.0;
+        }
+        return;
+    }
+
+    let tree = &member.expr.trees[0];
+    let tree_is_leaf = tree
         .nodes
         .iter()
         .all(|n| matches!(n, PNode::Var { .. } | PNode::Const { .. }));
@@ -74,7 +95,7 @@ pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
         weights.swap_operands = 0.0;
         weights.delete_node = 0.0;
         weights.simplify = 0.0;
-        if member.expr.consts.is_empty() {
+        if tree.consts.is_empty() {
             weights.optimize = 0.0;
             weights.mutate_constant = 0.0;
         } else {
@@ -83,11 +104,11 @@ pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
         return;
     }
 
-    if !member.expr.nodes.iter().any(mutation_functions::is_swappable_op) {
+    if !tree.nodes.iter().any(mutation_functions::is_swappable_op) {
         weights.swap_operands = 0.0;
     }
 
-    let nconst = count_constants(&member.expr.nodes);
+    let nconst = count_constants(&tree.nodes);
     weights.mutate_constant *= (nconst.min(8) as f64) / 8.0;
 
     if nfeatures <= 1 {
@@ -126,19 +147,46 @@ pub fn sample_mutation(rng: &mut Rng, weights: &MutationWeights) -> MutationChoi
 }
 
 enum MutationResult<T: Float + AddAssign, Ops, const D: usize> {
-    ProposedExpr { expr: PostfixExpr<T, Ops, D>, evals: f64 },
+    ProposedExpr { expr: Expression<T, Ops, D>, evals: f64 },
     ProposedMember { member: PopMember<T, Ops, D>, evals: f64 },
 }
 
 struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
     rng: &'a mut Rng,
     member: &'a PopMember<T, Ops, D>,
-    expr: PostfixExpr<T, Ops, D>,
+    expr: Expression<T, Ops, D>,
     dataset: TaggedDataset<'d, T>,
     temperature: f64,
     curmaxsize: usize,
     options: &'a Options<T, Ops, D>,
     evaluator: &'a mut Evaluator<T, D>,
+}
+
+/// SymbolicRegression.jl's `mutate_constant` for a candidate: a template with parameters mutates
+/// its parameters instead of a tree constant half the time, and always when no tree has a
+/// constant.
+fn mutate_constant<T: Float, Ops, const D: usize>(
+    rng: &mut Rng,
+    expr: &mut Expression<T, Ops, D>,
+    temperature: f64,
+    options: &Options<T, Ops, D>,
+) {
+    let has_constants = expr.trees.iter().any(|t| !t.consts.is_empty());
+    let mutate_tree = expr.params.is_empty() || (has_constants && rng.bool());
+    if mutate_tree {
+        let k = tree_to_mutate(rng, expr.trees.len());
+        let _ = mutation_functions::mutate_constant_in_place(rng, &mut expr.trees[k], temperature, options);
+    } else {
+        let lengths: Vec<usize> = options
+            .template
+            .as_ref()
+            .expect("only templates have parameters")
+            .parameters()
+            .iter()
+            .map(|(_, n)| *n)
+            .collect();
+        mutation_functions::mutate_parameters_in_place(rng, &mut expr.params, &lengths, temperature, options);
+    }
 }
 
 impl MutationChoice {
@@ -161,48 +209,64 @@ impl MutationChoice {
             evaluator,
         } = ctx;
         let n_features = dataset.n_features;
+        let edits_one_tree = !matches!(
+            self,
+            MutationChoice::MutateConstant
+                | MutationChoice::Simplify
+                | MutationChoice::DoNothing
+                | MutationChoice::Optimize
+        );
+        let k = if edits_one_tree {
+            tree_to_mutate(rng, expr.trees.len())
+        } else {
+            0
+        };
+        let local_features = options.tree_features(k, n_features);
+        let tree = &mut expr.trees[k];
 
         match self {
             MutationChoice::MutateConstant => {
-                let _ = mutation_functions::mutate_constant_in_place(rng, &mut expr, temperature, options);
+                mutate_constant(rng, &mut expr, temperature, options);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::MutateOperator => {
-                let _ = mutation_functions::mutate_operator_in_place(rng, &mut expr, &options.operators);
+                let _ = mutation_functions::mutate_operator_in_place(rng, tree, &options.operators);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::MutateFeature => {
-                mutation_functions::mutate_feature_in_place(rng, &mut expr, n_features);
+                mutation_functions::mutate_feature_in_place(rng, tree, local_features);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::SwapOperands => {
-                let _ = mutation_functions::swap_operands_in_place(rng, &mut expr);
+                let _ = mutation_functions::swap_operands_in_place(rng, tree);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::RotateTree => {
-                let _ = mutation_functions::rotate_tree_in_place(rng, &mut expr);
+                let _ = mutation_functions::rotate_tree_in_place(rng, tree);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::AddNode => {
-                let _ = mutation_functions::add_node_in_place(rng, &mut expr, &options.operators, n_features);
+                let _ = mutation_functions::add_node_in_place(rng, tree, &options.operators, local_features);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::InsertNode => {
-                let _ = mutation_functions::insert_random_op_in_place(rng, &mut expr, &options.operators, n_features);
+                let _ = mutation_functions::insert_random_op_in_place(rng, tree, &options.operators, local_features);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::DeleteNode => {
-                let _ = mutation_functions::delete_random_op_in_place(rng, &mut expr);
+                let _ = mutation_functions::delete_random_op_in_place(rng, tree);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::Simplify => {
-                let _ = dynamic_expressions::simplify_in_place(&mut expr, &options.operators.set, &evaluator.eval_opts);
+                for tree in &mut expr.trees {
+                    let _ = dynamic_expressions::simplify_in_place(tree, &options.operators.set, &evaluator.eval_opts);
+                }
                 let mut out = PopMember::from_expr(expr, n_features, options);
 
                 // Match the intended behavior (and current SymbolicRegression.jl main):
                 // simplify returns immediately and keeps the old loss, but refreshes complexity/cost.
                 out.loss = member.loss;
-                out.complexity = compute_complexity(&out.expr.nodes, options);
+                out.complexity = options.complexity(&out.expr);
                 out.cost = loss_to_cost(
                     out.loss,
                     out.complexity,
@@ -220,14 +284,14 @@ impl MutationChoice {
                 // Match SymbolicRegression.jl: sample a *uniform* random size in 1:curmaxsize.
                 let max_size = curmaxsize.max(1).min(options.maxsize.max(1));
                 let target_size = usize_range_inclusive(rng, 1..=max_size);
-                let expr = mutation_functions::random_expr(rng, &options.operators, n_features, target_size);
+                *tree = mutation_functions::random_expr(rng, &options.operators, local_features, target_size);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::DoNothing => {
                 // Match SymbolicRegression.jl: identity mutation is accepted immediately and keeps
                 // the old loss/cost.
                 let mut out = PopMember::from_expr(expr, n_features, options);
-                out.plan = member.plan.clone();
+                out.plans = member.plans.clone();
                 out.complexity = member.complexity;
                 out.loss = member.loss;
                 out.cost = member.cost;
@@ -241,7 +305,7 @@ impl MutationChoice {
 
                 // Match SymbolicRegression.jl: optimize returns immediately with loss/cost already
                 // computed by constant optimization.
-                out.plan = member.plan.clone();
+                out.plans = member.plans.clone();
                 out.complexity = member.complexity;
                 out.loss = member.loss;
                 out.cost = member.cost;
@@ -314,7 +378,7 @@ where
         match outcome {
             MutationResult::ProposedExpr { expr, evals: e } => {
                 evals += e;
-                if check_constraints(&expr, options, curmaxsize) {
+                if check_expression(&expr, options, curmaxsize) {
                     successful = true;
                     tree = expr;
                     break;
@@ -382,6 +446,23 @@ where
     (baby, true, evals)
 }
 
+/// SymbolicRegression.jl's `crossover_trees`: each parent contributes one tree, a random
+/// subexpression of a template, chosen independently; children keep their parent's other trees
+/// and parameters.
+fn crossover_expressions<T: Float, Ops, const D: usize>(
+    rng: &mut Rng,
+    a: &Expression<T, Ops, D>,
+    b: &Expression<T, Ops, D>,
+) -> (Expression<T, Ops, D>, Expression<T, Ops, D>) {
+    let ka = tree_to_mutate(rng, a.trees.len());
+    let kb = tree_to_mutate(rng, b.trees.len());
+    let (ta, tb) = mutation_functions::crossover_trees(rng, &a.trees[ka], &b.trees[kb]);
+    let (mut child_a, mut child_b) = (a.clone(), b.clone());
+    child_a.trees[ka] = ta;
+    child_b.trees[kb] = tb;
+    (child_a, child_b)
+}
+
 pub fn crossover_generation<T: Float + AddAssign, Ops, const D: usize>(
     member1: &PopMember<T, Ops, D>,
     member2: &PopMember<T, Ops, D>,
@@ -402,9 +483,9 @@ where
     let max_tries = 10;
     let mut tries = 0;
     loop {
-        let (c1_expr, c2_expr) = mutation_functions::crossover_trees(rng, &member1.expr, &member2.expr);
+        let (c1_expr, c2_expr) = crossover_expressions(rng, &member1.expr, &member2.expr);
         tries += 1;
-        if check_constraints(&c1_expr, options, curmaxsize) && check_constraints(&c2_expr, options, curmaxsize) {
+        if check_expression(&c1_expr, options, curmaxsize) && check_expression(&c2_expr, options, curmaxsize) {
             let mut baby1 = PopMember::from_expr(c1_expr, dataset.n_features, options);
             let mut baby2 = PopMember::from_expr(c2_expr, dataset.n_features, options);
             let _ = baby1.evaluate(&dataset, options, evaluator);

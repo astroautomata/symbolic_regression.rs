@@ -11,7 +11,7 @@ use crate::options::Options;
 use crate::random::{standard_normal, usize_range, usize_range_excl};
 
 fn random_leaf<T: Float>(rng: &mut Rng, n_features: usize, consts: &mut Vec<T>) -> PNode {
-    if rng.bool() {
+    if n_features == 0 || rng.bool() {
         let val_f64: f64 = standard_normal(rng);
         let val = T::from(val_f64).unwrap();
         let idx: u16 = consts
@@ -172,8 +172,12 @@ pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize>(
         return false;
     };
     let ci = usize::from(idx);
+    expr.consts[ci] = expr.consts[ci] * mutate_factor(rng, temperature, options);
+    true
+}
 
-    // Follows SymbolicRegression.jl's `mutate_factor`.
+/// SymbolicRegression.jl's `mutate_factor`: the factor a mutated constant is multiplied by.
+fn mutate_factor<T: Float, Ops, const D: usize>(rng: &mut Rng, temperature: f64, options: &Options<T, Ops, D>) -> T {
     let pf = options.perturbation_factor * temperature.max(0.0);
     let max_change = pf + 1.1;
     let exponent: f64 = rng.f64();
@@ -183,8 +187,30 @@ pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize>(
     if rng.f64() > options.probability_negate_constant {
         mul = -mul;
     }
-    expr.consts[ci] = expr.consts[ci] * T::from(mul).unwrap();
-    true
+    T::from(mul).unwrap()
+}
+
+/// SymbolicRegression.jl's template parameter mutation: picks one parameter vector, then mutates
+/// between one and all of its entries, each as a constant. `params` holds the vectors
+/// concatenated; `lengths` gives each vector's length.
+pub(crate) fn mutate_parameters_in_place<T: Float, Ops, const D: usize>(
+    rng: &mut Rng,
+    params: &mut [T],
+    lengths: &[usize],
+    temperature: f64,
+    options: &Options<T, Ops, D>,
+) {
+    let v = usize_range(rng, 0..lengths.len());
+    let offset: usize = lengths[..v].iter().sum();
+    let entries = &mut params[offset..offset + lengths[v]];
+    let n_mutate = usize_range(rng, 0..entries.len()) + 1;
+    let mut idxs: Vec<usize> = (0..entries.len()).collect();
+    for k in 0..n_mutate {
+        let j = usize_range(rng, k..idxs.len());
+        idxs.swap(k, j);
+        let i = idxs[k];
+        entries[i] = entries[i] * mutate_factor(rng, temperature, options);
+    }
 }
 
 pub(crate) fn mutate_operator_in_place<T, Ops, const D: usize>(
@@ -229,8 +255,11 @@ pub(crate) fn mutate_feature_in_place<T, Ops, const D: usize>(
         unreachable!("expected var node");
     };
     let old = usize::from(*feature);
-    assert!(old < n_features, "feature index out of bounds");
-    let new_feature = usize_range_excl(rng, 0..n_features, old);
+    let new_feature = if old < n_features {
+        usize_range_excl(rng, 0..n_features, old)
+    } else {
+        usize_range(rng, 0..n_features)
+    };
     *feature = new_feature as u16;
 }
 

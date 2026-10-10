@@ -78,7 +78,7 @@ fn main() {
     println!("Final Pareto front:");
     println!("Complexity\tMSE\tEquation");
     for member in dominating {
-        let equation = string_tree(&member.expr, &options.operators.set, Default::default());
+        let equation = member.expr.string(&options, Default::default());
         println!("{}\t{}\t{}", member.complexity, member.loss, equation);
     }
     // To evaluate the expression, use:
@@ -86,7 +86,7 @@ fn main() {
         let tree = dominating
             .last()
             .unwrap()
-            .expr
+            .expr.trees[0]
             .clone();
         let _ = eval_tree_array::<f32, BuiltinOpsF32, D>(
             &tree,

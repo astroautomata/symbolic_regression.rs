@@ -4,6 +4,7 @@ use dynamic_expressions::node::PNode;
 use dynamic_expressions::{OpId, OperatorSet};
 use num_traits::Float;
 
+use crate::expression::Expression;
 use crate::options::Options;
 
 pub(crate) fn compute_custom_complexity_checked<T: Float, Ops: OperatorSet, const D: usize>(
@@ -75,4 +76,12 @@ pub fn compute_complexity<T: Float, Ops: OperatorSet, const D: usize>(
     }
 
     compute_custom_complexity_checked(nodes, options, None).unwrap_or(0)
+}
+
+impl<T: Float, Ops: OperatorSet, const D: usize> Options<T, Ops, D> {
+    /// The complexity of a candidate: the sum of its trees' complexities. A template's combine
+    /// formula and parameters add nothing, as in SymbolicRegression.jl.
+    pub fn complexity(&self, expr: &Expression<T, Ops, D>) -> usize {
+        expr.trees.iter().map(|t| compute_complexity(&t.nodes, self)).sum()
+    }
 }

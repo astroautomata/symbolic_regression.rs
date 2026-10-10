@@ -52,7 +52,7 @@ fn next_generation_fails_constraints_after_retries() {
     };
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
-    let mut member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features);
+    let mut member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features, &options);
     let baseline_loss = if options.use_baseline {
         crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
             &dataset,
@@ -132,7 +132,7 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
-    let member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features);
+    let member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features, &options);
     let mut pop = Population::new(vec![member]);
 
     let mut rng = Rng::with_seed(0);

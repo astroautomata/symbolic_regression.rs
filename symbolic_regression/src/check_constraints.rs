@@ -6,6 +6,7 @@ use dynamic_expressions::{OpId, node_utils};
 use num_traits::Float;
 
 use crate::complexity;
+use crate::expression::Expression;
 use crate::options::Options;
 
 #[derive(Clone, Debug)]
@@ -39,6 +40,21 @@ impl NestedConstraints {
     pub fn add_nested_constraint(&mut self, root: OpId, nested: OpId, max_nestedness: u8) {
         self.limits.entry(root).or_default().push((nested, max_nestedness));
     }
+}
+
+/// Checks a candidate. A template must use only features within each subexpression's arity, its
+/// summed complexity must fit `curmaxsize`, and every tree must pass [`check_constraints`].
+pub fn check_expression<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    expr: &Expression<T, Ops, D>,
+    options: &Options<T, Ops, D>,
+    curmaxsize: usize,
+) -> bool {
+    let Some(template) = &options.template else {
+        return check_constraints(&expr.trees[0], options, curmaxsize);
+    };
+    !template.has_invalid_variables(&expr.trees)
+        && options.complexity(expr) <= curmaxsize
+        && expr.trees.iter().all(|t| check_constraints(t, options, curmaxsize))
 }
 
 pub fn check_constraints<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(

@@ -57,7 +57,7 @@ fn custom_operator_is_used_in_end_to_end_search() {
         .best
         .unwrap();
 
-    let eqn = dynamic_expressions::string_tree(&best.expr, &options.operators.set, Default::default());
+    let eqn = best.expr.string(&options, Default::default());
     assert_eq!(eqn, "square(x0)");
     assert!(best.loss <= 1e-12, "best loss was {}", best.loss);
 }

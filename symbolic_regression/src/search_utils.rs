@@ -1,18 +1,20 @@
 use std::fmt::Display;
 use std::ops::AddAssign;
 
+use dynamic_expressions::expression::PostfixExpr;
 use fastrand::Rng;
 use num_traits::Float;
 
 use crate::adaptive_parsimony::RunningSearchStatistics;
 use crate::dataset::{Dataset, TaggedDataset};
+use crate::expression::Expression;
 use crate::hall_of_fame::HallOfFame;
 use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::options::Options;
 use crate::pop_member::{Evaluator, PopMember};
 use crate::population::Population;
 use crate::progress_bars::SearchProgress;
-use crate::random::shuffle;
+use crate::random::{shuffle, standard_normal};
 use crate::stop_controller::StopController;
 use crate::{migration, single_iteration, warmup};
 
@@ -137,9 +139,13 @@ struct PopPools<T: Float + AddAssign, Ops, const D: usize> {
     total_evals: f64,
 }
 
-/// Rejects a loss that cannot score `dataset`, before the search starts.
-fn check_loss_weights<T: Float, Ops, const D: usize>(dataset: &Dataset<T>, options: &Options<T, Ops, D>) {
-    if let Err(message) = options.loss.check_weights(dataset.weights_slice().is_some()) {
+/// Rejects options that cannot search `dataset` (see [`Options::check_dataset`]), before the
+/// search starts.
+fn check_dataset<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    dataset: &Dataset<T>,
+    options: &Options<T, Ops, D>,
+) {
+    if let Err(message) = options.check_dataset(dataset) {
         panic!("{message}");
     }
 }
@@ -154,7 +160,7 @@ where
     T: Float + AddAssign + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + Send + Sync,
     Ops: dynamic_expressions::OperatorSet<T = T> + Send + Sync,
 {
-    check_loss_weights(dataset, options);
+    check_dataset(dataset, options);
     let baseline_loss = if options.use_baseline {
         baseline_loss_from_zero_expression::<T, Ops, D>(dataset, &options.operators.set, options.loss.as_ref())
     } else {
@@ -407,7 +413,7 @@ where
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
     pub fn new(dataset: Dataset<T>, options: Options<T, Ops, D>) -> Self {
-        check_loss_weights(&dataset, &options);
+        check_dataset(&dataset, &options);
         let baseline_loss = if options.use_baseline {
             baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, &options.operators.set, options.loss.as_ref())
         } else {
@@ -640,7 +646,7 @@ where
     hall.check_loss_scale(options.loss_scale)?;
     progress.on_cycle_complete(
         hall,
-        &options.operators.set,
+        options,
         pools.total_evals as u64,
         cycles_remaining,
         options.print_precision,
@@ -674,14 +680,14 @@ where
             if controller.is_cancelled() {
                 break;
             }
-            let expr = crate::mutation_functions::random_expr_append_ops(
+            let tree = crate::mutation_functions::random_expr_append_ops(
                 &mut rng,
                 &options.operators,
-                dataset.n_features,
+                options.max_features(dataset.n_features),
                 nlength,
                 options.maxsize,
             );
-            let mut m = PopMember::from_expr(expr, dataset.n_features, options);
+            let mut m = PopMember::from_expr(new_expression(tree, options, &mut rng), dataset.n_features, options);
             let _ = m.evaluate(&full_dataset, options, &mut evaluator);
             total_evals += full_dataset.dataset_fraction();
             hall.consider(&m, options);
@@ -710,6 +716,24 @@ where
         pops,
         best_sub_pops,
         total_evals,
+    }
+}
+
+/// SymbolicRegression.jl's `create_expression`: a template starts with a copy of `tree` in every
+/// subexpression and parameters drawn from a standard normal.
+fn new_expression<T: Float, Ops, const D: usize>(
+    tree: PostfixExpr<T, Ops, D>,
+    options: &Options<T, Ops, D>,
+    rng: &mut Rng,
+) -> Expression<T, Ops, D> {
+    let Some(template) = &options.template else {
+        return tree.into();
+    };
+    Expression {
+        trees: vec![tree; template.expressions().len()],
+        params: (0..template.n_parameters())
+            .map(|_| T::from(standard_normal(rng)).expect("a float converts to T"))
+            .collect(),
     }
 }
 

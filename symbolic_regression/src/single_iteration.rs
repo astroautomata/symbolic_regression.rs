@@ -85,13 +85,13 @@ where
             if ctx.controller.is_cancelled() {
                 return num_evals;
             }
-            let changed = dynamic_expressions::simplify_in_place(
-                &mut m.expr,
-                &ctx.options.operators.set,
-                &ctx.evaluator.eval_opts,
-            );
+            let mut changed = false;
+            for tree in &mut m.expr.trees {
+                changed |=
+                    dynamic_expressions::simplify_in_place(tree, &ctx.options.operators.set, &ctx.evaluator.eval_opts);
+            }
             if changed {
-                m.rebuild_plan(ctx.full_dataset.n_features);
+                m.rebuild_plans(ctx.full_dataset.n_features, ctx.options);
             }
         }
     }

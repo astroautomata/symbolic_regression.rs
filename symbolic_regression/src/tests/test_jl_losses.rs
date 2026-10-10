@@ -100,7 +100,7 @@ fn loss_scale_in_pareto_volume() {
 
 fn hall_with_x1(loss: T) -> HallOfFame<T, TestOps, D> {
     let expr = PostfixExpr::<T, TestOps, D>::new(vec![PNode::Var { feature: 0 }], vec![], Default::default());
-    let mut member = PopMember::from_expr_with_birth(0, expr, 2);
+    let mut member = PopMember::from_expr_with_birth(0, expr, 2, &Options::default());
     member.complexity = 1;
     member.loss = loss;
     member.cost = loss;
@@ -128,9 +128,9 @@ fn pareto_curve_header_shows_score_only_for_log_scale() {
     use crate::progress_bars::{RenderOptions, format_hall_of_fame};
 
     let hall = hall_with_x1(0.5);
-    let ops = Options::<T, TestOps, D>::default().operators.set;
+    let options = Options::<T, TestOps, D>::default();
     let table = |loss_scale, ansi| {
-        format_hall_of_fame(&hall, &ops, 100, usize::MAX, RenderOptions { ansi, loss_scale }, 5).unwrap()
+        format_hall_of_fame(&hall, &options, 100, usize::MAX, RenderOptions { ansi, loss_scale }, 5).unwrap()
     };
 
     let log = table(LossScale::Log, false);
@@ -158,11 +158,11 @@ fn pareto_curve_rejects_negative_losses_under_log_scale() {
     use crate::progress_bars::{RenderOptions, format_hall_of_fame};
 
     let hall = hall_with_x1(-1.0);
-    let ops = Options::<T, TestOps, D>::default().operators.set;
+    let options = Options::<T, TestOps, D>::default();
     let table = |loss_scale| {
         format_hall_of_fame(
             &hall,
-            &ops,
+            &options,
             100,
             usize::MAX,
             RenderOptions {

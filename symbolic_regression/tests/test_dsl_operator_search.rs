@@ -31,7 +31,7 @@ fn search_recovers_target_through_string_operator() {
         .into_iter()
         .find(|m| m.loss <= 1e-10)
         .expect("no hall-of-fame member reached loss 1e-10");
-    let equation = string_tree(&best.expr, &options.operators.set, Default::default());
+    let equation = best.expr.string(&options, Default::default());
     println!(
         "seed {}: complexity {} loss {:e} {equation}",
         options.seed, best.complexity, best.loss

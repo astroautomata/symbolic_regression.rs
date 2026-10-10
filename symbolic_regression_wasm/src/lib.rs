@@ -393,7 +393,7 @@ fn summary_from_member(
 ) -> EquationSummary {
     let variable_names = Some(engine.dataset().variable_names.as_slice());
     let equation = string_tree::<f64, WasmOps, 3>(
-        &m.expr,
+        &m.expr.trees[0],
         &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
@@ -402,7 +402,7 @@ fn summary_from_member(
         },
     );
     let equation_full = string_tree::<f64, WasmOps, 3>(
-        &m.expr,
+        &m.expr.trees[0],
         &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
@@ -445,8 +445,8 @@ fn eval_member_on_dataset(
     };
     let ok = eval_plan_array_into::<f64, WasmOps, 3>(
         &mut yhat,
-        &m.plan,
-        &m.expr,
+        &m.plans[0],
+        &m.expr.trees[0],
         ops,
         dataset.x.view(),
         &mut scratch,

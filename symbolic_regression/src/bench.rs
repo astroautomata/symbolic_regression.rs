@@ -150,5 +150,5 @@ pub fn run_constant_opt_linear(env: &ConstantOptLinearEnv) -> (bool, f64, Vec<f6
         },
     );
 
-    (improved, evals, member.expr.consts.clone())
+    (improved, evals, member.expr.constants())
 }

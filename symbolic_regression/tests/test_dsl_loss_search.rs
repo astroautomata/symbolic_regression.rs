@@ -40,11 +40,16 @@ fn search_recovers_target_under_string_loss() {
         .into_iter()
         .find(|m| m.loss <= 1e-9)
         .expect("no hall-of-fame member reached loss 1e-9");
-    let equation = string_tree(&best.expr, &options.operators.set, Default::default());
+    let equation = best.expr.string(&options, Default::default());
     println!("complexity {} loss {:e} {equation}", best.complexity, best.loss);
 
     let x = Array2::from_shape_vec((2, 3), vec![0.5, -2.0, 2.5, 1.0, 0.25, -1.5]).unwrap();
-    let (yhat, ok) = eval_tree_array(&best.expr, &options.operators.set, x.view(), &EvalOptions::default());
+    let (yhat, ok) = eval_tree_array(
+        &best.expr.trees[0],
+        &options.operators.set,
+        x.view(),
+        &EvalOptions::default(),
+    );
     assert!(ok);
     for (i, got) in yhat.iter().enumerate() {
         let want = x[(0, i)] * x[(0, i)] - 1.7 * x[(1, i)];

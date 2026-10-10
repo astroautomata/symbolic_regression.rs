@@ -60,7 +60,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
-    let mut parent = PopMember::from_expr_with_birth(0, leaf_expr(0), dataset.n_features);
+    let mut parent = PopMember::from_expr_with_birth(0, leaf_expr(0), dataset.n_features, &options);
     assert!(parent.evaluate(&full_dataset, &options, &mut evaluator));
 
     let mut rng = Rng::with_seed(0);
@@ -80,9 +80,9 @@ fn randomize_mutation_can_succeed_below_size_3() {
 
     assert!(ok, "randomize mutation should succeed with curmaxsize=2");
     assert!(
-        (1..=2).contains(&child.expr.nodes.len()),
+        (1..=2).contains(&child.expr.trees[0].nodes.len()),
         "expected a tree size in 1..=2, got {}",
-        child.expr.nodes.len()
+        child.expr.trees[0].nodes.len()
     );
 }
 
@@ -201,11 +201,11 @@ fn add_node_includes_append_at_leaf_move() {
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
-    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features);
+    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features, &options);
     assert!(parent.evaluate(&full_dataset, &options, &mut evaluator));
 
     let mut rng = Rng::with_seed(0);
-    let parent_nodes = parent.expr.nodes.clone();
+    let parent_nodes = parent.expr.trees[0].nodes.clone();
     let mut saw_prepend = false;
     let mut saw_append = false;
 
@@ -225,7 +225,7 @@ fn add_node_includes_append_at_leaf_move() {
         );
         assert!(ok, "add_node mutation should succeed");
 
-        if contains_contiguous_slice(&child.expr.nodes, &parent_nodes) {
+        if contains_contiguous_slice(&child.expr.trees[0].nodes, &parent_nodes) {
             saw_prepend = true;
         } else {
             saw_append = true;
@@ -300,7 +300,7 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
-    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features);
+    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features, &options);
     assert!(parent.evaluate(&full_dataset, &options, &mut evaluator));
 
     let mut rng = Rng::with_seed(0);
@@ -320,7 +320,7 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
 
     assert!(ok, "mutate_operator should succeed even when it is a no-op");
     assert_eq!(
-        child.expr.nodes, parent.expr.nodes,
+        child.expr.trees[0].nodes, parent.expr.trees[0].nodes,
         "with only one operator available, mutate_operator should be a no-op"
     );
 }

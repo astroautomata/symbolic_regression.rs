@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use dynamic_expressions::Operators;
 use dynamic_expressions::dispatch::SrcRef;
-use dynamic_expressions::dsl::{DslError, DslFloat, ScalarFn, parse_definition};
+use dynamic_expressions::dsl::{DslError, DslFloat, ScalarFn, TemplateStructure, parse_definition};
 use num_traits::Float;
 
+use crate::dataset::Dataset;
 use crate::loss_functions::{BuiltinLoss, LossObject};
 
 /// Matches SymbolicRegression.jl `early_stop_condition`: takes `(loss, complexity)` and returns
@@ -321,6 +322,31 @@ macro_rules! __define_options {
             /// the search stops as soon as any hall-of-fame member satisfies `f(loss, complexity)`.
             /// [`parse_early_stop`] reads PySR-style strings.
             pub early_stop_condition: Option<EarlyStopCondition<T>>,
+
+            /// SymbolicRegression.jl's `expression_spec=TemplateExpressionSpec(...)`: the search
+            /// evolves one tree per subexpression of the template, and its parameter vectors.
+            /// Category-indexed parameters (`p[class]`) replace SymbolicRegression.jl's former
+            /// `ParametricExpression`:
+            ///
+            /// ```
+            /// use symbolic_regression::Options;
+            /// use symbolic_regression::prelude::{BuiltinOpsF64, TemplateStructure};
+            ///
+            /// let template = TemplateStructure::new(
+            ///     "f(x1, x2, p1[category], p2[category])",
+            ///     &["f"],
+            ///     None,
+            ///     &["x1", "x2", "category"],
+            ///     &[("p1", 3), ("p2", 3)],
+            /// )
+            /// .unwrap();
+            /// assert_eq!(template.num_features(), &[4]);
+            /// let options = Options::<f64, BuiltinOpsF64, 2> {
+            ///     template: Some(template),
+            ///     ..Default::default()
+            /// };
+            /// ```
+            pub template: Option<TemplateStructure>,
         }
 
         impl<T: Float, Ops: Default, const D: usize> Default for Options<T, Ops, D> {
@@ -338,6 +364,7 @@ macro_rules! __define_options {
                     op_constraints: Default::default(),
                     nested_constraints: Default::default(),
                     early_stop_condition: None,
+                    template: None,
                 }
             }
         }
@@ -405,5 +432,40 @@ impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T,
                     .iter()
                     .flatten()
                     .all(|&op| self.operators.set.complexity(op) == 1))
+    }
+
+    /// SymbolicRegression.jl's `max_features`: the features a tree may use, the widest
+    /// subexpression's arity in a template search.
+    pub(crate) fn max_features(&self, n_features: usize) -> usize {
+        self.template
+            .as_ref()
+            .map_or(n_features, TemplateStructure::max_features)
+    }
+
+    /// The features tree `k` may use: subexpression `k`'s arity in a template search.
+    pub(crate) fn tree_features(&self, k: usize, n_features: usize) -> usize {
+        self.template.as_ref().map_or(n_features, |t| t.num_features()[k])
+    }
+
+    /// Checks, before a search starts, that the loss can score `dataset` and that the template
+    /// reads its features: one name per feature, valid parameter indices on every row, and
+    /// operators that `D` can differentiate.
+    pub fn check_dataset(&self, dataset: &Dataset<T>) -> Result<(), String> {
+        self.loss.check_weights(dataset.weights_slice().is_some())?;
+        let Some(template) = &self.template else {
+            return Ok(());
+        };
+        let names = template.variable_names();
+        if names.len() != dataset.n_features {
+            return Err(format!(
+                "the template reads {} features ({}), but the dataset has {}",
+                names.len(),
+                names.join(", "),
+                dataset.n_features
+            ));
+        }
+        template.check_indices(dataset.x.view())?;
+        let ops: Vec<_> = self.operators.ops_by_arity.iter().flatten().copied().collect();
+        template.check_operators(&self.operators.set, &ops)
     }
 }
