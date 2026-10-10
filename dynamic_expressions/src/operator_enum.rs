@@ -253,29 +253,27 @@ pub mod builtin {
         partial: |[x], _idx| { x.exp() },
     });
 
-    // Outside the domain, where `eval` returns NaN, the derivative is 0, as for SymbolicRegression.jl's
-    // `safe_log` under ForwardDiff.
     crate::op!(Log for<T> {
         eval: |[x]| { if x <= T::zero() { T::nan() } else { x.ln() } },
-        partial: |[x], _idx| { if x <= T::zero() { T::zero() } else { T::one() / x } },
+        partial: |[x], _idx| { T::one() / x },
     });
 
     crate::op!(Log2 for<T> {
         eval: |[x]| { if x <= T::zero() { T::nan() } else { x.log2() } },
-        partial: |[x], _idx| { if x <= T::zero() { T::zero() } else { T::one() / (x * two::<T>().ln()) } },
+        partial: |[x], _idx| { T::one() / (x * two::<T>().ln()) },
     });
 
     crate::op!(Log10 for<T> {
         eval: |[x]| { if x <= T::zero() { T::nan() } else { x.log10() } },
         partial: |[x], _idx| {
             let ten = T::from(10.0).expect("Float can represent 10.0");
-            if x <= T::zero() { T::zero() } else { T::one() / (x * ten.ln()) }
+            T::one() / (x * ten.ln())
         },
     });
 
     crate::op!(Log1p for<T> {
         eval: |[x]| { if x <= -T::one() { T::nan() } else { x.ln_1p() } },
-        partial: |[x], _idx| { if x <= -T::one() { T::zero() } else { T::one() / (T::one() + x) } },
+        partial: |[x], _idx| { T::one() / (T::one() + x) },
     });
 
     crate::op!(Exp2 for<T> {

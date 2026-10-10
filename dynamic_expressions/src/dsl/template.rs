@@ -7,7 +7,7 @@ use core::fmt;
 use ndarray::{Array2, ArrayView2};
 use num_traits::Float;
 
-use super::diff::differentiate;
+use super::diff::differentiate_closed;
 use super::ir::{Graph, Node, NodeId, OpIr};
 use super::lower::{Lowered, TemplateScope, lower_formula};
 use super::program::Program;
@@ -92,22 +92,33 @@ impl<T> Default for TemplateWorkspace<T> {
 
 /// `D(...(D(tree, wrt[0]), ...), wrt[k])` compiled for one call, with what it was compiled from:
 /// the operator set type (which fixes the built-in kernels) and its DSL definitions, the call, and
-/// the tree. The tree's constants are program inputs, so new constant values reuse the program.
+/// the tree's nodes and constant count. The constants are program inputs, so new constant values
+/// reuse the program.
 #[derive(Clone, Debug)]
 struct Derivative<T> {
     ops_type: &'static str,
     expr: u16,
     wrt: Vec<u16>,
     nodes: Vec<PNode>,
+    n_consts: usize,
     definitions: Vec<Lowered>,
     program: Program<T>,
 }
 
 impl<T> Derivative<T> {
-    fn compiled_from(&self, ops_type: &str, expr: u16, wrt: &[u16], nodes: &[PNode], definitions: &[Lowered]) -> bool {
+    fn compiled_from(
+        &self,
+        ops_type: &str,
+        expr: u16,
+        wrt: &[u16],
+        nodes: &[PNode],
+        n_consts: usize,
+        definitions: &[Lowered],
+    ) -> bool {
         self.expr == expr
             && self.wrt == wrt
             && self.nodes == nodes
+            && self.n_consts == n_consts
             && self.ops_type == ops_type
             && self.definitions.len() == definitions.len()
             && self
@@ -571,13 +582,14 @@ where
     let definitions = ops.definitions();
     let cached = slot
         .as_ref()
-        .is_some_and(|d| d.compiled_from(ops_type, expr, wrt, &tree.nodes, definitions));
+        .is_some_and(|d| d.compiled_from(ops_type, expr, wrt, &tree.nodes, tree.consts.len(), definitions));
     if !cached {
         *slot = Some(Derivative {
             ops_type,
             expr,
             wrt: wrt.to_vec(),
             nodes: tree.nodes.clone(),
+            n_consts: tree.consts.len(),
             definitions: definitions.to_vec(),
             program: compile_derivative(tree, ops, wrt)?,
         });
@@ -586,8 +598,9 @@ where
 }
 
 /// Lowers `tree` to IR, with constant `i` as input `i` and feature `f` as input
-/// `consts.len() + f`, differentiates it with respect to each feature in `wrt`, and compiles the
-/// result. A feature the tree cannot read has derivative 0.
+/// `consts.len() + f`, differentiates it with respect to each feature in `wrt` as
+/// SymbolicRegression.jl's `D` does (see [`differentiate_closed`]), and compiles the result. A
+/// feature the tree cannot read has derivative 0.
 fn compile_derivative<T, Ops, const D: usize>(
     tree: &PostfixExpr<T, Ops, D>,
     ops: &Ops,
@@ -620,7 +633,7 @@ where
     let mut root = stack.pop().expect("a tree has a value");
     for &w in wrt {
         root = match u16::try_from(n_consts + usize::from(w)) {
-            Ok(arg) => differentiate(&mut g, root, arg),
+            Ok(arg) => differentiate_closed(&mut g, root, arg),
             Err(_) => g.constant(0.0),
         };
     }

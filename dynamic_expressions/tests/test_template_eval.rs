@@ -182,6 +182,187 @@ fn integer_powers_of_negative_bases_have_finite_derivatives() {
     assert_close(&eval(&t, &tree, &[], &ops, &[&xs]).unwrap().unwrap(), &want);
 }
 
+/// `D` applied to `tree` per `src` at one point; `None` when the result is invalid.
+fn d_at(src: &str, variables: &[&str], tree: &Tree, point: &[f64]) -> Option<f64> {
+    let ops = BuiltinOpsF64::new();
+    let t = template(src, &["f"], None, variables, &[], &ops);
+    let rows: Vec<&[f64]> = point.iter().map(core::slice::from_ref).collect();
+    eval(&t, tree, &[], &ops, &rows).unwrap().map(|v| v[0])
+}
+
+fn assert_points(cases: &[(&str, f64, [Option<f64>; 3])], tree: impl Fn(&str) -> Tree) {
+    for (name, x, want) in cases {
+        for (order, want) in (1..=3).zip(want) {
+            let got = d_at(&nested_d(order, 1, "x"), &["x"], &tree(name), &[*x]);
+            match (got, want) {
+                (Some(g), Some(w)) => assert_close(&[g], &[*w]),
+                _ => assert_eq!(got, *want, "D^{order} {name} at {x}"),
+            }
+        }
+    }
+}
+
+/// Expected values are SymbolicRegression.jl f97764fb's `D` (DynamicDiff 0.3.2, ForwardDiff
+/// 1.4.6) on `safe_pow(x, c)`.
+#[test]
+fn constant_powers_follow_forward_diff() {
+    let cases = [
+        ("2", 0.0, [Some(0.0), Some(2.0), Some(0.0)]),
+        ("2", -2.0, [Some(-4.0), Some(2.0), Some(0.0)]),
+        ("2", 1.5, [Some(3.0), Some(2.0), Some(0.0)]),
+        ("0", 0.0, [Some(0.0), Some(0.0), Some(0.0)]),
+        ("0", -2.0, [Some(0.0), Some(0.0), Some(0.0)]),
+        ("1", 0.0, [Some(1.0), Some(0.0), Some(0.0)]),
+        ("1", -2.0, [Some(1.0), Some(0.0), Some(0.0)]),
+        ("3", 0.0, [Some(0.0), Some(0.0), Some(6.0)]),
+        ("3", -2.0, [Some(12.0), Some(-12.0), Some(6.0)]),
+        ("-1", 0.0, [None, None, None]),
+        ("-1", 2.0, [Some(-0.25), Some(0.25), Some(-0.375)]),
+        ("0.5", -2.0, [Some(0.0), Some(0.0), Some(0.0)]),
+        ("0.5", 0.0, [None, None, None]),
+        ("0.5", 4.0, [Some(0.25), Some(-0.03125), Some(0.01171875)]),
+        ("2.5", 0.0, [Some(0.0), Some(0.0), None]),
+    ];
+    assert_points(&cases, |c| pow(arg(1), constant(c.parse().unwrap())));
+}
+
+/// SymbolicRegression.jl's `D` on `safe_pow(x, p)`: the partial with respect to `x` is 0 at
+/// `p = 0` only while `p` stays fixed, so `D(D(f, 1), 2)` keeps the mixed derivative `1/x`.
+#[test]
+fn mixed_power_derivatives_follow_forward_diff() {
+    let tree = pow(arg(1), arg(2));
+    let ln2 = 2.0_f64.ln();
+    // (x, p, [d1, d2, d1d2, d2d1, d2d2, d1d1])
+    let cases: [(f64, f64, [Option<f64>; 6]); 5] = [
+        (
+            2.0,
+            0.0,
+            [Some(0.0), Some(ln2), Some(0.5), Some(0.5), Some(ln2 * ln2), Some(0.0)],
+        ),
+        (
+            2.0,
+            1.0,
+            [
+                Some(1.0),
+                Some(2.0 * ln2),
+                Some(1.0 + ln2),
+                Some(1.0 + ln2),
+                Some(2.0 * ln2 * ln2),
+                Some(0.0),
+            ],
+        ),
+        (
+            2.0,
+            2.5,
+            [
+                Some(7.0710678118654755),
+                Some(3.921032573874189),
+                Some(7.729717842088926),
+                Some(7.729717842088926),
+                Some(2.7178526734645994),
+                Some(5.303300858899107),
+            ],
+        ),
+        (0.0, 0.0, [Some(0.0), None, None, None, Some(0.0), Some(0.0)]),
+        (0.0, 1.0, [Some(1.0), Some(0.0), None, None, Some(0.0), Some(0.0)]),
+    ];
+    let srcs = [
+        "D(f, 1)(x, p)",
+        "D(f, 2)(x, p)",
+        "D(D(f, 1), 2)(x, p)",
+        "D(D(f, 2), 1)(x, p)",
+        "D(D(f, 2), 2)(x, p)",
+        "D(D(f, 1), 1)(x, p)",
+    ];
+    for (x, p, want) in cases {
+        for (src, want) in srcs.iter().zip(want) {
+            let got = d_at(src, &["x", "p"], &tree, &[x, p]);
+            match (got, want) {
+                (Some(g), Some(w)) => assert_close(&[g], &[w]),
+                _ => assert_eq!(got, want, "{src} at x={x}, p={p}"),
+            }
+        }
+    }
+}
+
+/// SymbolicRegression.jl's safe operators return a NaN constant outside their domains, so `D`
+/// of every order is 0 there; ForwardDiff's comparisons put a boundary inside the domain when the
+/// dual number moves into it.
+#[test]
+fn safe_operators_have_zero_derivatives_outside_their_domains() {
+    use dynamic_expressions::operators::{acos, acosh, asin, atanh, log, log1p, log2, log10, sqrt};
+    let zeros = [Some(0.0); 3];
+    let invalid = [None; 3];
+    let cases = [
+        ("sqrt", -1.0, zeros),
+        ("sqrt", 0.0, invalid),
+        ("sqrt", 4.0, [Some(0.25), Some(-0.03125), Some(0.01171875)]),
+        ("log", -1.0, zeros),
+        ("log", 0.0, invalid),
+        ("log2", -1.0, zeros),
+        ("log10", -1.0, zeros),
+        ("log1p", -2.0, zeros),
+        ("log1p", -1.0, invalid),
+        ("asin", 2.0, zeros),
+        ("asin", 1.0, zeros),
+        ("asin", -1.0, invalid),
+        ("acos", 2.0, zeros),
+        ("acos", 1.0, zeros),
+        ("acosh", 0.5, zeros),
+        ("acosh", 1.0, invalid),
+        ("atanh", 2.0, zeros),
+        ("atanh", 1.0, zeros),
+    ];
+    assert_points(&cases, |name| {
+        let x = arg(1);
+        match name {
+            "sqrt" => sqrt(x),
+            "log" => log(x),
+            "log2" => log2(x),
+            "log10" => log10(x),
+            "log1p" => log1p(x),
+            "asin" => asin(x),
+            "acos" => acos(x),
+            "acosh" => acosh(x),
+            _ => atanh(x),
+        }
+    });
+
+    let at_minus_one = |src: &str, tree: Tree| d_at(src, &["x"], &tree, &[-1.0]);
+    assert_eq!(at_minus_one("D(f, 1)(x)", sin(sqrt(arg(1)))), None);
+    assert_eq!(at_minus_one("D(D(f, 1), 1)(x)", sqrt(arg(1)) * arg(1)), Some(0.0));
+    assert_eq!(at_minus_one("D(f, 1)(x)", log(arg(1)) * arg(1)), None);
+    assert_eq!(at_minus_one("D(D(f, 1), 1)(x)", log(arg(1)) * arg(1)), Some(0.0));
+}
+
+/// DiffRules gives `min` ties to its first argument and `max` ties to its second, and `abs` a
+/// partial of 1 at 0.
+#[test]
+fn min_max_and_abs_partials_follow_diffrules() {
+    use dynamic_expressions::operators::{abs, max, min};
+    let points = [[1.0, 1.0], [1.0, 2.0], [2.0, 1.0]];
+    let check = |tree: Tree, src: &str, want: [f64; 3]| {
+        for (point, want) in points.iter().zip(want) {
+            assert_eq!(d_at(src, &["x", "y"], &tree, point), Some(want), "{src} at {point:?}");
+        }
+    };
+    check(min(arg(1), arg(2)), "D(f, 1)(x, y)", [1.0, 1.0, 0.0]);
+    check(min(arg(1), arg(2)), "D(f, 2)(x, y)", [0.0, 0.0, 1.0]);
+    check(max(arg(1), arg(2)), "D(f, 1)(x, y)", [0.0, 0.0, 1.0]);
+    check(max(arg(1), arg(2)), "D(f, 2)(x, y)", [1.0, 1.0, 0.0]);
+    check(min(arg(1) * arg(1), arg(2)), "D(D(f, 1), 1)(x, y)", [2.0, 2.0, 0.0]);
+    check(max(arg(1) * arg(1), arg(2)), "D(D(f, 1), 1)(x, y)", [0.0, 0.0, 2.0]);
+    assert_eq!(
+        d_at("D(f, 1)(x)", &["x"], &min(arg(1), constant(1.0)), &[1.0]),
+        Some(1.0)
+    );
+    assert_eq!(
+        d_at("D(f, 1)(x)", &["x"], &max(constant(1.0), arg(1)), &[1.0]),
+        Some(1.0)
+    );
+    assert_eq!(d_at("D(f, 1)(x)", &["x"], &abs(arg(1)), &[0.0]), Some(1.0));
+}
+
 #[test]
 fn cached_derivatives_follow_constants_and_operator_definitions() {
     let x = features(&[&[1.0, 2.0, 3.0]]);
@@ -198,6 +379,19 @@ fn cached_derivatives_follow_constants_and_operator_definitions() {
                 .unwrap()
         );
         assert_eq!(out, [c; 3]);
+    }
+
+    // An unused constant shifts the features among the program's inputs.
+    let used = arg(1) * arg(1) * 3.0;
+    let padded = PostfixExpr::new(used.nodes.clone(), vec![3.0, 7.0], Metadata::default());
+    for tree in [used.clone(), padded, used] {
+        let trees = [tree];
+        let plans = t.compile_plans(&trees);
+        assert!(
+            t.eval_into(&mut out, &trees, &plans, &[], &ops, x.view(), &mut ws)
+                .unwrap()
+        );
+        assert_eq!(out, [6.0, 12.0, 18.0]);
     }
 
     let mut ws = TemplateWorkspace::default();
