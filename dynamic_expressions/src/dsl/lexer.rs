@@ -188,6 +188,21 @@ pub fn tokenize(src: &str) -> Vec<Token> {
     lexer.out
 }
 
+/// The value of `src` if it is one Julia number literal with an optional sign, such as `1e-6`,
+/// `-1f-6`, or `1_000.0`.
+pub fn number_literal(src: &str) -> Option<f64> {
+    let tokens = tokenize(src);
+    let (sign, rest) = match tokens.first().map(|t| &t.tok) {
+        Some(Tok::Minus) => (-1.0, &tokens[1..]),
+        Some(Tok::Plus) => (1.0, &tokens[1..]),
+        _ => (1.0, &tokens[..]),
+    };
+    match rest {
+        [Token { tok: Tok::Num(v), .. }, Token { tok: Tok::Eof, .. }] => Some(sign * v),
+        _ => None,
+    }
+}
+
 struct Lexer<'s> {
     src: &'s str,
     pos: usize,

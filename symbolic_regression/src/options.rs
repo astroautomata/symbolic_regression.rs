@@ -24,8 +24,9 @@ impl EarlyStop {
 }
 
 /// Parses an early-stop condition written as in PySR's `early_stop_condition`: a loss threshold
-/// such as `"1e-6"` (stop once a loss is below it), or a definition taking `(loss, complexity)`
-/// and returning Bool, such as `"stop_if(loss, complexity) = loss < 1e-6 && complexity < 10"`.
+/// written as a Julia number, such as `"1e-6"` or `"1f-6"` (stop once a loss is below it), or a
+/// definition taking `(loss, complexity)` and returning Bool, such as
+/// `"stop_if(loss, complexity) = loss < 1e-6 && complexity < 10"`.
 ///
 /// ```
 /// use symbolic_regression::parse_early_stop;
@@ -36,7 +37,7 @@ impl EarlyStop {
 /// assert!(parse_early_stop::<f64>("1e-6").unwrap()(1e-7, 30));
 /// ```
 pub fn parse_early_stop<T: DslFloat>(src: &str) -> Result<EarlyStopCondition<T>, DslError> {
-    if let Ok(threshold) = src.trim().parse::<f64>() {
+    if let Some(threshold) = dynamic_expressions::dsl::lexer::number_literal(src) {
         return Ok(EarlyStop::below(T::from(threshold).unwrap()));
     }
     let def = parse_definition(src)?;
