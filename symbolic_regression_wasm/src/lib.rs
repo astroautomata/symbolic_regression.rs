@@ -10,7 +10,7 @@ use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
-use symbolic_regression::{Dataset, Options, SearchEngine, WasmOptionsShim, parse_early_stop, parse_loss};
+use symbolic_regression::{Dataset, Options, SearchEngine, WasmOptionsShim, choose_best, parse_early_stop, parse_loss};
 use wasm_bindgen::prelude::*;
 
 type WasmOps = BuiltinOpsF64<CustomOps<f64>>;
@@ -166,6 +166,8 @@ pub struct EquationPoint {
     pub complexity: usize,
     pub loss: f64,
     pub cost: f64,
+    /// The Pareto score, as in SymbolicRegression.jl's hall-of-fame table.
+    pub score: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -174,6 +176,8 @@ pub struct EquationSummary {
     pub complexity: usize,
     pub loss: f64,
     pub cost: f64,
+    /// The Pareto score, as in SymbolicRegression.jl's hall-of-fame table.
+    pub score: f64,
     /// Display-precision equation (matches SymbolicRegression.jl `print_precision`, default 5
     /// significant digits). Use this for tables / inline rendering.
     pub equation: String,
@@ -289,13 +293,10 @@ impl WasmSearch {
     }
 
     pub fn best_equations(&self, k: usize) -> Result<JsValue, JsValue> {
-        let mut pareto = self.engine.hall_of_fame().pareto_front();
-        if pareto.len() > k {
-            pareto.drain(0..(pareto.len() - k));
-        }
-        let out: Vec<EquationSummary> = pareto
-            .into_iter()
-            .map(|m| summary_from_member(&self.engine, &m))
+        let (front, _) = scored_front(&self.engine).map_err(|e| JsValue::from_str(&e))?;
+        let out: Vec<EquationSummary> = front[front.len().saturating_sub(k)..]
+            .iter()
+            .map(|(m, score)| summary_from_member(&self.engine, m, *score))
             .collect();
         to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
     }
@@ -349,20 +350,30 @@ fn options_from_wasm(
     Ok(out)
 }
 
-fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> Result<SearchSnapshot, String> {
-    let best = engine.best()?.map(|m| summary_from_member(engine, &m));
+type ScoredMember = (symbolic_regression::PopMember<f64, WasmOps, 3>, f64);
 
-    let mut pareto = engine.hall_of_fame().pareto_front();
-    if pareto.len() > pareto_k {
-        pareto.drain(0..(pareto.len() - pareto_k));
-    }
-    let pareto_points: Vec<EquationPoint> = pareto
-        .into_iter()
-        .map(|m| EquationPoint {
+/// The Pareto front with each member's score, and the index of the member `choose_best` picks
+/// under `loss_scale`.
+fn scored_front(engine: &SearchEngine<f64, WasmOps, 3>) -> Result<(Vec<ScoredMember>, Option<usize>), String> {
+    let loss_scale = engine.options().loss_scale;
+    let scores = engine.hall_of_fame().pareto_scores(loss_scale)?;
+    let front = engine.hall_of_fame().pareto_front();
+    let losses: Vec<f64> = front.iter().map(|m| m.loss).collect();
+    let best = choose_best(&losses, &scores, loss_scale);
+    Ok((front.into_iter().zip(scores).collect(), best))
+}
+
+fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> Result<SearchSnapshot, String> {
+    let (front, best) = scored_front(engine)?;
+    let best = best.map(|i| summary_from_member(engine, &front[i].0, front[i].1));
+    let pareto_points: Vec<EquationPoint> = front[front.len().saturating_sub(pareto_k)..]
+        .iter()
+        .map(|(m, score)| EquationPoint {
             id: m.expr.hash_nodes().to_string(),
             complexity: m.complexity,
             loss: m.loss,
             cost: m.cost,
+            score: *score,
         })
         .collect();
 
@@ -378,6 +389,7 @@ fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> Result<S
 fn summary_from_member(
     engine: &SearchEngine<f64, WasmOps, 3>,
     m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
+    score: f64,
 ) -> EquationSummary {
     let variable_names = Some(engine.dataset().variable_names.as_slice());
     let equation = string_tree::<f64, WasmOps, 3>(
@@ -403,6 +415,7 @@ fn summary_from_member(
         complexity: m.complexity,
         loss: m.loss,
         cost: m.cost,
+        score,
         equation,
         equation_full,
     }
@@ -892,5 +905,27 @@ mod tests {
         let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Linear);
         search.step(usize::MAX).unwrap();
         assert!(super::snapshot(&search, 10).unwrap().best.unwrap().loss < 0.0);
+    }
+
+    #[test]
+    fn snapshot_rows_carry_scores_and_best_is_the_choose_best_pick() {
+        use symbolic_regression::{LossScale, choose_best};
+
+        for loss_scale in [LossScale::Log, LossScale::Linear] {
+            let mut search = engine("L2DistLoss()", loss_scale);
+            search.step(usize::MAX).unwrap();
+            let snap = super::snapshot(&search, usize::MAX).unwrap();
+            let scores: Vec<f64> = snap.pareto_points.iter().map(|p| p.score).collect();
+            assert_eq!(scores, search.hall_of_fame().pareto_scores(loss_scale).unwrap());
+
+            let losses: Vec<f64> = snap.pareto_points.iter().map(|p| p.loss).collect();
+            let pick = &snap.pareto_points[choose_best(&losses, &scores, loss_scale).unwrap()];
+            let best = snap.best.unwrap();
+            assert_eq!((&best.id, best.score), (&pick.id, pick.score), "{loss_scale:?}");
+
+            let last_two = super::snapshot(&search, 2).unwrap().pareto_points;
+            let ids = |points: &[super::EquationPoint]| points.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+            assert_eq!(ids(&last_two), ids(&snap.pareto_points[snap.pareto_points.len() - 2..]));
+        }
     }
 }

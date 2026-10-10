@@ -83,6 +83,8 @@ export type EquationPoint = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
 };
 
 export type EquationSummary = {
@@ -90,6 +92,8 @@ export type EquationSummary = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
   /** Display-precision equation (matches `print_precision`, default 5 significant digits). */
   equation: string;
   /** Full-precision equation, suitable for copy-to-clipboard. */

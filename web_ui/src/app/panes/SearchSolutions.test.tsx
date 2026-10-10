@@ -35,8 +35,8 @@ function setCommonState(args: { xColumns: number[] }) {
     total_cycles: 10,
     cycles_completed: 1,
     total_evals: 0,
-    best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" },
-    pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1 }]
+    best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" },
+    pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0 }]
   };
 
   useSessionStore.setState({
@@ -109,7 +109,7 @@ function setCommonState(args: { xColumns: number[] }) {
       error: null,
       split,
       snapshot: snap,
-      front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" }],
+      front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" }],
       selectedId: "1",
       selectedComplexity: 3,
       evalByKey: {
@@ -138,8 +138,8 @@ describe("SearchSolutions fit plot", () => {
       total_cycles: 10,
       cycles_completed: 1,
       total_evals: 0,
-      best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" },
-      pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1 }]
+      best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" },
+      pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0 }]
     };
 
     useSessionStore.setState({
@@ -152,7 +152,7 @@ describe("SearchSolutions fit plot", () => {
         split,
         snapshot: snap,
         evalsPerSecond: null,
-        front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" }],
+        front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" }],
         selectedId: "1",
         selectedComplexity: 3,
         evalByKey: {
