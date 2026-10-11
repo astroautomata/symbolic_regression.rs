@@ -63,6 +63,7 @@ pub fn bfgs_quadratic_n16() -> Option<(Vec<f64>, f64)> {
         iterations: 40,
         f_calls_limit: 0,
         g_abstol: 1e-10,
+        ..Default::default()
     };
     let ls = BackTracking::default();
     let res = bfgs_minimize(&x0, &mut obj, opts, ls)?;
