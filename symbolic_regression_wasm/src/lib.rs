@@ -1,11 +1,11 @@
 use std::io::Cursor;
 
 use csv::ReaderBuilder;
-use dynamic_expressions::dsl::{CustomOps, parse_operator_tokens};
+use dynamic_expressions::dsl::{CustomOps, TemplateStructure, parse_operator_tokens};
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
-use dynamic_expressions::strings::{StringTreeOptions, string_tree};
+use dynamic_expressions::strings::StringTreeOptions;
 use dynamic_expressions::utils::ZipEq;
-use dynamic_expressions::{EvalOptions, OpId, OperatorSet, Operators, eval_plan_array_into};
+use dynamic_expressions::{EvalOptions, OpId, OperatorSet, Operators, eval_tree_array};
 use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
@@ -139,9 +139,29 @@ pub struct WasmSearchOptions {
     /// PySR's `early_stop_condition`: a loss threshold such as `"1e-6"`, or a definition taking
     /// `(loss, complexity)` such as `"f(loss, complexity) = loss < 1e-6 && complexity < 10"`.
     pub early_stop_condition: Option<String>,
+    /// A template expression, as PySR's `TemplateExpressionSpec`; `None` searches plain expressions.
+    pub template: Option<WasmTemplateOptions>,
 
     #[serde(flatten)]
     pub core: WasmOptionsShim,
+}
+
+/// A template expression: the `combine` formula calls the subexpressions `expressions` on the
+/// features and may index the parameter vectors `parameters`, given as `(name, length)` in
+/// declaration order, by a category feature, as in `f(x1) + p[x2]`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WasmTemplateOptions {
+    pub combine: String,
+    pub expressions: Vec<String>,
+    /// Each subexpression's number of arguments; inferred from the calls in `combine` when absent.
+    #[serde(default)]
+    pub num_features: Option<Vec<usize>>,
+    /// The names `combine` uses for the features, in column order; the selected columns' CSV
+    /// headers when absent.
+    #[serde(default)]
+    pub variable_names: Option<Vec<String>>,
+    #[serde(default)]
+    pub parameters: Vec<(String, usize)>,
 }
 
 impl Default for WasmSearchOptions {
@@ -155,6 +175,7 @@ impl Default for WasmSearchOptions {
 
             loss: "L2DistLoss()".to_string(),
             early_stop_condition: None,
+            template: None,
             core: WasmOptionsShim::default(),
         }
     }
@@ -247,31 +268,7 @@ impl WasmSearch {
         let binary: Vec<String> = from_value(binary_tokens).unwrap_or_default();
         let ternary: Vec<String> = from_value(ternary_tokens).unwrap_or_default();
 
-        let operators = operators_from_tokens(&unary, &binary, &ternary).map_err(|e| JsValue::from_str(&e))?;
-
-        let (headers, rows) = parse_csv_to_rows(&csv_text, opts.has_headers).map_err(|e| JsValue::from_str(&e))?;
-
-        let (dataset_all, variable_names, weights_all) =
-            build_full_dataset(&headers, &rows, &opts).map_err(|e| JsValue::from_str(&e))?;
-
-        let split = make_split_indices(dataset_all.n_rows, opts.validation_fraction, opts.core.seed);
-        let (train, val) = split_train_val(&dataset_all, weights_all.as_ref(), &variable_names, &split)
-            .map_err(|e| JsValue::from_str(&e))?;
-
-        let options = options_from_wasm(&opts, operators)?;
-        options
-            .loss
-            .check_weights(train.weights.is_some())
-            .map_err(|e| JsValue::from_str(&e))?;
-
-        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options).map_err(|e| JsValue::from_str(&e))?;
-
-        Ok(WasmSearch {
-            engine,
-            val_dataset: val,
-            split,
-            pareto_k: 250,
-        })
+        Self::build(&csv_text, &opts, &unary, &binary, &ternary).map_err(|e| JsValue::from_str(&e))
     }
 
     pub fn set_pareto_k(&mut self, k: usize) {
@@ -302,32 +299,73 @@ impl WasmSearch {
     }
 
     pub fn evaluate_member(&self, member_id: String, which: String) -> Result<JsValue, JsValue> {
+        let out = self.evaluate(&member_id, &which).map_err(|e| JsValue::from_str(&e))?;
+        to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+impl WasmSearch {
+    fn build(
+        csv_text: &str,
+        opts: &WasmSearchOptions,
+        unary: &[String],
+        binary: &[String],
+        ternary: &[String],
+    ) -> Result<WasmSearch, String> {
+        let operators = operators_from_tokens(unary, binary, ternary)?;
+
+        let (headers, rows) = parse_csv_to_rows(csv_text, opts.has_headers)?;
+
+        let (dataset_all, variable_names, weights_all) = build_full_dataset(&headers, &rows, opts)?;
+
+        let split = make_split_indices(dataset_all.n_rows, opts.validation_fraction, opts.core.seed);
+        let (train, val) = split_train_val(&dataset_all, weights_all.as_ref(), &variable_names, &split)?;
+
+        let options = options_from_wasm(opts, operators, &variable_names)?;
+        options.check_dataset(&train)?;
+        if let Some(val) = &val {
+            options.check_dataset(val)?;
+        }
+
+        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options)?;
+
+        Ok(WasmSearch {
+            engine,
+            val_dataset: val,
+            split,
+            pareto_k: 250,
+        })
+    }
+
+    fn evaluate(&self, member_id: &str, which: &str) -> Result<WasmEvalResult, String> {
         let member_id: u64 = member_id
             .parse()
-            .map_err(|_| JsValue::from_str("member_id must be a base-10 integer string"))?;
-        let dataset = match which.as_str() {
+            .map_err(|_| "member_id must be a base-10 integer string".to_string())?;
+        let dataset = match which {
             "train" => self.engine.dataset(),
-            "val" => self
-                .val_dataset
-                .as_ref()
-                .ok_or_else(|| JsValue::from_str("no validation dataset"))?,
-            _ => return Err(JsValue::from_str("which must be \"train\" or \"val\"")),
+            "val" => self.val_dataset.as_ref().ok_or("no validation dataset")?,
+            _ => return Err("which must be \"train\" or \"val\"".to_string()),
         };
 
-        let m = find_member_by_id(&self.engine, member_id).ok_or_else(|| JsValue::from_str("member not found"))?;
+        let m = find_member_by_id(&self.engine, member_id).ok_or("member not found")?;
 
-        let yhat = eval_member_on_dataset(dataset, &self.engine.options().operators.set, &m)?;
+        let yhat = eval_member_on_dataset(dataset, self.engine.options(), &m)?;
         let metrics = compute_metrics(&yhat, dataset);
-        let out = WasmEvalResult { metrics, yhat };
-        to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
+        Ok(WasmEvalResult { metrics, yhat })
     }
 }
 
 fn options_from_wasm(
     opts: &WasmSearchOptions,
     operators: Operators<WasmOps, 3>,
-) -> Result<Options<f64, WasmOps, 3>, JsValue> {
-    let error = |e: dynamic_expressions::dsl::DslError| JsValue::from_str(&e.to_string());
+    variable_names: &[String],
+) -> Result<Options<f64, WasmOps, 3>, String> {
+    let error = |e: dynamic_expressions::dsl::DslError| e.to_string();
+    let template = opts
+        .template
+        .as_ref()
+        .map(|t| template_from_wasm(t, variable_names, &operators.set))
+        .transpose()?;
     let loss = parse_loss::<f64>(&opts.loss).map_err(error)?;
     let early_stop_condition = opts
         .early_stop_condition
@@ -346,8 +384,25 @@ fn options_from_wasm(
     out.progress = false;
     out.loss = loss;
     out.early_stop_condition = early_stop_condition;
+    out.template = template;
 
     Ok(out)
+}
+
+fn template_from_wasm(
+    t: &WasmTemplateOptions,
+    variable_names: &[String],
+    ops: &WasmOps,
+) -> Result<TemplateStructure, String> {
+    TemplateStructure::new(
+        &t.combine,
+        &t.expressions,
+        t.num_features.as_deref(),
+        t.variable_names.as_deref().unwrap_or(variable_names),
+        &t.parameters,
+        ops,
+    )
+    .map_err(|e| e.to_string())
 }
 
 type ScoredMember = (symbolic_regression::PopMember<f64, WasmOps, 3>, f64);
@@ -391,25 +446,18 @@ fn summary_from_member(
     m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
     score: f64,
 ) -> EquationSummary {
-    let variable_names = Some(engine.dataset().variable_names.as_slice());
-    let equation = string_tree::<f64, WasmOps, 3>(
-        &m.expr.trees[0],
-        &engine.options().operators.set,
-        StringTreeOptions {
-            variable_names,
-            pretty: false,
-            print_precision: Some(engine.options().print_precision),
-        },
-    );
-    let equation_full = string_tree::<f64, WasmOps, 3>(
-        &m.expr.trees[0],
-        &engine.options().operators.set,
-        StringTreeOptions {
-            variable_names,
-            pretty: false,
-            print_precision: None,
-        },
-    );
+    let string = |print_precision| {
+        m.expr.string(
+            engine.options(),
+            StringTreeOptions {
+                variable_names: Some(engine.dataset().variable_names.as_slice()),
+                pretty: false,
+                print_precision,
+            },
+        )
+    };
+    let equation = string(Some(engine.options().print_precision));
+    let equation_full = string(None);
     EquationSummary {
         id: m.expr.hash_nodes().to_string(),
         complexity: m.complexity,
@@ -432,28 +480,22 @@ fn find_member_by_id(
         .cloned()
 }
 
+/// The member's predictions on `dataset`: the whole template when there is one.
 fn eval_member_on_dataset(
     dataset: &Dataset<f64>,
-    ops: &WasmOps,
+    options: &Options<f64, WasmOps, 3>,
     m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
-) -> Result<Vec<f64>, JsValue> {
-    let mut yhat = vec![0.0_f64; dataset.n_rows];
-    let mut scratch = ndarray::Array2::<f64>::zeros((0, 0));
-    let eval_opts = EvalOptions {
-        check_finite: true,
-        early_exit: false,
+) -> Result<Vec<f64>, String> {
+    let ops = &options.operators.set;
+    let x = dataset.x.view();
+    let (yhat, ok) = match &options.template {
+        None => eval_tree_array(&m.expr.trees[0], ops, x, &EvalOptions::default()),
+        Some(template) => template
+            .eval(&m.expr.trees, &m.expr.params, ops, x)
+            .map_err(|e| e.to_string())?,
     };
-    let ok = eval_plan_array_into::<f64, WasmOps, 3>(
-        &mut yhat,
-        &m.plans[0],
-        &m.expr.trees[0],
-        ops,
-        dataset.x.view(),
-        &mut scratch,
-        &eval_opts,
-    );
     if !ok {
-        return Err(JsValue::from_str("evaluation failed"));
+        return Err("evaluation failed".to_string());
     }
     Ok(yhat)
 }
@@ -926,6 +968,176 @@ mod tests {
             let last_two = super::snapshot(&search, 2).unwrap().pareto_points;
             let ids = |points: &[super::EquationPoint]| points.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
             assert_eq!(ids(&last_two), ids(&snap.pareto_points[snap.pareto_points.len() - 2..]));
+        }
+    }
+
+    /// `y = 2x + p[c]` with `p = [0.5, -1.5]`, for 40 rows alternating category 1 and 2.
+    fn template_csv() -> String {
+        let mut csv = "x,c,y\n".to_string();
+        for i in 0..40 {
+            let (x, c) = (f64::from(i) / 10.0 - 2.0, 1 + i % 2);
+            let p = [0.5, -1.5][c as usize - 1];
+            csv.push_str(&format!("{x},{c},{}\n", 2.0 * x + p));
+        }
+        csv
+    }
+
+    fn template_options(template: serde_json::Value) -> WasmSearchOptions {
+        serde_json::from_value(serde_json::json!({
+            "niterations": 3,
+            "populations": 2,
+            "population_size": 20,
+            "seed": 1,
+            "template": template,
+        }))
+        .unwrap()
+    }
+
+    fn template_search(template: serde_json::Value) -> Result<super::WasmSearch, String> {
+        super::WasmSearch::build(
+            &template_csv(),
+            &template_options(template),
+            &[],
+            &tokens(&["+", "*"]),
+            &[],
+        )
+    }
+
+    #[test]
+    fn template_option_is_absent_from_old_option_objects() {
+        assert!(WasmSearchOptions::default().template.is_none());
+        assert!(serde_json::to_value(WasmSearchOptions::default()).unwrap()["template"].is_null());
+        for old in [
+            serde_json::json!({ "loss": "L1DistLoss()" }),
+            serde_json::json!({ "template": null }),
+        ] {
+            assert!(
+                serde_json::from_value::<WasmSearchOptions>(old)
+                    .unwrap()
+                    .template
+                    .is_none()
+            );
+        }
+        let t = template_options(serde_json::json!({ "combine": "f(x) + p[c]", "expressions": ["f"] }))
+            .template
+            .unwrap();
+        assert_eq!((t.num_features, t.variable_names), (None, None));
+        assert!(t.parameters.is_empty());
+    }
+
+    #[test]
+    fn template_arities_are_inferred_unless_given() {
+        let ops = super::operators_from_tokens(&[], &tokens(&["+", "*"]), &[]).unwrap();
+        let spec = |num_features: Option<Vec<usize>>| super::WasmTemplateOptions {
+            combine: "f(a, b) + g(a)".to_string(),
+            expressions: tokens(&["f", "g"]),
+            num_features,
+            variable_names: None,
+            parameters: Vec::new(),
+        };
+        let names = tokens(&["a", "b"]);
+        let arities = |s| {
+            super::template_from_wasm(&s, &names, &ops.set)
+                .unwrap()
+                .num_features()
+                .to_vec()
+        };
+        assert_eq!(arities(spec(None)), [2, 1]);
+        assert_eq!(arities(spec(Some(vec![3, 1]))), [3, 1]);
+    }
+
+    #[test]
+    fn template_names_default_to_the_selected_headers() {
+        let ops = super::operators_from_tokens(&[], &tokens(&["+"]), &[]).unwrap();
+        let mut spec = super::WasmTemplateOptions {
+            combine: "f(u, v)".to_string(),
+            expressions: tokens(&["f"]),
+            num_features: None,
+            variable_names: Some(tokens(&["u", "v"])),
+            parameters: Vec::new(),
+        };
+        let headers = tokens(&["a", "b"]);
+        let t = super::template_from_wasm(&spec, &headers, &ops.set).unwrap();
+        assert_eq!(t.variable_names(), ["u", "v"]);
+        spec.variable_names = None;
+        let err = super::template_from_wasm(&spec, &headers, &ops.set).unwrap_err();
+        assert!(err.contains('u'), "{err}");
+        spec.combine = "f(a, b)".to_string();
+        let t = super::template_from_wasm(&spec, &headers, &ops.set).unwrap();
+        assert_eq!(t.variable_names(), ["a", "b"]);
+    }
+
+    #[test]
+    fn template_parameters_keep_their_declaration_order() {
+        let t = template_options(serde_json::json!({
+            "combine": "f(x) + q[c] * p[c]",
+            "expressions": ["f"],
+            "parameters": [["q", 2], ["p", 3]],
+        }))
+        .template
+        .unwrap();
+        assert_eq!(t.parameters, [("q".to_string(), 2), ("p".to_string(), 3)]);
+        let ops = super::operators_from_tokens(&[], &tokens(&["+"]), &[]).unwrap();
+        let t = super::template_from_wasm(&t, &tokens(&["x", "c"]), &ops.set).unwrap();
+        assert_eq!(t.parameters(), [("q".to_string(), 2), ("p".to_string(), 3)]);
+    }
+
+    #[test]
+    fn invalid_templates_fail_at_setup() {
+        let cases = [
+            (serde_json::json!({ "combine": "f(z)", "expressions": ["f"] }), "`z`"),
+            (
+                serde_json::json!({ "combine": "f(x)", "expressions": ["f"], "num_features": [1, 2] }),
+                "1 subexpressions but 2 feature counts",
+            ),
+            (
+                serde_json::json!({ "combine": "f(x)", "expressions": ["f"], "variable_names": ["x"] }),
+                "the template reads 1 features (x), but the dataset has 2",
+            ),
+            (
+                serde_json::json!({ "combine": "f(x) + p[c]", "expressions": ["f"], "parameters": [["p", 1]] }),
+                "indexes `p` with 2",
+            ),
+        ];
+        for (template, want) in cases {
+            let err = template_search(template.clone()).err().unwrap();
+            assert!(err.contains(want), "{template}: {err}");
+        }
+    }
+
+    #[test]
+    fn template_results_print_and_predict_the_whole_template() {
+        let mut search = template_search(serde_json::json!({
+            "combine": "f(x) + p[c]",
+            "expressions": ["f"],
+            "parameters": [["p", 2]],
+        }))
+        .unwrap();
+        search.engine.step(usize::MAX).unwrap();
+        let options = search.engine.options();
+        let template = options.template.as_ref().unwrap();
+        let x = search.engine.dataset().x.view();
+        let front = super::snapshot(&search.engine, usize::MAX).unwrap().pareto_points;
+        assert!(!front.is_empty());
+        for point in &front {
+            let m = super::find_member_by_id(&search.engine, point.id.parse().unwrap()).unwrap();
+            let summary = super::summary_from_member(&search.engine, &m, point.score);
+            let want = template.string(&m.expr.trees, &m.expr.params, &options.operators.set, false, None);
+            assert_eq!(summary.equation_full, want);
+            assert!(want.starts_with("f = ") && want.contains("; p = ["), "{want}");
+
+            let result = search.evaluate(&point.id, "train").unwrap();
+            let (yhat, ok) = template
+                .eval(&m.expr.trees, &m.expr.params, &options.operators.set, x)
+                .unwrap();
+            assert!(ok);
+            assert_eq!(result.yhat, yhat);
+            assert!(
+                (result.metrics.mse - m.loss).abs() <= 1e-9 * m.loss.max(1.0),
+                "{} vs {}",
+                result.metrics.mse,
+                m.loss
+            );
         }
     }
 }
