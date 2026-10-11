@@ -321,20 +321,10 @@ struct OutputSearch<T: Float + AddAssign, Ops, const D: usize> {
 /// SymbolicRegression.jl's warning for a dataset of more than 50,000 rows, logged once per search.
 pub(crate) const LARGE_DATASET_WARNING: &str = "You are using a dataset with more than 50,000 datapoints. Symbolic regression rarely benefits from this many points; consider subsampling to 10,000 points or fewer. If you have high noise, denoise the data first rather than using more points.";
 
-/// Rejects options that cannot search `dataset` (see [`Options::check_dataset`]), before the
-/// search starts.
-fn check_dataset<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
-    dataset: &Dataset<T>,
-    options: &Options<T, Ops, D>,
-) {
-    if let Err(message) = options.check_dataset(dataset) {
-        panic!("{message}");
-    }
-}
-
 /// Runs the whole search, one output per dataset, as SymbolicRegression.jl's `equation_search`
-/// does with a vector of datasets. Fails when a guess is invalid or when the Pareto front cannot
-/// be scored under `Options::loss_scale` (see [`HallOfFame::check_loss_scale`]).
+/// does with a vector of datasets. Fails when the options cannot search a dataset (see
+/// [`Options::check_dataset`]), when a guess is invalid, or when the Pareto front cannot be scored
+/// under `Options::loss_scale` (see [`HallOfFame::check_loss_scale`]).
 pub fn equation_search<T, Ops, const D: usize>(
     datasets: &[Dataset<T>],
     options: &Options<T, Ops, D>,
@@ -750,7 +740,7 @@ where
         }
         crate::plugins::check_plugins(options)?;
         for dataset in datasets {
-            check_dataset(dataset, options);
+            options.check_dataset(dataset)?;
         }
         let run_id = options.run_id.clone().unwrap_or_else(generate_run_id);
         let stdin_reader = StdinReader::watch(options.input_stream.as_ref());
@@ -986,8 +976,9 @@ where
     Ops: OperatorSet<T = T>,
 {
     /// Builds the initial populations of a search with one output per dataset, as
-    /// SymbolicRegression.jl's `equation_search` does with a vector of datasets. Fails when a guess
-    /// is invalid or the template cannot be evaluated.
+    /// SymbolicRegression.jl's `equation_search` does with a vector of datasets. Fails when the
+    /// options cannot search a dataset (see [`Options::check_dataset`]), when a guess is invalid, or
+    /// when the template cannot be evaluated.
     pub fn new(datasets: Vec<Dataset<T>>, options: Options<T, Ops, D>) -> Result<Self, String> {
         let search = Search::start(&datasets, &options, None)?;
         Ok(Self {

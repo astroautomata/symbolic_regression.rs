@@ -77,7 +77,6 @@ fn string_early_stop_ends_search_sooner() {
 }
 
 #[test]
-#[should_panic(expected = "must accept (prediction, target, weight) when the dataset has weights")]
 fn two_argument_loss_with_weights_fails_before_search() {
     let data = dataset();
     let weights = Some(Array1::ones(data.n_rows));
@@ -87,7 +86,14 @@ fn two_argument_loss_with_weights_fails_before_search() {
         niterations: 1,
         ..options()
     };
-    let _ = equation_search::<f64, Ops, 2>(std::slice::from_ref(&weighted), &options);
+    let expected = "must accept (prediction, target, weight) when the dataset has weights";
+    let search = equation_search::<f64, Ops, 2>(std::slice::from_ref(&weighted), &options);
+    let message = search.err().expect("the search must fail");
+    assert!(message.contains(expected), "{message}");
+    let message = SearchEngine::new(vec![weighted], options)
+        .err()
+        .expect("the engine must fail");
+    assert!(message.contains(expected), "{message}");
 }
 
 #[test]
