@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
+use dynamic_expressions::strings::StringTreeOptions;
 use ndarray::{Array1, Array2};
 
 use super::common::{D, T, TestOps};
@@ -76,6 +77,34 @@ fn a_panicking_worker_fails_the_search_instead_of_hanging_it() {
             "at least one conditioned mutation weight must be positive".to_string()
         ))
     );
+}
+
+/// A serial search runs one population at a time, so the size of the rayon pool it runs in cannot
+/// change its result.
+#[test]
+fn serial_deterministic_searches_ignore_the_thread_count() {
+    let options = Options {
+        deterministic: true,
+        parallelism: Parallelism::Serial,
+        verbosity: Some(0),
+        ..small_options()
+    };
+    let run = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let result = pool.install(|| equation_search(&[quadratic_dataset()], &options).unwrap());
+        let front: Vec<_> = result.halls_of_fame[0]
+            .pareto_front()
+            .iter()
+            .map(|m| {
+                let equation = m.expr.string(&options, StringTreeOptions::default());
+                (m.complexity, m.loss.to_bits(), equation)
+            })
+            .collect();
+        (front, result.total_evals.to_bits())
+    };
+    let one_thread = run(1);
+    assert!(!one_thread.0.is_empty());
+    assert_eq!(run(4), one_thread);
 }
 
 #[test]

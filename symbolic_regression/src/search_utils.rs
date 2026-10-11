@@ -434,7 +434,13 @@ where
         let usable_threads = usable_rayon_threads();
         let need_inline = usable_threads == 0 || options.parallelism == crate::options::Parallelism::Serial;
         let n_tasks: usize = self.outputs.iter().map(|o| o.pops.len()).sum();
-        let n_workers = usable_threads.min(n_tasks).max(1);
+        // Inline cycles run one at a time, each folded in before the next starts, whatever the
+        // size of the pool.
+        let n_workers = if need_inline {
+            1
+        } else {
+            usable_threads.min(n_tasks).max(1)
+        };
 
         let (completed_total, error, panic) = rayon::in_place_scope(|scope| {
             // A worker's panic travels back as its result, so that the loop below stops waiting
