@@ -493,7 +493,7 @@ fn optimizer_gradient_budget_keeps_the_reported_loss_consistent() {
 
 #[test]
 fn subnormal_mutation_weights_select_the_only_positive_entry() {
-    let weights = crate::MutationWeights {
+    let mut weights = crate::MutationWeights {
         mutate_constant: 0.0,
         mutate_operator: 0.0,
         mutate_feature: 0.0,
@@ -516,4 +516,37 @@ fn subnormal_mutation_weights_select_the_only_positive_entry() {
             mutate::MutationChoice::DoNothing
         );
     }
+    weights.do_nothing = 1.0;
+    assert_eq!(
+        mutate::sample_mutation(&mut Rng::with_seed(4), &weights),
+        mutate::MutationChoice::DoNothing
+    );
+}
+
+#[test]
+fn constant_mutation_collection_uses_the_selected_parameters() {
+    use crate::ConstantMutation;
+    let parameters = ConstantMutation {
+        perturbation_factor: 2.0,
+        probability_negate: 0.3,
+    };
+    let options = Options {
+        mutations: vec![
+            (BuiltinMutation::Constant(ConstantMutation::default()), 0.0),
+            (BuiltinMutation::Constant(parameters), 1.0),
+        ],
+        default_mutations: Some(vec![]),
+        annealing: false,
+        ..options()
+    };
+    let x = data(16, 1);
+    let dataset = Dataset::new(x.clone(), x.row(0).to_owned());
+    let mut parent = PopMember::from_expr(tree("x1 * 1.0"), 1, &options);
+    parent.evaluate(&TaggedDataset::new(&dataset, None), &options, &mut Evaluator::new(16));
+    let mut rng = Rng::with_seed(0);
+    let _ = rng.f64();
+    let mut expected = parent.expr.trees[0].clone();
+    mutation_functions::mutate_constant_in_place(&mut rng, &mut expected, 1.0, parameters);
+    let child = mutate_member(&parent, &dataset, &options);
+    assert_eq!(child.expr.trees[0].consts, expected.consts);
 }
