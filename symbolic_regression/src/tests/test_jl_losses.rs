@@ -156,9 +156,34 @@ fn pareto_curve_header_shows_score_only_for_log_scale() {
         let plain = console::strip_ansi_codes(&table(loss_scale, true)).into_owned();
         let lines: Vec<&str> = plain.lines().collect();
         let header_col = lines[1].find("Equation").unwrap();
-        let row_col = lines[2].find("x0").unwrap();
+        let row_col = lines[2].find("y = x0").unwrap();
         assert_eq!(header_col, row_col, "equation column misaligned:\n{plain}");
     }
+}
+
+/// SymbolicRegression.jl's `make_prefix`: `y = `, with the target's units when it has any, and
+/// `[?]` when only the features have units.
+#[cfg(feature = "progress")]
+#[test]
+fn pareto_curve_prefixes_equations_with_the_target() {
+    use crate::progress_bars::{RenderOptions, format_hall_of_fame};
+    use crate::units::Units;
+
+    let hall = hall_with_x1(0.5);
+    let row = |units: Option<Units>| {
+        let options = Options::<T, TestOps, D>::default();
+        let render = RenderOptions {
+            ansi: false,
+            loss_scale: LossScale::Linear,
+        };
+        let table = format_hall_of_fame(&hall, &options, 100, usize::MAX, render, 5, units.as_ref()).unwrap();
+        let line = table.lines().nth(2).unwrap();
+        line[line.find("y").unwrap()..].to_string()
+    };
+    assert_eq!(row(None), "y = x0");
+    assert_eq!(row(Units::parse(1, Some(&["m"]), Some("kg")).unwrap()), "y[kg] = x0[m]");
+    assert_eq!(row(Units::parse(1, Some(&["m"]), None).unwrap()), "y[?] = x0[m]");
+    assert_eq!(row(Units::parse(1, None::<&[&str]>, Some("1")).unwrap()), "y = x0");
 }
 
 #[cfg(feature = "progress")]

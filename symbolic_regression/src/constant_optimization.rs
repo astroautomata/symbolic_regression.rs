@@ -322,3 +322,48 @@ pub struct OptimizeConstantsCtx<'a, 'd, T: Float, Ops, const D: usize> {
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut GradContext<T, D>,
 }
+
+#[cfg(test)]
+mod tests {
+    use ndarray::{Array1, Array2};
+
+    use super::*;
+    use crate::operator_library::OperatorLibrary;
+    use crate::tests::common::{D, T, TestOps, infix};
+
+    /// SymbolicRegression.jl optimizes constants on the loss without the dimensional penalty
+    /// (`regularization=false`) and stores the member's loss with it.
+    #[test]
+    fn optimizer_objective_excludes_the_dimensional_penalty() {
+        let x = Array2::from_shape_fn((1, 64), |(_, i)| i as T / 64.0);
+        let y = x.row(0).mapv(|v| v + 3.0);
+        let dataset = Dataset::new(x, Array1::from(y.to_vec()))
+            .with_units(Some(&["m"]), Some("s"))
+            .unwrap();
+        let options = Options::<T, TestOps, D> {
+            operators: OperatorLibrary::sr_default::<TestOps, D>(),
+            deterministic: true,
+            use_baseline: false,
+            ..Default::default()
+        };
+        let mut member = PopMember::from_expr(infix::<TestOps, D>(&options.operators.set, "x1 + 1.0"), 1, &options);
+        let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
+        let mut grad_ctx = GradContext::<T, D>::new(dataset.n_rows);
+        let tagged = TaggedDataset::new(&dataset, None);
+
+        let mut workspace = EvalWorkspace::new(tagged, &options, &mut evaluator, &mut grad_ctx);
+        assert_eq!(workspace.loss_only(&member.plans, &member.expr), Some(4.0));
+        assert!(member.evaluate(&tagged, &options, &mut evaluator));
+        assert_eq!(member.loss, 1004.0);
+
+        let ctx = OptimizeConstantsCtx {
+            dataset: tagged,
+            options: &options,
+            evaluator: &mut evaluator,
+            grad_ctx: &mut grad_ctx,
+        };
+        let (improved, _) = optimize_constants(&mut Rng::with_seed(0), &mut member, ctx);
+        assert!(improved);
+        assert!((member.loss - 1000.0).abs() < 1e-9, "{}", member.loss);
+    }
+}

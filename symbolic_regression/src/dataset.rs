@@ -126,7 +126,7 @@ impl<T: Float> Dataset<T> {
     /// use ndarray::{Array1, Array2};
     /// use symbolic_regression::Dataset;
     ///
-    /// let dataset = Dataset::new(Array2::zeros((2, 3)), Array1::zeros(3))
+    /// let dataset = Dataset::<f64>::new(Array2::zeros((2, 3)), Array1::zeros(3))
     ///     .with_units(Some(&["m", "s"]), Some("m/s"))
     ///     .unwrap();
     /// assert_eq!(dataset.units.unwrap().x[0].label(), "[m]");

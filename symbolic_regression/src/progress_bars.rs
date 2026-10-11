@@ -221,7 +221,7 @@ mod imp {
         Ok(())
     }
 
-    /// SymbolicRegression.jl's hall of fame. With units, each equation reads
+    /// SymbolicRegression.jl's hall of fame. Each equation reads `y = ...`; with units,
     /// `y[kg] = x1[m] * 3.2[?]`: features carry their units, constants whose units are free carry
     /// `[?]`, and the target carries its units, or `[?]` when only the features have units.
     #[allow(clippy::too_many_arguments)]
@@ -268,7 +268,7 @@ mod imp {
 
         let scores = hall.pareto_scores(render.loss_scale)?;
         let labels = units.map(|u| UnitLabels::new(u, options.dimensionless_constants_only));
-        let prefix = labels.as_ref().map_or(String::new(), |l| format!("y{} = ", l.target));
+        let prefix = format!("y{} = ", labels.as_ref().map_or("", |l| l.target.as_str()));
         for (m, score) in hall.pareto_front().into_iter().zip(scores).take(max_entries) {
             let loss = m.loss.to_f64().unwrap_or(f64::INFINITY);
             let mut stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
