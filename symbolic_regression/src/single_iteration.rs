@@ -8,7 +8,7 @@ use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
 use crate::hall_of_fame::HallOfFame;
 use crate::options::Options;
-use crate::pop_member::Evaluator;
+use crate::pop_member::{Evaluator, generate_reference};
 use crate::population::Population;
 use crate::regularized_evolution::{RegEvolCtx, reg_evol_cycle};
 use crate::stop_controller::StopController;
@@ -133,5 +133,10 @@ where
         }
     }
 
+    // SymbolicRegression.jl gives every member a new reference once the cycle has tuned it.
+    for m in &mut pop.members {
+        m.parent = m.reference;
+        m.reference = generate_reference();
+    }
     num_evals
 }

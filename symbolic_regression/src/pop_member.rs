@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,6 +19,11 @@ use crate::options::Options;
 #[derive(Debug)]
 pub struct PopMember<T: Float, Ops, const D: usize> {
     pub birth: u64,
+    /// SymbolicRegression.jl's `ref`: a random non-negative id that each new member gets, and that
+    /// copies keep.
+    pub reference: i64,
+    /// The `reference` of the member this one was mutated or bred from, or -1.
+    pub parent: i64,
     pub expr: Expression<T, Ops, D>,
     /// One evaluation plan per tree of `expr`, with a single plan stored inline.
     pub plans: OneOrMany<EvalPlan<D>>,
@@ -54,10 +60,33 @@ pub(crate) fn reset_pseudo_time_for_tests() {
     pseudo_time().store(0, Ordering::Relaxed);
 }
 
+/// SymbolicRegression.jl's `generate_reference`. It draws from a per-thread stream, apart from
+/// the search's random streams, so that references never change a search's results.
+pub(crate) fn generate_reference() -> i64 {
+    fn mix(mut z: u64) -> u64 {
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+    const GAMMA: u64 = 0x9e37_79b9_7f4a_7c15;
+    static THREADS: AtomicU64 = AtomicU64::new(0);
+    thread_local! {
+        static STATE: Cell<u64> = Cell::new(mix(THREADS.fetch_add(1, Ordering::Relaxed).wrapping_mul(GAMMA)));
+    }
+    let state = STATE.with(|s| {
+        let next = s.get().wrapping_add(GAMMA);
+        s.set(next);
+        next
+    });
+    (mix(state) >> 1) as i64
+}
+
 impl<T: Float, Ops, const D: usize> Clone for PopMember<T, Ops, D> {
     fn clone(&self) -> Self {
         Self {
             birth: self.birth,
+            reference: self.reference,
+            parent: self.parent,
             expr: self.expr.clone(),
             plans: self.plans.clone(),
             complexity: self.complexity,
@@ -164,6 +193,8 @@ where
         let plans = expr.compile_plans(options.max_features(n_features));
         Self {
             birth,
+            reference: generate_reference(),
+            parent: -1,
             expr,
             plans,
             complexity: 0,

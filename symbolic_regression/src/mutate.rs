@@ -261,6 +261,7 @@ impl MutationChoice {
                     let _ = dynamic_expressions::simplify_in_place(tree, &options.operators.set, &evaluator.eval_opts);
                 }
                 let mut out = PopMember::from_expr(expr, n_features, options);
+                out.parent = member.reference;
 
                 // Match the intended behavior (and current SymbolicRegression.jl main):
                 // simplify returns immediately and keeps the old loss, but refreshes complexity/cost.
@@ -290,6 +291,7 @@ impl MutationChoice {
                 // Match SymbolicRegression.jl: identity mutation is accepted immediately and keeps
                 // the old loss/cost.
                 let mut out = PopMember::from_expr(expr, n_features, options);
+                out.parent = member.reference;
                 out.plans = member.plans.clone();
                 out.complexity = member.complexity;
                 out.loss = member.loss;
@@ -309,6 +311,8 @@ impl MutationChoice {
                 out.loss = member.loss;
                 out.cost = member.cost;
                 out.birth = member.birth;
+                out.reference = member.reference;
+                out.parent = member.parent;
 
                 let mut grad_ctx = dynamic_expressions::GradContext::new(dataset.n_rows);
                 let (_improved, evals) = optimize_constants(
@@ -416,6 +420,7 @@ where
 
     if !successful {
         let mut baby = PopMember::from_expr(member.expr.clone(), n_features, options);
+        baby.parent = member.reference;
         baby.complexity = member.complexity;
         baby.loss = member.loss;
         baby.cost = member.cost;
@@ -423,11 +428,13 @@ where
     }
 
     let mut baby = PopMember::from_expr(tree, n_features, options);
+    baby.parent = member.reference;
     let _ok = baby.evaluate(&dataset, options, evaluator);
     evals += dataset.dataset_fraction();
     let after_cost = baby.cost.to_f64().unwrap_or(f64::INFINITY);
     if after_cost.is_nan() {
         let mut reject = PopMember::from_expr(member.expr.clone(), n_features, options);
+        reject.parent = member.reference;
         reject.complexity = member.complexity;
         reject.loss = member.loss;
         reject.cost = member.cost;
@@ -457,6 +464,7 @@ where
 
     if prob < rng.f64() {
         let mut reject = PopMember::from_expr(member.expr.clone(), n_features, options);
+        reject.parent = member.reference;
         reject.complexity = member.complexity;
         reject.loss = member.loss;
         reject.cost = member.cost;
@@ -508,6 +516,8 @@ where
         if check_expression(&c1_expr, options, curmaxsize) && check_expression(&c2_expr, options, curmaxsize) {
             let mut baby1 = PopMember::from_expr(c1_expr, dataset.n_features, options);
             let mut baby2 = PopMember::from_expr(c2_expr, dataset.n_features, options);
+            baby1.parent = member1.reference;
+            baby2.parent = member2.reference;
             let _ = baby1.evaluate(&dataset, options, evaluator);
             let _ = baby2.evaluate(&dataset, options, evaluator);
             return (baby1, baby2, true, 2.0 * dataset.dataset_fraction());
