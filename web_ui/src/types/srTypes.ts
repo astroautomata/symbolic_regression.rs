@@ -23,6 +23,30 @@ export type WasmMutationWeights = {
   optimize: number;
   form_connection: number;
   break_connection: number;
+  backsolve: number;
+};
+
+/** Parameters of the backsolve mutation, which fires with weight `mutation_weights.backsolve`. */
+export type WasmBacksolveOptions = {
+  max_library_size: number;
+  max_terms: number;
+  min_improvement: number;
+  node_attempts: number;
+};
+
+/** SymbolicRegression.jl's `AdaptiveMutationWeightsPlugin`. */
+export type WasmAdaptiveMutationWeights = {
+  smoothing: number;
+  floor: number;
+  reward: "cost" | "loss";
+  adaptation_strength: number;
+};
+
+/** SymbolicRegression.jl's `MutationBurstPlugin`. */
+export type WasmMutationBurst = {
+  retry_attempts: number;
+  compound_probability: number;
+  compound_max_steps: number;
 };
 
 export type LossScale = "log" | "linear";
@@ -51,7 +75,7 @@ export type WasmBuiltinMutation =
   | { Constant: { perturbation_factor: number; probability_negate: number } }
   | "Operator" | "Feature" | "SwapOperands" | "RotateTree" | "AddNode"
   | "InsertNode" | "DeleteNode" | "Simplify" | "Randomize" | "DoNothing" | "Optimize"
-  | { Backsolve: { max_library_size: number; max_terms: number; min_improvement: number; node_attempts: number } };
+  | { Backsolve: WasmBacksolveOptions };
 
 export type WasmSearchOptions = {
   has_headers: boolean;
@@ -71,6 +95,11 @@ export type WasmSearchOptions = {
   template: WasmTemplateOptions | null;
   /** SymbolicRegression.jl `guesses`: equations that seed the search. */
   guesses: WasmGuess[];
+  backsolve: WasmBacksolveOptions;
+  /** On by default; null samples `mutation_weights` throughout. */
+  adaptive_mutation_weights: WasmAdaptiveMutationWeights | null;
+  /** Off (null) by default. */
+  mutation_burst: WasmMutationBurst | null;
 
   seed: number | null;
   niterations: number;
@@ -107,6 +136,10 @@ export type WasmSearchOptions = {
   print_precision: number;
   loss_scale: LossScale;
   dimensional_constraint_penalty: number;
+  /** Stop after this many evaluations; 0 means no limit. */
+  max_evals: number;
+  /** Stop after this many seconds; 0 means no limit. */
+  timeout_in_seconds: number;
 
   use_frequency: boolean;
   use_frequency_in_tournament: boolean;

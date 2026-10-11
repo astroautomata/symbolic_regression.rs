@@ -20,9 +20,11 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
   const coreDefaults = {
     seed: null,
     niterations: 100,
-    populations: 2,
-    population_size: 16,
-    ncycles_per_iteration: 10,
+    populations: 31,
+    population_size: 27,
+    ncycles_per_iteration: 380,
+    complexity_of_constants: 1,
+    complexity_of_variables: 1,
     maxsize: 30,
     maxdepth: null,
     warmup_maxsize_by: 0,
@@ -43,8 +45,14 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
     fraction_replaced_guesses: 0.001,
     topn: 12,
     print_precision: 5,
+    verbosity: null,
+    terminal_width: null,
+    max_evals: 0,
+    timeout_in_seconds: 0,
     loss_scale: "log",
     dimensional_constraint_penalty: 1000,
+
+    save_to_file: true,
 
     use_frequency: true,
     use_frequency_in_tournament: true,
@@ -54,9 +62,11 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
     migration: true,
     hof_migration: true,
     use_baseline: true,
-    progress: false,
+    progress: true,
     should_simplify: null,
+    deterministic: false,
     dimensionless_constants_only: false,
+    use_tracing: false,
 
     optimizer_algorithm: "BFGS",
     optimizer_g_abstol: 1e-8,
@@ -84,7 +94,8 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
       do_nothing: 0.273,
       optimize: 0.0,
       form_connection: 0.5,
-      break_connection: 0.1
+      break_connection: 0.1,
+      backsolve: 0.0
     }
   };
   return {
@@ -103,6 +114,9 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
       early_stop_condition: null,
       template: null,
       guesses: [],
+      backsolve: { max_library_size: 500, max_terms: 8, min_improvement: 1e-3, node_attempts: 8 },
+      adaptive_mutation_weights: { smoothing: 0.02, floor: 0.05, reward: "cost", adaptation_strength: 0.5 },
+      mutation_burst: null,
 
       ...coreDefaults
     }))

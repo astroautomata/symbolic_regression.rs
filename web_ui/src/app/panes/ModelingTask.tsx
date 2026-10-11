@@ -1,6 +1,18 @@
 import React, { useMemo, useState } from "react";
 import { useSessionStore } from "../../state/sessionStore";
-import type { LossScale, WasmGuess, WasmOpInfo, WasmTemplateOptions } from "../../types/srTypes";
+import type {
+  LossScale,
+  WasmAdaptiveMutationWeights,
+  WasmGuess,
+  WasmMutationBurst,
+  WasmOpInfo,
+  WasmSearchOptions,
+  WasmTemplateOptions
+} from "../../types/srTypes";
+
+/** SymbolicRegression.jl's plugin defaults, used when a plugin is switched on. */
+const ADAPTIVE_MUTATION_WEIGHTS_DEFAULTS: WasmAdaptiveMutationWeights = { smoothing: 0.02, floor: 0.05, reward: "cost", adaptation_strength: 0.5 };
+const MUTATION_BURST_DEFAULTS: WasmMutationBurst = { retry_attempts: 4, compound_probability: 0.25, compound_max_steps: 2 };
 
 /** Built-in losses, written as PySR's `elementwise_loss` takes them. Any definition such as
  * `f(x, y) = abs(x - y)^1.5` also works. */
@@ -397,6 +409,30 @@ export function ModelingTask(): React.ReactElement {
                   data-testid="opt-ncycles"
                 />
               </label>
+              <label className="field">
+                <div className="label">timeout_in_seconds</div>
+                <input type="number" min={0} value={options.timeout_in_seconds} placeholder="0 = no limit" onChange={(e) => setOptionsPatch({ timeout_in_seconds: Number(e.target.value) })} />
+              </label>
+              <label className="field">
+                <div className="label">max_evals</div>
+                <input type="number" min={0} value={options.max_evals} placeholder="0 = no limit" onChange={(e) => setOptionsPatch({ max_evals: Number(e.target.value) })} />
+              </label>
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Batching</div>
+              <label className="field">
+                <div className="label">batching</div>
+                <select value={options.batching} onChange={(e) => setOptionsPatch({ batching: e.target.value as WasmSearchOptions["batching"] })}>
+                  <option value="auto">auto (over 1000 rows)</option>
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </label>
+              <label className="field">
+                <div className="label">batch_size</div>
+                <input type="number" min={1} value={options.batch_size ?? ""} placeholder="Auto" onChange={(e) => setOptionsPatch({ batch_size: e.target.value === "" ? null : Number(e.target.value) })} />
+              </label>
             </section>
 
             <section className="section">
@@ -502,6 +538,13 @@ export function ModelingTask(): React.ReactElement {
                 should_optimize_constants
               </label>
               <label className="field">
+                <div className="label">optimizer_algorithm</div>
+                <select value={options.optimizer_algorithm} onChange={(e) => setOptionsPatch({ optimizer_algorithm: e.target.value as WasmSearchOptions["optimizer_algorithm"] })}>
+                  <option value="BFGS">BFGS</option>
+                  <option value="NelderMead">NelderMead</option>
+                </select>
+              </label>
+              <label className="field">
                 <div className="label">optimizer_probability</div>
                 <input type="number" step={0.001} value={options.optimizer_probability} onChange={(e) => setOptionsPatch({ optimizer_probability: Number(e.target.value) })} />
               </label>
@@ -554,6 +597,89 @@ export function ModelingTask(): React.ReactElement {
                 <div className="label">alpha</div>
                 <input type="number" step={0.001} value={options.alpha} onChange={(e) => setOptionsPatch({ alpha: Number(e.target.value) })} />
               </label>
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Backsolve mutation</div>
+              <label className="field">
+                <div className="label">max_library_size</div>
+                <input type="number" min={1} value={options.backsolve.max_library_size} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, max_library_size: Number(e.target.value) } })} />
+              </label>
+              <label className="field">
+                <div className="label">max_terms</div>
+                <input type="number" min={1} value={options.backsolve.max_terms} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, max_terms: Number(e.target.value) } })} />
+              </label>
+              <label className="field">
+                <div className="label">min_improvement</div>
+                <input type="number" min={0} step={0.0001} value={options.backsolve.min_improvement} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, min_improvement: Number(e.target.value) } })} />
+              </label>
+              <label className="field">
+                <div className="label">node_attempts</div>
+                <input type="number" min={1} value={options.backsolve.node_attempts} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, node_attempts: Number(e.target.value) } })} />
+              </label>
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Adaptive mutation weights</div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.adaptive_mutation_weights !== null}
+                  onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: e.target.checked ? ADAPTIVE_MUTATION_WEIGHTS_DEFAULTS : null })}
+                />
+                adaptive_mutation_weights
+              </label>
+              {options.adaptive_mutation_weights && (
+                <>
+                  <label className="field">
+                    <div className="label">smoothing</div>
+                    <input type="number" min={0} max={1} step={0.01} value={options.adaptive_mutation_weights.smoothing} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, smoothing: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">floor</div>
+                    <input type="number" min={0} max={1} step={0.01} value={options.adaptive_mutation_weights.floor} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, floor: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">adaptation_strength</div>
+                    <input type="number" min={0} max={1} step={0.05} value={options.adaptive_mutation_weights.adaptation_strength} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, adaptation_strength: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">reward</div>
+                    <select value={options.adaptive_mutation_weights.reward} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, reward: e.target.value as WasmAdaptiveMutationWeights["reward"] } })}>
+                      <option value="cost">cost</option>
+                      <option value="loss">loss</option>
+                    </select>
+                  </label>
+                </>
+              )}
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Mutation burst</div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.mutation_burst !== null}
+                  onChange={(e) => setOptionsPatch({ mutation_burst: e.target.checked ? MUTATION_BURST_DEFAULTS : null })}
+                />
+                mutation_burst
+              </label>
+              {options.mutation_burst && (
+                <>
+                  <label className="field">
+                    <div className="label">retry_attempts</div>
+                    <input type="number" min={1} value={options.mutation_burst.retry_attempts} onChange={(e) => setOptionsPatch({ mutation_burst: { ...options.mutation_burst!, retry_attempts: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">compound_probability</div>
+                    <input type="number" min={0} max={1} step={0.01} value={options.mutation_burst.compound_probability} onChange={(e) => setOptionsPatch({ mutation_burst: { ...options.mutation_burst!, compound_probability: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">compound_max_steps</div>
+                    <input type="number" min={1} value={options.mutation_burst.compound_max_steps} onChange={(e) => setOptionsPatch({ mutation_burst: { ...options.mutation_burst!, compound_max_steps: Number(e.target.value) } })} />
+                  </label>
+                </>
+              )}
             </section>
 
             <section className="section fullWidth">

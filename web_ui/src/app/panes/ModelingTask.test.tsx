@@ -110,3 +110,91 @@ describe("ModelingTask guesses", () => {
     expect(useSessionStore.getState().options?.fraction_replaced_guesses).toBe(0.05);
   });
 });
+
+describe("ModelingTask search options", () => {
+  let defaults: WasmSearchOptions;
+  beforeEach(async () => {
+    defaults = (await default_search_options()) as WasmSearchOptions;
+    useSessionStore.setState({ options: defaults, operatorRegistry: [], unaryOps: [], binaryOps: [], ternaryOps: [] });
+  });
+
+  const options = () => useSessionStore.getState().options!;
+  // A label wrapping a <select> also contains the option texts.
+  const choose = (label: RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+  it("shows the SymbolicRegression.jl defaults", () => {
+    render(<ModelingTask />);
+    expect(screen.getByLabelText("backsolve")).toHaveValue(0);
+    expect(screen.getByLabelText("max_library_size")).toHaveValue(500);
+    expect(screen.getByLabelText("max_terms")).toHaveValue(8);
+    expect(screen.getByLabelText("min_improvement")).toHaveValue(0.001);
+    expect(screen.getByLabelText("node_attempts")).toHaveValue(8);
+    expect(screen.getByLabelText("adaptive_mutation_weights")).toBeChecked();
+    expect(screen.getByLabelText("smoothing")).toHaveValue(0.02);
+    expect(screen.getByLabelText("floor")).toHaveValue(0.05);
+    expect(screen.getByLabelText("adaptation_strength")).toHaveValue(0.5);
+    expect(screen.getByLabelText(/^reward/)).toHaveValue("cost");
+    expect(screen.getByLabelText("mutation_burst")).not.toBeChecked();
+    expect(screen.queryByLabelText("retry_attempts")).toBeNull();
+    expect(screen.getByLabelText(/^batching/)).toHaveValue("auto");
+    expect(screen.getByLabelText("batch_size")).toHaveValue(null);
+    expect(screen.getByLabelText(/^optimizer_algorithm/)).toHaveValue("BFGS");
+    expect(screen.getByLabelText("timeout_in_seconds")).toHaveValue(0);
+    expect(screen.getByLabelText("max_evals")).toHaveValue(0);
+    expect(screen.getByLabelText("alpha")).toHaveValue(3.17);
+  });
+
+  it("patches the backsolve weight and backsolve parameters", () => {
+    render(<ModelingTask />);
+    type("backsolve", "0.5");
+    expect(options().mutation_weights).toEqual({ ...defaults.mutation_weights, backsolve: 0.5 });
+    type("max_terms", "3");
+    type("min_improvement", "0.01");
+    expect(options().backsolve).toEqual({ max_library_size: 500, max_terms: 3, min_improvement: 0.01, node_attempts: 8 });
+  });
+
+  it("edits adaptive mutation weights and switches them off and back to their defaults", () => {
+    render(<ModelingTask />);
+    type("smoothing", "0.1");
+    choose(/^reward/, "loss");
+    expect(options().adaptive_mutation_weights).toEqual({ smoothing: 0.1, floor: 0.05, reward: "loss", adaptation_strength: 0.5 });
+
+    fireEvent.click(screen.getByLabelText("adaptive_mutation_weights"));
+    expect(options().adaptive_mutation_weights).toBeNull();
+    expect(screen.queryByLabelText("smoothing")).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("adaptive_mutation_weights"));
+    expect(options().adaptive_mutation_weights).toEqual(defaults.adaptive_mutation_weights);
+  });
+
+  it("switches mutation bursts on with their defaults and edits them", () => {
+    render(<ModelingTask />);
+    fireEvent.click(screen.getByLabelText("mutation_burst"));
+    expect(options().mutation_burst).toEqual({ retry_attempts: 4, compound_probability: 0.25, compound_max_steps: 2 });
+
+    type("retry_attempts", "6");
+    type("compound_probability", "0.5");
+    type("compound_max_steps", "3");
+    expect(options().mutation_burst).toEqual({ retry_attempts: 6, compound_probability: 0.5, compound_max_steps: 3 });
+
+    fireEvent.click(screen.getByLabelText("mutation_burst"));
+    expect(options().mutation_burst).toBeNull();
+  });
+
+  it("patches batching, the optimizer algorithm, and the stopping limits", () => {
+    render(<ModelingTask />);
+    choose(/^batching/, "on");
+    type("batch_size", "64");
+    expect([options().batching, options().batch_size]).toEqual(["on", 64]);
+    type("batch_size", "");
+    expect(options().batch_size).toBeNull();
+
+    choose(/^optimizer_algorithm/, "NelderMead");
+    expect(options().optimizer_algorithm).toBe("NelderMead");
+
+    type("timeout_in_seconds", "30");
+    type("max_evals", "5000");
+    type("alpha", "1.5");
+    expect([options().timeout_in_seconds, options().max_evals, options().alpha]).toEqual([30, 5000, 1.5]);
+  });
+});
