@@ -674,7 +674,7 @@ where
                 self.emit_log(datasets, options);
             }
         }
-        if options.external_stop.as_ref().is_some_and(|s| s.is_requested()) || self.stdin_reader.check_for_quit()? {
+        if options.external_stop.as_ref().is_some_and(|s| s.is_requested()) || self.stdin_reader.check_for_quit() {
             controller.cancel();
         }
         Ok(())
@@ -749,7 +749,7 @@ where
             check_dataset(dataset, options);
         }
         let run_id = options.run_id.clone().unwrap_or_else(generate_run_id);
-        let stdin_reader = StdinReader::watch(options.input_stream.as_ref())?;
+        let stdin_reader = StdinReader::watch(options.input_stream.as_ref());
         let key = WarmStartKey::new(datasets, options);
         if let Some(previous) = &previous {
             previous.key.check(&key)?;

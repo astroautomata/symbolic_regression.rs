@@ -242,6 +242,41 @@ fn quit_monitor_ignores_non_quit_lines_and_stale_input() {
         assert!(!engine.is_finished());
     }
 }
+/// The default stdin monitor ignores a standard input it cannot read instead of failing the
+/// search, as SymbolicRegression.jl does.
+#[cfg(unix)]
+#[test]
+fn search_ignores_unreadable_stdin() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::{Command, Stdio};
+
+    const CHILD: &str = "SR_STDIN_MONITOR_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let mut opts = options(3);
+        opts.input_stream = Options::<f64, BuiltinOpsF64, 2>::default().input_stream;
+        assert!(opts.input_stream.is_some());
+        equation_search(&[dataset()], &opts).unwrap();
+        return;
+    }
+    let (open_socket, _peer) = UnixStream::pair().unwrap();
+    let (hung_up_socket, closed_peer) = UnixStream::pair().unwrap();
+    drop(closed_peer);
+    for stdin in [open_socket, hung_up_socket] {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "search_ignores_unreadable_stdin", "--test-threads=1"])
+            .env(CHILD, "1")
+            .stdin(Stdio::from(OwnedFd::from(stdin)))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
 #[test]
 fn stop_on_clock_time() {
     use rand::SeedableRng;

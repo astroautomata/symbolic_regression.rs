@@ -114,7 +114,8 @@ to `Some(0)` to suppress printing, or leave it `None` for normal output.
 keep `variable_names`. `terminal_width` controls the terminal table width.
 `ExternalStop::request()` asks one search to stop gracefully at its next completed
 population cycle. Unix searches monitor stdin for `q` followed by Enter or a
-control-C byte; `input_stream: None` disables monitoring. `InputStream::channel()`
+control-C byte, and stop monitoring once stdin closes or fails; `input_stream: None`
+disables monitoring. `InputStream::channel()`
 and `InputStream::nonblocking()` accept other input sources on every platform.
 
 ## Custom operators

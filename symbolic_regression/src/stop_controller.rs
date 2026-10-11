@@ -69,7 +69,8 @@ impl ExternalStop {
 }
 
 /// An input source whose callback returns currently available bytes without waiting.
-/// Empty data, end-of-file, and `WouldBlock` mean that no command is available.
+/// Empty data, end-of-file, and `WouldBlock` mean that no command is available; any other
+/// error stops monitoring for the rest of the search.
 #[derive(Clone)]
 pub enum InputStream {
     #[cfg(unix)]
@@ -110,80 +111,92 @@ pub(crate) struct StdinReader {
     saw_quit_char: bool,
 }
 impl StdinReader {
-    pub(crate) fn watch(input: Option<&InputStream>) -> Result<Self, String> {
-        let input = match input {
-            #[cfg(unix)]
-            Some(InputStream::Stdin) => {
-                use std::io::Read;
-                use std::os::unix::fs::OpenOptionsExt;
-                let file = std::fs::OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_NONBLOCK)
-                    .open("/dev/stdin")
-                    .map_err(|e| format!("cannot monitor stdin: {e}"))?;
-                let file = std::sync::Mutex::new(file);
-                Some(InputStream::nonblocking(move || {
-                    let mut bytes = Vec::new();
-                    let mut buffer = [0; 4096];
-                    let mut file = file.lock().unwrap();
-                    loop {
-                        match file.read(&mut buffer) {
-                            Ok(0) => break,
-                            Ok(n) => bytes.extend_from_slice(&buffer[..n]),
-                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                            Err(e) => return Err(e),
-                        }
-                    }
-                    Ok(bytes)
-                }))
-            }
-            _ => input.cloned(),
-        };
-        let reader = Self {
-            input,
+    /// Starts monitoring `input`, discarding anything already waiting on it.
+    pub(crate) fn watch(input: Option<&InputStream>) -> Self {
+        let mut reader = Self {
+            input: input.cloned(),
             saw_quit_char: false,
         };
-        reader.read_available().map_err(|e| e.to_string())?;
-        Ok(reader)
+        reader.read_available();
+        reader
     }
-    fn read_available(&self) -> std::io::Result<Vec<u8>> {
-        match &self.input {
-            Some(InputStream::Nonblocking(callback)) => match callback() {
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::UnexpectedEof
-                    ) =>
-                {
-                    Ok(Vec::new())
-                }
-                result => result,
-            },
+    /// Returns the bytes available now. Like SymbolicRegression.jl, which ignores streams it
+    /// cannot read, this stops monitoring once the input closes or fails.
+    fn read_available(&mut self) -> Vec<u8> {
+        let mut data = Vec::new();
+        let open = match &self.input {
             #[cfg(unix)]
-            Some(InputStream::Stdin) => unreachable!("stdin is opened when monitoring starts"),
-            None => Ok(Vec::new()),
+            Some(InputStream::Stdin) => read_stdin_available(&mut data),
+            Some(InputStream::Nonblocking(callback)) => match callback() {
+                Ok(bytes) => {
+                    data = bytes;
+                    true
+                }
+                Err(e) => matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::UnexpectedEof
+                ),
+            },
+            None => true,
+        };
+        if !open {
+            self.input = None;
         }
+        data
     }
-    pub(crate) fn check_for_quit(&mut self) -> Result<bool, String> {
-        let data = self
-            .read_available()
-            .map_err(|e| format!("cannot read input stream: {e}"))?;
+    pub(crate) fn check_for_quit(&mut self) -> bool {
+        let data = self.read_available();
         for byte in data {
             match byte {
                 3 => {
                     self.saw_quit_char = false;
-                    return Ok(true);
+                    return true;
                 }
                 b'q' => self.saw_quit_char = true,
                 b'\r' | b'\n' if self.saw_quit_char => {
                     self.saw_quit_char = false;
-                    return Ok(true);
+                    return true;
                 }
                 b'\r' | b'\n' => {}
                 _ => self.saw_quit_char = false,
             }
         }
-        Ok(false)
+        false
+    }
+}
+
+/// Appends the bytes waiting on standard input to `bytes` without blocking, polling before each
+/// read so that the descriptor's flags, which the parent shell shares, stay untouched. Returns
+/// whether stdin is still readable: hang-up, end-of-file, and errors all end monitoring.
+#[cfg(unix)]
+fn read_stdin_available(bytes: &mut Vec<u8>) -> bool {
+    let interrupted = || std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted;
+    let mut buffer = [0u8; 4096];
+    loop {
+        let mut stdin = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: `stdin` is one valid `pollfd`, and a zero timeout never waits.
+        match unsafe { libc::poll(&mut stdin, 1, 0) } {
+            0 => return true,
+            ready if ready < 0 => {
+                if interrupted() {
+                    continue;
+                }
+                return false;
+            }
+            _ if stdin.revents & libc::POLLIN == 0 => return false,
+            _ => {}
+        }
+        // SAFETY: `buffer` is writable for `buffer.len()` bytes.
+        let read = unsafe { libc::read(libc::STDIN_FILENO, buffer.as_mut_ptr().cast(), buffer.len()) };
+        match read {
+            0 => return false,
+            n if n > 0 => bytes.extend_from_slice(&buffer[..n as usize]),
+            _ if interrupted() => {}
+            _ => return false,
+        }
     }
 }
