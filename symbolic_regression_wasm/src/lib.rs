@@ -453,6 +453,7 @@ fn summary_from_member(
                 variable_names: Some(engine.dataset().variable_names.as_slice()),
                 pretty: false,
                 print_precision,
+                ..Default::default()
             },
         )
     };

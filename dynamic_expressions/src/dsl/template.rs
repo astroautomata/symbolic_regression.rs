@@ -536,6 +536,7 @@ impl TemplateStructure {
             variable_names: Some(&names),
             pretty,
             print_precision,
+            ..Default::default()
         };
         let constant = |v: &T| match print_precision {
             Some(p) => format_g(v.to_f64().unwrap_or(f64::NAN), p),

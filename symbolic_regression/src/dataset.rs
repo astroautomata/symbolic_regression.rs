@@ -5,6 +5,7 @@ use ndarray::{Array1, Array2};
 use num_traits::Float;
 
 use crate::random::usize_range;
+use crate::units::Units;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {
@@ -66,6 +67,8 @@ pub struct Dataset<T: Float> {
     pub variable_names: Vec<String>,
     /// Weighted mean of `y` (or unweighted mean when no weights).
     pub avg_y: T,
+    /// SymbolicRegression.jl's `X_units` and `y_units`; see [`Self::with_units`].
+    pub units: Option<Units>,
 }
 
 impl<T: Float> Dataset<T> {
@@ -97,6 +100,7 @@ impl<T: Float> Dataset<T> {
             weights,
             variable_names,
             avg_y,
+            units: None,
         }
     }
 
@@ -111,6 +115,25 @@ impl<T: Float> Dataset<T> {
         variable_names: Vec<String>,
     ) -> Self {
         Self::build_dataset(x, y, weights, variable_names, None)
+    }
+
+    /// Attaches units to the features and target, written as PySR and SymbolicRegression.jl take
+    /// them (`"kg"`, `"m/s^2"`, `"Constants.G"`). The search then adds
+    /// `Options::dimensional_constraint_penalty` to the loss of each dimensionally inconsistent
+    /// expression. Target units alone make every feature dimensionless.
+    ///
+    /// ```
+    /// use ndarray::{Array1, Array2};
+    /// use symbolic_regression::Dataset;
+    ///
+    /// let dataset = Dataset::new(Array2::zeros((2, 3)), Array1::zeros(3))
+    ///     .with_units(Some(&["m", "s"]), Some("m/s"))
+    ///     .unwrap();
+    /// assert_eq!(dataset.units.unwrap().x[0].label(), "[m]");
+    /// ```
+    pub fn with_units<S: AsRef<str>>(mut self, x_units: Option<&[S]>, y_units: Option<&str>) -> Result<Self, String> {
+        self.units = Units::parse(self.n_features, x_units, y_units)?;
+        Ok(self)
     }
 
     pub fn y_slice(&self) -> &[T] {
@@ -152,7 +175,11 @@ impl<T: Float> Dataset<T> {
         let x = Array2::<T>::zeros((full.n_features, batch_size));
         let y = Array1::<T>::zeros(batch_size);
         let weights = full.weights.as_ref().map(|_| Array1::<T>::zeros(batch_size));
-        Self::build_dataset(x, y, weights, full.variable_names.clone(), Some(full.avg_y))
+        let batch = Self::build_dataset(x, y, weights, full.variable_names.clone(), Some(full.avg_y));
+        Dataset {
+            units: full.units.clone(),
+            ..batch
+        }
     }
 
     pub fn resample_from(&mut self, full: &Dataset<T>, rng: &mut Rng) {

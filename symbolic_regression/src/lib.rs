@@ -9,6 +9,7 @@ pub(crate) mod check_constraints;
 pub(crate) mod complexity;
 pub(crate) mod constant_optimization;
 pub(crate) mod dataset;
+pub(crate) mod dimensional_analysis;
 pub(crate) mod expression;
 pub(crate) mod hall_of_fame;
 pub(crate) mod loss_functions;
@@ -29,6 +30,7 @@ pub(crate) mod search_utils;
 pub(crate) mod selection;
 pub(crate) mod single_iteration;
 pub(crate) mod stop_controller;
+pub mod units;
 pub(crate) mod warmup;
 
 #[cfg(feature = "bench")]

@@ -62,11 +62,11 @@ macro_rules! kernels {
             }
 
             /// Evaluates the kernel on one row.
-            pub fn eval_scalar(self, args: &[f64]) -> f64 {
+            pub fn eval_scalar<T: Float>(self, args: &[T]) -> T {
                 match self {
                     $(Kernel::$Op => {
                         const A: usize = <builtin::$Op as OpTag>::ARITY as usize;
-                        <builtin::$Op as Operator<f64, A>>::eval(&core::array::from_fn(|i| args[i]))
+                        <builtin::$Op as Operator<T, A>>::eval(&core::array::from_fn(|i| args[i]))
                     })*
                 }
             }

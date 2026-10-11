@@ -11,6 +11,7 @@ mod imp {
 
     use crate::hall_of_fame::HallOfFame;
     use crate::options::{LossScale, Options, OutputStyle};
+    use crate::units::{UnitLabels, Units};
 
     struct ProgressTracking {
         last_speed_time: Instant,
@@ -33,10 +34,15 @@ mod imp {
         msg_min_interval: Duration,
         tracking: ProgressTracking,
         render: RenderOptions,
+        units: Option<Units>,
     }
 
     impl SearchProgress {
-        pub(crate) fn new<T: Float, Ops, const D: usize>(options: &Options<T, Ops, D>, total_cycles: usize) -> Self {
+        pub(crate) fn new<T: Float, Ops, const D: usize>(
+            options: &Options<T, Ops, D>,
+            total_cycles: usize,
+            units: Option<&Units>,
+        ) -> Self {
             let show = options.progress && std::io::stderr().is_terminal();
 
             let ansi = match options.output_style {
@@ -81,6 +87,7 @@ mod imp {
                     last_msg_update: Instant::now(),
                 },
                 render,
+                units: units.cloned(),
             }
         }
 
@@ -116,6 +123,7 @@ mod imp {
                 total_evals,
                 cycles_remaining,
                 print_precision,
+                units: self.units.as_ref(),
             })
         }
 
@@ -137,6 +145,7 @@ mod imp {
         total_evals: u64,
         cycles_remaining: usize,
         print_precision: usize,
+        units: Option<&'a Units>,
     }
 
     fn update_progress_msg<T, Ops, const D: usize>(ctx: ProgressMsgCtx<'_, T, Ops, D>) -> Result<(), String>
@@ -155,6 +164,7 @@ mod imp {
             total_evals,
             cycles_remaining,
             print_precision,
+            units,
         } = ctx;
 
         let now = Instant::now();
@@ -198,7 +208,7 @@ mod imp {
             ),
         };
 
-        let hof = format_hall_of_fame(hall, options, term_width, usize::MAX, render, print_precision)?;
+        let hof = format_hall_of_fame(hall, options, term_width, usize::MAX, render, print_precision, units)?;
         let hof_title = "Hall of Fame:".to_string();
         pb.set_message(format!(
             "{}\n{}\n{}",
@@ -211,6 +221,10 @@ mod imp {
         Ok(())
     }
 
+    /// SymbolicRegression.jl's hall of fame. With units, each equation reads
+    /// `y[kg] = x1[m] * 3.2[?]`: features carry their units, constants whose units are free carry
+    /// `[?]`, and the target carries its units, or `[?]` when only the features have units.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn format_hall_of_fame<T, Ops, const D: usize>(
         hall: &HallOfFame<T, Ops, D>,
         options: &Options<T, Ops, D>,
@@ -218,6 +232,7 @@ mod imp {
         max_entries: usize,
         render: RenderOptions,
         print_precision: usize,
+        units: Option<&Units>,
     ) -> Result<String, String>
     where
         T: Float + num_traits::ToPrimitive + Display,
@@ -252,6 +267,8 @@ mod imp {
         out.push('\n');
 
         let scores = hall.pareto_scores(render.loss_scale)?;
+        let labels = units.map(|u| UnitLabels::new(u, options.dimensionless_constants_only));
+        let prefix = labels.as_ref().map_or(String::new(), |l| format!("y{} = ", l.target));
         for (m, score) in hall.pareto_front().into_iter().zip(scores).take(max_entries) {
             let loss = m.loss.to_f64().unwrap_or(f64::INFINITY);
             let mut stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
@@ -260,13 +277,16 @@ mod imp {
             }
             let left_cols_width = stats.chars().count();
 
-            let eqn_plain = m.expr.string(
-                options,
-                StringTreeOptions {
-                    print_precision: Some(print_precision),
-                    ..Default::default()
-                },
-            );
+            let eqn_plain = prefix.clone()
+                + &m.expr.string(
+                    options,
+                    StringTreeOptions {
+                        print_precision: Some(print_precision),
+                        variable_suffixes: labels.as_ref().map(|l| l.variables.as_slice()),
+                        constant_suffix: labels.as_ref().map_or("", |l| l.constant),
+                        ..Default::default()
+                    },
+                );
             let eqn_lines = wrap_equation(&eqn_plain, terminal_width, left_cols_width);
 
             if let Some((first, rest)) = eqn_lines.split_first() {
@@ -340,7 +360,11 @@ mod imp {
     pub(crate) struct SearchProgress;
 
     impl SearchProgress {
-        pub(crate) fn new<T: Float, Ops, const D: usize>(_options: &Options<T, Ops, D>, _total_cycles: usize) -> Self {
+        pub(crate) fn new<T: Float, Ops, const D: usize>(
+            _options: &Options<T, Ops, D>,
+            _total_cycles: usize,
+            _units: Option<&crate::units::Units>,
+        ) -> Self {
             Self
         }
 

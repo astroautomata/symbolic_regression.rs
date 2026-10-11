@@ -14,6 +14,11 @@ pub struct StringTreeOptions<'a> {
     /// each value's `Display` impl (full precision). `Some(n)` formats via a `%.<n>g`-style
     /// emulation that matches SymbolicRegression.jl's `print_precision` behavior.
     pub print_precision: Option<usize>,
+    /// Text appended to each variable, by feature, such as SymbolicRegression.jl's unit labels
+    /// (`x1[m s⁻¹]`).
+    pub variable_suffixes: Option<&'a [String]>,
+    /// Text appended to each constant, such as SymbolicRegression.jl's free-unit marker `[?]`.
+    pub constant_suffix: &'a str,
 }
 
 pub fn default_string_variable(feature: u16, names: Option<&[String]>) -> String {
@@ -158,8 +163,13 @@ where
     let out = crate::node_utils::tree_mapreduce(
         &expr.nodes,
         |n| match *n {
-            PNode::Var { feature } => default_string_variable(feature, names),
-            PNode::Const { idx } => format_constant(&expr.consts[usize::from(idx)], opts.print_precision),
+            PNode::Var { feature } => {
+                let suffix = opts.variable_suffixes.and_then(|s| s.get(usize::from(feature)));
+                default_string_variable(feature, names) + suffix.map_or("", String::as_str)
+            }
+            PNode::Const { idx } => {
+                format_constant(&expr.consts[usize::from(idx)], opts.print_precision) + opts.constant_suffix
+            }
             _ => unreachable!("branch node in leaf mapper"),
         },
         |n| match *n {

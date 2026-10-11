@@ -181,7 +181,7 @@ where
         cycles_completed: 0,
     };
 
-    let mut progress = SearchProgress::new(options, counters.total_cycles);
+    let mut progress = SearchProgress::new(options, counters.total_cycles, dataset.units.as_ref());
     progress.set_initial_evals(pools.total_evals as u64);
 
     let mut core = SearchCore {
@@ -435,7 +435,7 @@ where
             cycles_completed: 0,
         };
 
-        let mut progress = SearchProgress::new(&options, counters.total_cycles);
+        let mut progress = SearchProgress::new(&options, counters.total_cycles, dataset.units.as_ref());
         progress.set_initial_evals(pools.total_evals as u64);
 
         let order_rng = Rng::with_seed(options.seed ^ 0x9e37_79b9_7f4a_7c15);

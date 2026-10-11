@@ -10,6 +10,7 @@ use num_traits::Float;
 use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::dataset::TaggedDataset;
+use crate::dimensional_analysis::violates_dimensional_constraints;
 use crate::expression::{Expression, OneOrMany};
 use crate::loss_functions::loss_to_cost;
 use crate::options::Options;
@@ -192,9 +193,20 @@ where
             return false;
         }
 
-        let loss = options
+        let mut loss = options
             .loss
             .loss(&evaluator.yhat, dataset.y.as_slice().unwrap(), dataset.weights_slice());
+        if let Some(units) = &dataset.units {
+            if violates_dimensional_constraints(
+                &self.expr.trees[0],
+                units,
+                dataset.x.view(),
+                &options.operators.set,
+                options.dimensionless_constants_only,
+            ) {
+                loss = loss + T::from(options.dimensional_constraint_penalty).unwrap();
+            }
+        }
         if loss.is_nan() {
             self.loss = loss;
             self.cost = T::nan();

@@ -197,6 +197,8 @@ macro_rules! sr_options_spec {
                     (f64, 0.0, "timeout-in-seconds"),
                 loss_scale:
                     (LossScale, LossScale::Log, "loss-scale"),
+                dimensional_constraint_penalty:
+                    (f64, 1000.0, "dimensional-constraint-penalty"),
             }
             neg_flags {
                 use_frequency:
@@ -225,6 +227,8 @@ macro_rules! sr_options_spec {
                     (false, batching, "batching"),
                 deterministic:
                     (false, deterministic, "deterministic"),
+                dimensionless_constants_only:
+                    (false, dimensionless_constants_only, "dimensionless-constants-only"),
             }
         }
     };
@@ -450,12 +454,15 @@ impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T,
 
     /// Checks, before a search starts, that the loss can score `dataset` and that the template
     /// reads its features: one name per feature, valid parameter indices on every row, and
-    /// operators that `D` can differentiate.
+    /// operators that `D` can differentiate. Templates take no units, as in SymbolicRegression.jl.
     pub fn check_dataset(&self, dataset: &Dataset<T>) -> Result<(), String> {
         self.loss.check_weights(dataset.weights_slice().is_some())?;
         let Some(template) = &self.template else {
             return Ok(());
         };
+        if dataset.units.is_some() {
+            return Err("template expressions do not support units".to_string());
+        }
         let names = template.variable_names();
         if names.len() != dataset.n_features {
             return Err(format!(

@@ -130,7 +130,16 @@ fn pareto_curve_header_shows_score_only_for_log_scale() {
     let hall = hall_with_x1(0.5);
     let options = Options::<T, TestOps, D>::default();
     let table = |loss_scale, ansi| {
-        format_hall_of_fame(&hall, &options, 100, usize::MAX, RenderOptions { ansi, loss_scale }, 5).unwrap()
+        format_hall_of_fame(
+            &hall,
+            &options,
+            100,
+            usize::MAX,
+            RenderOptions { ansi, loss_scale },
+            5,
+            None,
+        )
+        .unwrap()
     };
 
     let log = table(LossScale::Log, false);
@@ -170,6 +179,7 @@ fn pareto_curve_rejects_negative_losses_under_log_scale() {
                 loss_scale,
             },
             5,
+            None,
         )
     };
     let err = table(LossScale::Log).unwrap_err();
