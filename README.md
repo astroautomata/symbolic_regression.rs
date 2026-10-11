@@ -201,6 +201,26 @@ let options = Options::<f64, BuiltinOpsF64, 2> {
 
 `Expression::trees` and `PopMember::plans` use `OneOrMany`: one component is stored inline, and multiple components use a vector. Use `.into()` to convert a `Vec` to this storage.
 
+## Units
+
+`Dataset::with_units` attaches units to the features and the target, written as PySR takes them: `"kg"`, `"m/s^2"`, `"km"`, `"Constants.G"`, or `""` for dimensionless. The parser follows DynamicQuantities' `uparse`, with its units, prefixes, and constants; a bad string fails with the offending token. Target units alone make every feature dimensionless.
+
+```rust
+use ndarray::{Array1, Array2};
+use symbolic_regression::prelude::*;
+
+let dataset = Dataset::<f64>::new(Array2::zeros((2, 8)), Array1::zeros(8))
+    .with_units(Some(&["m", "s"]), Some("m/s"))
+    .unwrap();
+let options = Options::<f64, BuiltinOpsF64, 2> {
+    dimensional_constraint_penalty: 1000.0,
+    dimensionless_constants_only: false,
+    ..Default::default()
+};
+```
+
+As in SymbolicRegression.jl, constants take whatever units make an expression consistent unless `dimensionless_constants_only` is set, and each dimensionally inconsistent expression has `dimensional_constraint_penalty` (default 1000) added to its loss. Constant optimization minimizes the loss without the penalty. The hall of fame prints units: `y[m s⁻¹] = x0[m] / (x1[s] * 1.02[?])`, where `[?]` marks a constant whose units are free. Template expressions do not take units. `WasmSearch` takes `x_units` and `y_units` options.
+
 ## WASM
 
 This workspace includes a thin `wasm-bindgen` wrapper crate (`symbolic_regression_wasm`) at `symbolic_regression_wasm/` and a minimal browser UI at `web_ui/` (Vite + WebWorker).
