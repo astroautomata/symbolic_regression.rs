@@ -14,6 +14,7 @@ mod test_jl_dataset;
 mod test_jl_guesses;
 mod test_jl_losses;
 mod test_jl_options;
+mod test_jl_plugins;
 mod test_jl_templates;
 mod test_jl_units;
 mod test_loss;
