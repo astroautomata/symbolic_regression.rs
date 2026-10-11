@@ -1964,7 +1964,7 @@ name = "MutationBurstPlugin: compound portion chains on success"
 pr = 6
 status = "done"
 rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_compound_chains_on_success"]
-note = "Unchanged row; now also asserts the selected attempt index (2)."
+note = "Also asserts that the selected attempt index is 2, which the Julia testitem does not check."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
