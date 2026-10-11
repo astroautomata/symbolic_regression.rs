@@ -233,13 +233,20 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
     a
 }
 
-/// `x` as Julia prints a `Float64`: shortest digits, `.0` on integers, and exponent notation
-/// outside `1e-4 <= |x| < 1e6`.
+/// `x` as Julia prints a `Float64`: shortest digits, `.0` on integers, exponent notation outside
+/// `1e-4 <= |x| < 1e6`, and `Inf`, `-Inf`, `NaN`.
 fn julia_float(x: f64) -> String {
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "Inf" } else { "-Inf" }.to_string();
+    }
     let sci = format!("{x:e}");
-    let (mantissa, exp) = sci.split_once('e').expect("`{:e}` has an exponent");
-    let exp: i32 = exp.parse().expect("an integer exponent");
-    if x == 0.0 || !x.is_finite() || (-4..6).contains(&exp) {
+    let Some((mantissa, exp)) = sci.split_once('e').and_then(|(m, e)| Some((m, e.parse::<i32>().ok()?))) else {
+        return format!("{x:?}");
+    };
+    if x == 0.0 || (-4..6).contains(&exp) {
         return format!("{x:?}");
     }
     let mut out = mantissa.to_string();

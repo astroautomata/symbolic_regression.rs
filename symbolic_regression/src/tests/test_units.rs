@@ -253,6 +253,21 @@ fn float_exponents_round_to_the_fixed_denominator() {
     }
 }
 
+/// A non-finite argument is named in the error as Julia prints it.
+#[test]
+fn non_finite_function_arguments_are_errors() {
+    for (src, message) in [
+        ("exponent(1e309)", "`exponent` is not defined at Inf"),
+        ("exponent(-1e309)", "`exponent` is not defined at -Inf"),
+        ("exponent(1e309 - 1e309)", "`exponent` is not defined at NaN"),
+        ("exponent(1e309*m/m)", "`exponent` is not defined at Inf"),
+        ("sqrt(-1e309)", "`sqrt` is not defined at -Inf"),
+    ] {
+        let result = std::panic::catch_unwind(|| Unit::parse(src)).unwrap_or_else(|_| panic!("`{src}` panicked"));
+        assert_eq!(result.unwrap_err(), format!("cannot parse unit `{src}`: {message}"));
+    }
+}
+
 /// Julia normalizes identifiers to NFC and then applies `Base.Unicode.julia_chartransform`.
 #[test]
 fn unit_names_normalize_as_julia_identifiers() {
