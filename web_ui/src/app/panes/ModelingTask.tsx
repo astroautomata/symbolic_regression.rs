@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useSessionStore } from "../../state/sessionStore";
-import type { LossScale, WasmOpInfo, WasmTemplateOptions } from "../../types/srTypes";
+import type { LossScale, WasmGuess, WasmOpInfo, WasmTemplateOptions } from "../../types/srTypes";
 
 /** Built-in losses, written as PySR's `elementwise_loss` takes them. Any definition such as
  * `f(x, y) = abs(x - y)^1.5` also works. */
@@ -211,6 +211,52 @@ function TemplateCard(props: {
   );
 }
 
+/** A template guess names each part as template results print, `f = #1 * #2; p = [5.0, 10.0]`;
+ * any other line is a plain equation. */
+function parseGuess(line: string): WasmGuess {
+  if (!/^\s*[A-Za-z_]\w*\s*=(?!=)/.test(line)) return line.trim();
+  return line
+    .split(";")
+    .filter((part) => part.trim() !== "")
+    .map((part) => {
+      const [name, ...rest] = part.split("=");
+      const value = rest.join("=").trim();
+      return [name.trim(), /^\[.*\]$/.test(value) ? splitList(value.slice(1, -1)).map(Number) : value];
+    });
+}
+
+function formatGuess(guess: WasmGuess): string {
+  if (typeof guess === "string") return guess;
+  return guess.map(([name, value]) => `${name} = ${typeof value === "string" ? value : `[${value.join(", ")}]`}`).join("; ");
+}
+
+function GuessesCard(props: { guesses: WasmGuess[]; setGuesses: (guesses: WasmGuess[]) => void }): React.ReactElement {
+  const [text, setText] = useState(props.guesses.map(formatGuess).join("\n"));
+  return (
+    <div className="card">
+      <div className="cardTitle">Guesses</div>
+      <label className="field">
+        <div className="label">guesses</div>
+        <textarea
+          className="textarea"
+          rows={3}
+          placeholder={"one equation per line, such as 2.0*cos(x0) + x1*x1\na template guess: f = #1 * #2; p = [5.0, 10.0]"}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            props.setGuesses(
+              e.target.value
+                .split("\n")
+                .filter((line) => line.trim() !== "")
+                .map(parseGuess)
+            );
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function ModelingTask(): React.ReactElement {
   const registry = useSessionStore((s) => s.operatorRegistry);
   const options = useSessionStore((s) => s.options);
@@ -298,6 +344,8 @@ export function ModelingTask(): React.ReactElement {
       </div>
 
       <TemplateCard template={options.template ?? null} setTemplate={(template) => setOptionsPatch({ template })} />
+
+      <GuessesCard guesses={options.guesses ?? []} setGuesses={(guesses) => setOptionsPatch({ guesses })} />
 
       <div className="card">
         <div className="cardTitle">Hyperparameters</div>
@@ -488,6 +536,15 @@ export function ModelingTask(): React.ReactElement {
               <label className="field">
                 <div className="label">fraction_replaced_hof</div>
                 <input type="number" step={0.0001} value={options.fraction_replaced_hof} onChange={(e) => setOptionsPatch({ fraction_replaced_hof: Number(e.target.value) })} />
+              </label>
+              <label className="field">
+                <div className="label">fraction_replaced_guesses</div>
+                <input
+                  type="number"
+                  step={0.0001}
+                  value={options.fraction_replaced_guesses}
+                  onChange={(e) => setOptionsPatch({ fraction_replaced_guesses: Number(e.target.value) })}
+                />
               </label>
             </section>
 

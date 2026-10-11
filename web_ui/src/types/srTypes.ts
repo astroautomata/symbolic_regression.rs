@@ -41,6 +41,12 @@ export type WasmTemplateOptions = {
   parameters: [string, number][];
 };
 
+/** A template guess's value for one name: a subexpression over its arguments #1, #2, ..., or a parameter vector. */
+export type WasmTemplateGuessValue = string | number[];
+
+/** A guess that seeds the search: an equation, or a template search's [name, value] pairs, as PySR's dict guesses. */
+export type WasmGuess = string | [string, WasmTemplateGuessValue][];
+
 export type WasmSearchOptions = {
   has_headers: boolean;
   x_columns: number[] | null;
@@ -57,6 +63,8 @@ export type WasmSearchOptions = {
   early_stop_condition: string | null;
   /** A template expression; null searches plain expressions. */
   template: WasmTemplateOptions | null;
+  /** SymbolicRegression.jl `guesses`: equations that seed the search. */
+  guesses: WasmGuess[];
 
   seed: number;
   niterations: number;
@@ -80,6 +88,7 @@ export type WasmSearchOptions = {
   optimizer_f_calls_limit: number;
   fraction_replaced: number;
   fraction_replaced_hof: number;
+  fraction_replaced_guesses: number;
   topn: number;
   print_precision: number;
   loss_scale: LossScale;

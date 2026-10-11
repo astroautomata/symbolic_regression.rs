@@ -72,3 +72,41 @@ describe("ModelingTask template expression", () => {
     expect(template()?.variable_names).toBeNull();
   });
 });
+
+describe("ModelingTask guesses", () => {
+  beforeEach(async () => {
+    const options = (await default_search_options()) as WasmSearchOptions;
+    useSessionStore.setState({ options, operatorRegistry: [], unaryOps: [], binaryOps: [], ternaryOps: [] });
+  });
+
+  const guesses = () => useSessionStore.getState().options?.guesses;
+
+  it("writes one guess per line, reading template guesses as the results print them", () => {
+    const { unmount } = render(<ModelingTask />);
+    expect(guesses()).toEqual([]);
+
+    type("guesses", "2.0*cos(x0) + x1*x1\n\n  x0 == 1.0 \nf = #1 * #2; g = cos(#1) ; p = [5.0, -1e-3];\n");
+    expect(guesses()).toEqual([
+      "2.0*cos(x0) + x1*x1",
+      "x0 == 1.0",
+      [
+        ["f", "#1 * #2"],
+        ["g", "cos(#1)"],
+        ["p", [5, -0.001]]
+      ]
+    ]);
+
+    unmount();
+    render(<ModelingTask />);
+    expect(screen.getByLabelText("guesses")).toHaveValue("2.0*cos(x0) + x1*x1\nx0 == 1.0\nf = #1 * #2; g = cos(#1); p = [5, -0.001]");
+
+    type("guesses", " ");
+    expect(guesses()).toEqual([]);
+  });
+
+  it("updates fraction_replaced_guesses", () => {
+    render(<ModelingTask />);
+    type("fraction_replaced_guesses", "0.05");
+    expect(useSessionStore.getState().options?.fraction_replaced_guesses).toBe(0.05);
+  });
+});

@@ -17,6 +17,7 @@ function minimalOptions() {
     loss: "L2DistLoss()",
     early_stop_condition: null,
     template: null,
+    guesses: [],
 
     seed: 0,
     niterations: 100,
@@ -40,6 +41,7 @@ function minimalOptions() {
     optimizer_f_calls_limit: 10_000,
     fraction_replaced: 0.00036,
     fraction_replaced_hof: 0.0614,
+    fraction_replaced_guesses: 0.001,
     topn: 12,
     print_precision: 5,
     loss_scale: "log",
