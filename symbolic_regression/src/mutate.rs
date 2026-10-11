@@ -10,12 +10,12 @@ use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
 use crate::expression::Expression;
 use crate::loss_functions::loss_to_cost;
-use crate::mutation_functions;
 use crate::options::{MutationWeights, Options};
 use crate::pop_member::{Evaluator, PopMember};
 use crate::random::{usize_range, usize_range_inclusive};
 use crate::selection::weighted_index;
 use crate::tracing::StepTrace;
+use crate::{backsolve, mutation_functions};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MutationChoice {
@@ -31,6 +31,7 @@ pub enum MutationChoice {
     Randomize,
     DoNothing,
     Optimize,
+    Backsolve,
 }
 
 pub struct NextGenerationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
@@ -41,6 +42,8 @@ pub struct NextGenerationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub stats: &'a RunningSearchStatistics,
     pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
+    /// The population `member` was drawn from; the backsolve mutation takes library terms from it.
+    pub population: &'a [PopMember<T, Ops, D>],
     pub _ops: core::marker::PhantomData<Ops>,
 }
 
@@ -141,6 +144,7 @@ pub fn sample_mutation(rng: &mut Rng, weights: &MutationWeights) -> MutationChoi
         (MutationChoice::Randomize, weights.randomize),
         (MutationChoice::DoNothing, weights.do_nothing),
         (MutationChoice::Optimize, weights.optimize),
+        (MutationChoice::Backsolve, weights.backsolve),
     ];
     let w: Vec<f64> = choices.iter().map(|(_, v)| *v).collect();
     let idx = weighted_index(rng, &w);
@@ -150,6 +154,7 @@ pub fn sample_mutation(rng: &mut Rng, weights: &MutationWeights) -> MutationChoi
 enum MutationResult<T: Float + AddAssign, Ops, const D: usize> {
     ProposedExpr { expr: Expression<T, Ops, D>, evals: f64 },
     ProposedMember { member: PopMember<T, Ops, D>, evals: f64 },
+    Failed { evals: f64 },
 }
 
 struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
@@ -162,6 +167,7 @@ struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
     options: &'a Options<T, Ops, D>,
     evaluator: &'a mut Evaluator<T, D>,
     trace: &'a mut StepTrace,
+    population: &'a [PopMember<T, Ops, D>],
 }
 
 /// SymbolicRegression.jl's `mutate_constant` for a candidate: a template with parameters mutates
@@ -209,6 +215,7 @@ impl MutationChoice {
             options,
             evaluator,
             trace,
+            population,
         } = ctx;
         let n_features = dataset.n_features;
         let edits_one_tree = !matches!(
@@ -217,6 +224,7 @@ impl MutationChoice {
                 | MutationChoice::Simplify
                 | MutationChoice::DoNothing
                 | MutationChoice::Optimize
+                | MutationChoice::Backsolve
         );
         let k = if edits_one_tree {
             tree_to_mutate(rng, expr.trees.len())
@@ -350,6 +358,12 @@ impl MutationChoice {
 
                 MutationResult::ProposedMember { member: out, evals }
             }
+            MutationChoice::Backsolve => {
+                match backsolve::backsolve_mutation(rng, member, dataset, curmaxsize, options, evaluator, population) {
+                    (Some(member), evals) => MutationResult::ProposedMember { member, evals },
+                    (None, evals) => MutationResult::Failed { evals },
+                }
+            }
         }
     }
 }
@@ -412,6 +426,7 @@ where
         stats,
         options,
         evaluator,
+        population,
         ..
     } = ctx;
 
@@ -438,6 +453,7 @@ where
             options,
             evaluator,
             trace: &mut *trace,
+            population,
         });
         match outcome {
             MutationResult::ProposedExpr { expr, evals: e } => {
@@ -454,6 +470,10 @@ where
             } => {
                 evals += delta_evals;
                 return (out, true, evals);
+            }
+            MutationResult::Failed { evals: e } => {
+                evals += e;
+                break;
             }
         }
     }

@@ -37,6 +37,7 @@ fn next_generation_fails_constraints_after_retries() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
     let options = Options::<T, TestOps, D> {
@@ -79,6 +80,7 @@ fn next_generation_fails_constraints_after_retries() {
             stats: &stats,
             options: &options,
             evaluator: &mut evaluator,
+            population: &[],
             _ops: core::marker::PhantomData,
         },
     );
@@ -106,6 +108,7 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
     let options = Options::<T, TestOps, D> {

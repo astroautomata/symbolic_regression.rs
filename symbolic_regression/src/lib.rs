@@ -5,11 +5,13 @@ Build with RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals'.
 );
 
 pub(crate) mod adaptive_parsimony;
+pub mod backsolve;
 pub(crate) mod check_constraints;
 pub(crate) mod complexity;
 pub(crate) mod constant_optimization;
 pub(crate) mod dataset;
 pub(crate) mod dimensional_analysis;
+pub(crate) mod evaluate_inverse;
 pub(crate) mod expression;
 pub(crate) mod guesses;
 pub(crate) mod hall_of_fame;

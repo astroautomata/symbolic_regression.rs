@@ -35,6 +35,7 @@ fn custom_operator_is_used_in_end_to_end_search() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
     let options = Options::<f64, CustomOps, 1> {
         seed: 0,

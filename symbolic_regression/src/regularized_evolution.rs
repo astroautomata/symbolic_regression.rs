@@ -54,6 +54,7 @@ where
                     stats: ctx.stats,
                     options: ctx.options,
                     evaluator: ctx.evaluator,
+                    population: &pop.members,
                     _ops: core::marker::PhantomData,
                 },
                 &mut step_trace,

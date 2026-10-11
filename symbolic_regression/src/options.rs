@@ -6,6 +6,7 @@ use dynamic_expressions::dispatch::SrcRef;
 use dynamic_expressions::dsl::{DslError, DslFloat, ScalarFn, TemplateStructure, parse_definition};
 use num_traits::Float;
 
+use crate::backsolve::BacksolveOptions;
 use crate::dataset::Dataset;
 use crate::guesses::Guess;
 use crate::loss_functions::{BuiltinLoss, LossObject};
@@ -129,6 +130,8 @@ macro_rules! sr_mutation_weights_spec {
                 (f64, 0.5, "mw-form-connection"),
             break_connection:
                 (f64, 0.1, "mw-break-connection"),
+            backsolve:
+                (f64, 0.0, "mw-backsolve"),
         }
     };
 }
@@ -299,6 +302,9 @@ macro_rules! __define_options {
             /// ```
             pub operators: Operators<Ops, D>,
             pub mutation_weights: MutationWeights,
+            /// Parameters of the backsolve mutation (SymbolicRegression.jl's `BacksolveMutation`),
+            /// which fires with weight `mutation_weights.backsolve`.
+            pub backsolve: BacksolveOptions,
             /// The loss each equation minimizes; L2 (`L2DistLoss()`) by default. Losses written as
             /// strings, as PySR's `elementwise_loss` takes them, come from
             /// [`parse_loss`](crate::parse_loss):
@@ -387,6 +393,7 @@ macro_rules! __define_options {
                     $($pname: $pdefault,)*
                     operators: Operators::default(),
                     mutation_weights: MutationWeights::default(),
+                    backsolve: BacksolveOptions::default(),
                     loss: BuiltinLoss::L2Dist.into_loss(),
                     output_style: OutputStyle::Auto,
                     variable_complexities: None,
@@ -509,6 +516,13 @@ impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T,
     /// operators that `D` can differentiate. Templates take no units, as in SymbolicRegression.jl.
     pub fn check_dataset(&self, dataset: &Dataset<T>) -> Result<(), String> {
         self.loss.check_weights(dataset.weights_slice().is_some())?;
+        if self.mutation_weights.backsolve > 0.0 && self.backsolve.max_library_size < 1 + dataset.n_features {
+            return Err(format!(
+                "backsolve's max_library_size must be at least 1 + the number of features ({}), got {}",
+                1 + dataset.n_features,
+                self.backsolve.max_library_size
+            ));
+        }
         let Some(template) = &self.template else {
             return Ok(());
         };

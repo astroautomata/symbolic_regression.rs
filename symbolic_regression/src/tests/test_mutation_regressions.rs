@@ -45,6 +45,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
@@ -74,6 +75,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
             stats: &stats,
             options: &options,
             evaluator: &mut evaluator,
+            population: &[],
             _ops: core::marker::PhantomData,
         },
     );
@@ -173,6 +175,7 @@ fn add_node_includes_append_at_leaf_move() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
     let expr = PostfixExpr::<T, TestOps, D>::new(
@@ -220,6 +223,7 @@ fn add_node_includes_append_at_leaf_move() {
                 stats: &stats,
                 options: &options,
                 evaluator: &mut evaluator,
+                population: &[],
                 _ops: core::marker::PhantomData,
             },
         );
@@ -272,6 +276,7 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
     let expr = PostfixExpr::<T, TestOps, D>::new(
@@ -314,6 +319,7 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
             stats: &stats,
             options: &options,
             evaluator: &mut evaluator,
+            population: &[],
             _ops: core::marker::PhantomData,
         },
     );
