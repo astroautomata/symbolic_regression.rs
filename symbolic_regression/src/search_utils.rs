@@ -99,7 +99,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
         ) -> Ret,
     {
         let phase_dataset = if options.batching {
-            let full_data = full_dataset.data;
+            let full_data = full_dataset.data();
             if full_data.n_rows == 0 {
                 panic!("Cannot batch from an empty dataset (n_rows = 0).");
             }
@@ -667,7 +667,7 @@ where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    let dataset = full_dataset.data;
+    let dataset = full_dataset.data();
     let mut total_evals: f64 = 0.0;
     let mut pops: Vec<Option<PopState<T, Ops, D>>> = Vec::with_capacity(options.populations);
 

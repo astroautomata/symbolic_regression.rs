@@ -1,3 +1,4 @@
+use dynamic_expressions::XColumns;
 use dynamic_expressions::utils::ZipEq;
 use fastrand::Rng;
 use ndarray::{Array1, Array2};
@@ -7,7 +8,9 @@ use crate::random::usize_range;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {
-    pub data: &'a Dataset<T>,
+    data: &'a Dataset<T>,
+    /// `data.x`, scanned once for non-finite values; the borrow keeps the scan current.
+    x_columns: XColumns<'a, T>,
     pub baseline_loss: Option<T>,
     /// Row count of the *full* dataset this tag refers to. Equal to `data.n_rows` when the tag
     /// wraps the full dataset; when it wraps a batch buffer, this is the underlying full size.
@@ -17,18 +20,22 @@ pub struct TaggedDataset<'a, T: Float> {
 
 impl<'a, T: Float> TaggedDataset<'a, T> {
     pub fn new(data: &'a Dataset<T>, baseline_loss: Option<T>) -> Self {
-        Self {
-            data,
-            baseline_loss,
-            full_n_rows: data.n_rows,
-        }
+        Self::for_batch(data, baseline_loss, data.n_rows)
     }
     pub fn for_batch(batch: &'a Dataset<T>, baseline_loss: Option<T>, full_n_rows: usize) -> Self {
         Self {
             data: batch,
+            x_columns: XColumns::checked(batch.x.view()),
             baseline_loss,
             full_n_rows,
         }
+    }
+    pub fn data(&self) -> &'a Dataset<T> {
+        self.data
+    }
+    /// The feature columns to evaluate expressions on.
+    pub fn x_columns(&self) -> XColumns<'a, T> {
+        self.x_columns
     }
     /// Matches SymbolicRegression.jl `dataset_fraction`: ratio of `data.n_rows` to the full size.
     pub fn dataset_fraction(&self) -> f64 {

@@ -24,7 +24,9 @@ pub use {num_traits, paste};
 
 pub use crate::compile::{EvalPlan, Instr, compile_plan};
 pub use crate::custom::{CustomTable, NoCustom};
-pub use crate::evaluate::{EvalContext, EvalOptions, eval_plan_array_into, eval_tree_array, eval_tree_array_into};
+pub use crate::evaluate::{
+    EvalContext, EvalOptions, XColumns, eval_plan_array_into, eval_tree_array, eval_tree_array_into,
+};
 pub use crate::evaluate_derivative::{
     DiffContext, GradContext, GradMatrix, eval_diff_tree_array, eval_grad_tree_array,
 };

@@ -1,7 +1,7 @@
 use std::ops::AddAssign;
 
 use dynamic_expressions::utils::ZipEq;
-use dynamic_expressions::{EvalOptions, EvalPlan, GradContext, OperatorSet};
+use dynamic_expressions::{EvalOptions, EvalPlan, GradContext, OperatorSet, XColumns};
 use fastrand::Rng;
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 
@@ -14,6 +14,7 @@ use crate::random::standard_normal;
 
 struct EvalWorkspace<'a, T: Float + AddAssign, Ops, const D: usize> {
     dataset: &'a Dataset<T>,
+    x_columns: XColumns<'a, T>,
     options: &'a Options<T, Ops, D>,
     evaluator: &'a mut Evaluator<T, D>,
     grad_ctx: &'a mut GradContext<T, D>,
@@ -23,7 +24,7 @@ struct EvalWorkspace<'a, T: Float + AddAssign, Ops, const D: usize> {
 
 impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D: usize> EvalWorkspace<'a, T, Ops, D> {
     fn new(
-        dataset: &'a Dataset<T>,
+        dataset: TaggedDataset<'a, T>,
         options: &'a Options<T, Ops, D>,
         evaluator: &'a mut Evaluator<T, D>,
         grad_ctx: &'a mut GradContext<T, D>,
@@ -34,7 +35,8 @@ impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D:
         };
 
         Self {
-            dataset,
+            dataset: dataset.data(),
+            x_columns: dataset.x_columns(),
             options,
             evaluator,
             grad_ctx,
@@ -44,7 +46,7 @@ impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D:
     }
 
     fn loss_only(&mut self, plans: &[EvalPlan<D>], expr: &Expression<T, Ops, D>) -> Option<f64> {
-        if !self.evaluator.eval(expr, plans, self.options, self.dataset.x.view()) {
+        if !self.evaluator.eval(expr, plans, self.options, self.x_columns) {
             return None;
         }
 
@@ -78,11 +80,10 @@ impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D:
         debug_assert_eq!(grad_out.len(), n_params);
         debug_assert_eq!(self.dloss_dyhat.len(), n_rows);
 
-        let x = self.dataset.x.view();
         let (yhat, dy_dc, ok) = dynamic_expressions::eval_grad_tree_array(
             tree,
             &self.options.operators.set,
-            x,
+            self.x_columns,
             false,
             self.grad_ctx,
             &self.eval_opts,
@@ -227,7 +228,6 @@ where
         evaluator,
         grad_ctx,
     } = ctx;
-    let dataset_ref: &Dataset<T> = dataset.data;
     evaluator.ensure_n_rows(dataset.n_rows);
     grad_ctx.n_rows = dataset.n_rows;
     let n_params = member.expr.n_constants();
@@ -240,7 +240,7 @@ where
     let orig_loss = member.loss;
     let orig_cost = member.cost;
 
-    let mut workspace = EvalWorkspace::new(dataset_ref, options, evaluator, grad_ctx);
+    let mut workspace = EvalWorkspace::new(dataset, options, evaluator, grad_ctx);
 
     let baseline = match workspace.loss_only(&member.plans, &member.expr) {
         Some(v) => v,

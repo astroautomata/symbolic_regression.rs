@@ -4,8 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dynamic_expressions::dsl::{TemplateEvalError, TemplateWorkspace};
-use dynamic_expressions::{EvalOptions, EvalPlan};
-use ndarray::ArrayView2;
+use dynamic_expressions::{EvalOptions, EvalPlan, XColumns};
 use num_traits::Float;
 #[cfg(target_arch = "wasm32")]
 use web_time::{SystemTime, UNIX_EPOCH};
@@ -95,14 +94,15 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
 
     /// Evaluates `expr` on `x` into `yhat`; `false` when the result is invalid. The search calls
     /// [`Self::eval_checked`] once before any other evaluation, so a template cannot fail here.
-    pub fn eval<Ops>(
+    pub fn eval<'a, Ops>(
         &mut self,
         expr: &Expression<T, Ops, D>,
         plans: &[EvalPlan<D>],
         options: &Options<T, Ops, D>,
-        x: ArrayView2<'_, T>,
+        x: impl Into<XColumns<'a, T>>,
     ) -> bool
     where
+        T: 'a,
         Ops: dynamic_expressions::OperatorSet<T = T>,
     {
         self.eval_checked(expr, plans, options, x)
@@ -110,16 +110,18 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
     }
 
     /// [`Self::eval`], failing when the template cannot be evaluated at all.
-    pub fn eval_checked<Ops>(
+    pub fn eval_checked<'a, Ops>(
         &mut self,
         expr: &Expression<T, Ops, D>,
         plans: &[EvalPlan<D>],
         options: &Options<T, Ops, D>,
-        x: ArrayView2<'_, T>,
+        x: impl Into<XColumns<'a, T>>,
     ) -> Result<bool, TemplateEvalError>
     where
+        T: 'a,
         Ops: dynamic_expressions::OperatorSet<T = T>,
     {
+        let x = x.into();
         match &options.template {
             None => Ok(dynamic_expressions::eval_plan_array_into(
                 &mut self.yhat,
@@ -136,7 +138,7 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
                 plans,
                 &expr.params,
                 &options.operators.set,
-                x,
+                x.view(),
                 &mut self.template,
             ),
         }
@@ -180,7 +182,7 @@ where
         evaluator: &mut Evaluator<T, D>,
     ) -> bool {
         evaluator.ensure_n_rows(dataset.n_rows);
-        let ok = evaluator.eval(&self.expr, &self.plans, options, dataset.x.view());
+        let ok = evaluator.eval(&self.expr, &self.plans, options, dataset.x_columns());
 
         self.complexity = options.complexity(&self.expr);
 
