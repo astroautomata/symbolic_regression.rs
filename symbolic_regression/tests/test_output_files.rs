@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use ndarray::array;
 use symbolic_regression::prelude::*;
@@ -120,6 +120,46 @@ fn files_appear_after_a_cycle_before_search_completion() {
     assert!(dir.0.join("running/hall_of_fame.csv").exists());
     assert!(dir.0.join("running/hall_of_fame.csv.bak").exists());
     engine.run_to_completion().unwrap();
+}
+#[test]
+fn readers_see_only_whole_hall_of_fame_files() {
+    let dir = TempDir::new();
+    let opts = Options {
+        niterations: 500,
+        ..options(&dir, "atomic")
+    };
+    let run_dir = dir.0.join("atomic");
+    let paths = [run_dir.join("hall_of_fame.csv"), run_dir.join("hall_of_fame.csv.bak")];
+    let done = AtomicBool::new(false);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let result = equation_search(&[dataset()], &opts);
+            done.store(true, Ordering::Release);
+            result.unwrap();
+        });
+        while !done.load(Ordering::Acquire) {
+            for path in &paths {
+                match std::fs::read_to_string(path) {
+                    Ok(text) => assert!(
+                        text.starts_with("Complexity,Loss,Equation\n")
+                            && text.lines().count() > 1
+                            && text.ends_with('\n'),
+                        "{} read as {text:?}",
+                        path.display()
+                    ),
+                    Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::NotFound),
+                }
+            }
+        }
+    });
+    let mut names: Vec<_> = std::fs::read_dir(&run_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["hall_of_fame.csv", "hall_of_fame.csv.bak"]);
+    let csv = std::fs::read_to_string(&paths[0]).unwrap();
+    assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), csv);
 }
 #[test]
 fn file_saving_with_zero_iterations() {

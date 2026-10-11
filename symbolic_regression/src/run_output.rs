@@ -160,12 +160,31 @@ pub(crate) fn save_to_file<T: Float + Display, Ops: OperatorSet, const D: usize>
         let backup_filename = format!("{filename}.bak");
         for name in [&filename, &backup_filename] {
             let path = directory.join(name);
-            std::fs::write(&path, &csv).map_err(|e| format!("cannot write hall of fame {}: {e}", path.display()))?;
+            write_atomically(&directory, name, &csv)
+                .map_err(|e| format!("cannot write hall of fame {}: {e}", path.display()))?;
         }
     }
     #[cfg(target_arch = "wasm32")]
     let _ = (hall, nout, output, dataset, options, run_id);
     Ok(())
+}
+
+/// Writes `contents` to `directory/name` through a temporary file in the same directory, so that
+/// a reader such as PySR, which may read these files while a search runs, sees either the previous
+/// file or the whole new one.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_atomically(directory: &std::path::Path, name: &str, contents: &str) -> std::io::Result<()> {
+    static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+    let temp = directory.join(format!(
+        ".{name}.tmp-{}-{}",
+        std::process::id(),
+        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    let written = std::fs::write(&temp, contents).and_then(|()| std::fs::rename(&temp, directory.join(name)));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written
 }
 
 /// Generates `yyyymmdd_HHMMSS_` followed by six characters from `0-9a-zA-Z`.
@@ -217,4 +236,26 @@ pub fn generate_run_id() -> String {
         .map(|_| ALPHABET[fastrand::usize(..ALPHABET.len())] as char)
         .collect();
     format!("{timestamp}_{suffix}")
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::write_atomically;
+
+    #[test]
+    fn write_atomically_replaces_the_file_and_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("sr-atomic-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for contents in ["first\n", "second, longer\n"] {
+            write_atomically(&dir, "hall_of_fame.csv", contents).unwrap();
+            assert_eq!(std::fs::read_to_string(dir.join("hall_of_fame.csv")).unwrap(), contents);
+        }
+        assert!(write_atomically(&dir.join("missing"), "hall_of_fame.csv", "x").is_err());
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["hall_of_fame.csv"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
