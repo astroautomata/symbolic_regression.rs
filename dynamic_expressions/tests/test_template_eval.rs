@@ -637,6 +637,46 @@ fn nonfinite_leaves_invalidate_the_trees_that_read_them() {
     assert_eq!(eval(&t, &un("q", x()), &[], &ops, &[&[2.0]]).unwrap(), Some(vec![0.0]));
 }
 
+/// The combining formula follows the same rule: a non-finite feature, constant, or parameter entry
+/// that the result depends on makes it invalid, even where a kernel maps it to a finite value.
+#[test]
+fn nonfinite_formula_leaves_and_parameter_reads_invalidate_the_result() {
+    let ops = BuiltinOpsF64::new();
+    let cases: [(&str, [f64; 2], &[f64], bool); 7] = [
+        ("clamp(x, 0, 1) + f(y)", [f64::INFINITY, 2.0], &[0.5], false),
+        ("clamp(x, 0, 1) + f(y)", [0.5, 2.0], &[0.5], true),
+        ("clamp(p[1], 0, 1) + f(y)", [0.5, 2.0], &[f64::INFINITY, 0.5], false),
+        ("clamp(p[2], 0, 1) + f(y)", [0.5, 2.0], &[f64::INFINITY, 0.5], true),
+        ("(x > 0) + f(y)", [f64::NAN, 2.0], &[0.5], false),
+        ("(x > 0) + f(y)", [1.0, 2.0], &[0.5], true),
+        ("clamp(Inf, 0, 1) + f(y)", [1.0, 2.0], &[0.5], false),
+    ];
+    for (src, [x, y], params, valid) in cases {
+        let t = template(src, &["f"], None, &["x", "y"], &[("p", params.len())], &ops);
+        let got = eval(&t, &arg(1), params, &ops, &[&[x], &[y]]).unwrap();
+        assert_eq!(got.is_some(), valid, "{src} at x = {x}, p = {params:?}");
+    }
+}
+
+/// A parameter vector needs an entry for the search to mutate, and a subexpression can index at
+/// most `u16::MAX` features; both are rejected when the template is built.
+#[test]
+fn empty_parameter_vectors_and_unindexable_feature_counts_are_rejected() {
+    let ops = BuiltinOpsF64::new();
+    let empty = TemplateStructure::new("f(x)", &["f"], None, &["x"], &[("p", 1), ("q", 0)], &ops)
+        .expect_err("a zero-length parameter vector");
+    assert_eq!(
+        empty.message,
+        "parameter vector `q` has length 0; it needs at least one entry"
+    );
+    let wide = TemplateStructure::new("f(x)", &["f"], Some(&[70_000]), &["x"], &[], &ops)
+        .expect_err("a feature count beyond u16::MAX");
+    assert_eq!(
+        wide.message,
+        "`f` takes 70000 features, more than the 65535 an expression can index"
+    );
+}
+
 /// `min` and `max` are Julia's, so a NaN argument makes the result NaN and SymbolicRegression.jl
 /// rejects the expression, in a subexpression or in the combining formula.
 #[test]

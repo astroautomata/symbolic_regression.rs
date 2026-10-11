@@ -16,6 +16,7 @@ use super::program::Program;
 use super::{DslError, Span, parse_formula};
 use crate::compile::{EvalPlan, compile_plan};
 use crate::dispatch::SrcRef;
+use crate::evaluate::kernels::__all_finite;
 use crate::evaluate::{EvalOptions, eval_plan_array_into};
 use crate::expression::PostfixExpr;
 use crate::node::PNode;
@@ -180,12 +181,23 @@ impl TemplateStructure {
             }
             seen.push(name);
         }
+        if let Some((name, _)) = parameters.iter().find(|(_, len)| *len == 0) {
+            return Err(err(format!(
+                "parameter vector `{name}` has length 0; it needs at least one entry"
+            )));
+        }
         if let Some(n) = num_features {
             if n.len() != expressions.len() {
                 return Err(err(format!(
                     "{} subexpressions but {} feature counts",
                     expressions.len(),
                     n.len()
+                )));
+            }
+            let max = usize::from(u16::MAX);
+            if let Some((name, n)) = expressions.iter().zip(n).find(|(_, n)| **n > max) {
+                return Err(err(format!(
+                    "`{name}` takes {n} features, more than the {max} an expression can index"
                 )));
             }
         }
@@ -336,8 +348,9 @@ impl TemplateStructure {
     /// Evaluates the template on `x` (features by rows) into `out`. `params` holds the parameter
     /// vectors concatenated in declaration order. Returns `Ok(false)` when the expression is
     /// invalid: a subexpression uses a feature beyond its arity or its call's arguments, a
-    /// parameter index is not an integer in range, or any intermediate value is not finite, as
-    /// SymbolicRegression.jl's `ValidVector`. Fails when the formula returns a scalar, or `D`
+    /// parameter index is not an integer in range, any intermediate value is not finite, as
+    /// SymbolicRegression.jl's `ValidVector`, or the result reads a non-finite feature, constant,
+    /// or parameter entry. Fails when the formula returns a scalar, or `D`
     /// differentiates an operator without IR.
     #[allow(clippy::too_many_arguments)]
     pub fn eval_into<T, Ops, const D: usize>(
@@ -377,6 +390,7 @@ impl TemplateStructure {
         ws.cols.resize_with(nodes.len(), Vec::new);
         ws.derivatives.resize_with(nodes.len(), || None);
         let mut vals: Vec<Val<T>> = Vec::with_capacity(nodes.len());
+        let mut finite_features: Vec<Option<bool>> = vec![None; x.nrows()];
         for (i, node) in nodes.iter().enumerate() {
             let (done, rest) = ws.cols.split_at_mut(i);
             let col = &mut rest[0];
@@ -392,8 +406,15 @@ impl TemplateStructure {
                 Node::Const(bits) => Val::Const(T::from(f64::from_bits(*bits)).expect("f64 converts to T")),
                 Node::Arg(f) => Val::Feature(usize::from(*f)),
                 Node::Op { kernel, .. } => {
+                    let leaves_finite = node.args().iter().all(|a| match vals[a.index()] {
+                        Val::Const(c) => c.is_finite(),
+                        Val::Feature(f) => {
+                            *finite_features[f].get_or_insert_with(|| __all_finite(&x_data[f * n..(f + 1) * n]))
+                        }
+                        Val::Col(_) => true,
+                    });
                     col.resize(n, T::zero());
-                    if !(kernel.eval_fn::<T>())(col, &args, &CHECKED) {
+                    if !leaves_finite || !(kernel.eval_fn::<T>())(col, &args, &CHECKED) {
                         return Ok(false);
                     }
                     Val::Col(i)
@@ -412,6 +433,9 @@ impl TemplateStructure {
                         let Some(k) = index_of(idx, len) else {
                             return Ok(false);
                         };
+                        if !entries[k].is_finite() {
+                            return Ok(false);
+                        }
                         *o = entries[k];
                     }
                     Val::Col(i)
