@@ -1,0 +1,79 @@
+//! A search resumed from its returned state keeps its hall of fame and evaluation count, and
+//! refuses options that change what the saved state means.
+
+use ndarray::{Array1, Array2};
+use symbolic_regression::prelude::*;
+
+type Ops = BuiltinOpsF64;
+
+fn options(operators: &[&str], niterations: usize) -> Options<f64, Ops, 2> {
+    Options {
+        operators: Ops::new().from_names(operators).unwrap(),
+        seed: 0,
+        deterministic: true,
+        niterations,
+        populations: 4,
+        maxsize: 12,
+        progress: false,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn resumed_search_keeps_its_hall_of_fame_and_counters() {
+    let n_rows = 64usize;
+    let mut rng = fastrand::Rng::with_seed(0);
+    let x = Array2::from_shape_fn((2, n_rows), |_| rng.f64() * 4.0 - 2.0);
+    let y = Array1::from_iter((0..n_rows).map(|i| x[(0, i)] * x[(0, i)] * x[(1, i)] + (x[(1, i)]).cos()));
+    let datasets = [Dataset::new(x, y)];
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+    let first_options = options(&["+", "sub", "*", "cos"], 3);
+    let first = pool.install(|| equation_search(&datasets, &first_options).unwrap());
+    let resume_options = options(&["+", "sub", "*", "cos"], 4);
+    let resumed = pool.install(|| resume_search(first.clone(), &datasets, &resume_options).unwrap());
+
+    assert!(
+        resumed.total_evals > first.total_evals,
+        "{} <= {}",
+        resumed.total_evals,
+        first.total_evals
+    );
+    let before = &first.halls_of_fame[0].best_by_complexity;
+    let after = &resumed.halls_of_fame[0].best_by_complexity;
+    for (c, (b, a)) in before.iter().zip(after).enumerate() {
+        if let Some(b) = b {
+            let a = a
+                .as_ref()
+                .unwrap_or_else(|| panic!("complexity {c} left the hall of fame"));
+            assert!(a.cost <= b.cost, "complexity {c}: {} > {}", a.cost, b.cost);
+        }
+    }
+
+    let mut engine = SearchEngine::resume(first.clone(), datasets.to_vec(), resume_options.clone()).unwrap();
+    assert_eq!(engine.total_evals(), first.total_evals as u64);
+    assert_eq!(engine.cycles_completed(), 0);
+    assert_eq!(engine.total_cycles(), 4 * resume_options.populations);
+    engine.step(1).unwrap();
+    assert_eq!(engine.cycles_completed(), 1);
+    assert!(engine.total_evals() > first.total_evals as u64);
+}
+
+#[test]
+fn warm_start_rejects_changed_maxsize_or_operators() {
+    let mut rng = fastrand::Rng::with_seed(1);
+    let x = Array2::from_shape_fn((2, 16), |_| rng.f64());
+    let y = x.row(0).to_owned() + x.row(1);
+    let datasets = [Dataset::new(x, y)];
+    let saved = equation_search(&datasets, &options(&["+", "*"], 1)).unwrap();
+
+    let mut bigger = options(&["+", "*"], 1);
+    bigger.maxsize = 20;
+    let cases = [(bigger, "maxsize"), (options(&["+", "*", "sub"], 1), "operators")];
+    for (changed, field) in cases {
+        let err = resume_search(saved.clone(), &datasets, &changed).err().unwrap();
+        assert_eq!(
+            err,
+            format!("Warm start incompatible due to changed field(s): {field}. Start a new search instead.")
+        );
+    }
+}
