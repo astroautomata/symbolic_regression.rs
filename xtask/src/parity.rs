@@ -24,13 +24,7 @@ pub fn check(julia_repo: Option<&Path>, require_done_through: i64, run: bool) ->
     let mut errors = structural_errors(&mapping, julia.as_ref());
     if errors.is_empty() {
         println!("{}", summary(&mapping.entries));
-        errors.extend(
-            mapping
-                .entries
-                .iter()
-                .filter(|e| e.status == "todo" && e.pr.is_some_and(|pr| pr <= require_done_through))
-                .map(|e| format!("todo in PR {}: {} | {}", e.pr.expect("filtered on pr"), e.file, e.name)),
-        );
+        errors.extend(todo_errors(&mapping.entries, require_done_through));
     }
     if errors.is_empty() && run {
         errors.extend(run_errors(&mapping.entries)?);
@@ -283,6 +277,15 @@ fn summary(entries: &[Entry]) -> String {
     lines.join("\n")
 }
 
+/// One error per entry still `todo` in a PR numbered at most `through`.
+fn todo_errors(entries: &[Entry], through: i64) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|e| e.status == "todo" && e.pr.is_some_and(|pr| pr <= through))
+        .map(|e| format!("todo in PR {}: {} | {}", e.pr.expect("filtered on pr"), e.file, e.name))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +369,20 @@ mod tests {
             errors.iter().any(|e| e.contains("`rust` tests must be listed")),
             "{errors:?}"
         );
+    }
+
+    #[test]
+    fn checked_in_mapping_is_done_through_pr_4() {
+        assert_eq!(todo_errors(&load().entries, 4), Vec::<String>::new());
+    }
+
+    #[test]
+    fn todo_at_or_below_the_required_pr_is_an_error() {
+        let mut entries = load().entries;
+        let entry = entries.iter_mut().find(|e| e.pr == Some(4)).unwrap();
+        entry.status = "todo".into();
+        let expected = format!("todo in PR 4: {} | {}", entry.file, entry.name);
+        assert_eq!(todo_errors(&entries, 3), Vec::<String>::new());
+        assert_eq!(todo_errors(&entries, 4), vec![expected]);
     }
 }

@@ -125,7 +125,7 @@ jobs:
         run: cargo test -p xtask
 
       - name: Parity check
-        run: cargo xtask parity --julia-repo "$RUNNER_TEMP/SymbolicRegression.jl" --require-done-through 3 --run
+        run: cargo xtask parity --julia-repo "$RUNNER_TEMP/SymbolicRegression.jl" --require-done-through 4 --run
 
   coverage:
     name: coverage (codecov)

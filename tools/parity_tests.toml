@@ -69,56 +69,66 @@ file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 1
 name = "Dimensional analysis"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::dimensional_analysis", "symbolic_regression/src/tests/test_units.rs::documented_unit_strings_match_dynamic_quantities"]
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 103
 name = "Search with dimensional constraints"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_units_search.rs::search_with_dimensional_constraints"]
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 150
 name = "Operator compatibility"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::operator_compatibility", "symbolic_regression/src/tests/test_units.rs::operator_propagation_matches_symbolic_regression_jl"]
+note = "The port has no `Quantity`-valued evaluation, so the operators are checked on dimensional analysis values; the propagation table covers every operator against SymbolicRegression.jl's `degn_eval`."
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 193
 name = "Search with dimensional constraints on output"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_units_search.rs::search_with_dimensional_constraints_on_output", "symbolic_regression/tests/test_units_search.rs::search_with_dimensional_constraints_on_output_through_roots"]
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 317
 name = "Should error on mismatched units"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::mismatched_units_are_rejected"]
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 326
 name = "Should print units"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::units_are_printed", "symbolic_regression/src/tests/test_jl_losses.rs::pareto_curve_prefixes_equations_with_the_target"]
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 390
 name = "Dimensionless constants"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::dimensionless_constants", "symbolic_regression/tests/test_units_search.rs::dimensionless_constants_only_picks_the_consistent_equation"]
 
 [[testitem]]
 file = "test/integration/ext/dynamicquantities_units/test_units.jl"
 line = 432
 name = "Miscellaneous tests of unit interface"
 pr = 4
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::unit_interface"]
+note = "The MLJ unit extraction checks are excluded: MLJ is Julia-only. The `@maybe_return_call` checks are ported."
 
 [[testitem]]
 file = "test/integration/ext/json_tracing/test_tracing.jl"
