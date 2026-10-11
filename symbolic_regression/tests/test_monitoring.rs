@@ -337,6 +337,32 @@ fn sr_logger_defaults_to_an_interval_of_one_hundred() {
 }
 
 #[test]
+fn logger_population_precedes_migration() {
+    let (log, records) = logger(1);
+    let mut opts = options(1);
+    opts.logger = Some(log);
+    opts.guesses = vec![(0..10).map(|_| Guess::from("x0 * x0 * x0 * x0")).collect()];
+    opts.fraction_replaced_guesses = 10.0;
+    let result = equation_search(&[dataset()], &opts).unwrap();
+    assert!(
+        result.populations[0][0]
+            .members
+            .iter()
+            .any(|m| m.complexity > opts.maxsize),
+        "the oversized guess migrates into the population after the cycle"
+    );
+    let records = records.lock().unwrap();
+    let LogOutputs::Single(output) = &records[0].data else {
+        panic!("single output");
+    };
+    assert!(
+        output.population.complexities.iter().all(|&c| c <= opts.maxsize),
+        "{:?}",
+        output.population.complexities
+    );
+}
+
+#[test]
 fn logger_can_request_stop_after_its_completed_cycle() {
     let stop = ExternalStop::default();
     let records = Arc::new(Mutex::new(Vec::new()));

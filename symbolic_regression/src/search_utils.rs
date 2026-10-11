@@ -593,6 +593,11 @@ where
         if let Some(record) = &res.trace {
             tracing::write_record(&options.tracing_file, record, true)?;
         }
+        if let Some(complexities) = &mut self.population_complexities {
+            let snapshot = &mut complexities[output][pop_idx];
+            snapshot.clear();
+            snapshot.extend(st.pop.members.iter().map(|m| m.complexity));
+        }
 
         stats.update_from_population(st.pop.members.iter().map(|m| m.complexity));
         stats.move_window();
@@ -638,12 +643,6 @@ where
             &mut st.rng,
             options.deterministic,
         );
-
-        if let Some(complexities) = &mut self.population_complexities {
-            let snapshot = &mut complexities[output][pop_idx];
-            snapshot.clear();
-            snapshot.extend(st.pop.members.iter().map(|m| m.complexity));
-        }
 
         // Matches SymbolicRegression.jl `check_for_loss_threshold`: cancel as soon as every
         // output's hall of fame has a member that satisfies the user's early-stop callback.
