@@ -635,6 +635,28 @@ fn template_guess(entries: Entries) -> Guess<f64, Ops, D> {
     )
 }
 
+fn close(got: f64, want: f64) -> bool {
+    if !got.is_finite() || !want.is_finite() {
+        return got == want || (got.is_nan() && want.is_nan());
+    }
+    (got - want).abs() <= 1e-12 * got.abs().max(want.abs())
+}
+
+#[test]
+fn close_requires_matching_finiteness() {
+    for (got, want) in [
+        (f64::INFINITY, 1.0),
+        (1.0, f64::INFINITY),
+        (f64::INFINITY, f64::NEG_INFINITY),
+        (f64::NAN, 1.0),
+    ] {
+        assert!(!close(got, want), "{got} vs {want}");
+    }
+    assert!(close(1.0, 1.0 + 1e-13));
+    assert!(close(f64::NAN, f64::NAN));
+    assert!(close(f64::INFINITY, f64::INFINITY));
+}
+
 fn assert_evaluates(source: &str, dataset: &Dataset<f64>, options: &Options<f64, Ops, D>, expected: fn(&[f64]) -> f64) {
     let parsed = parse_guesses(std::slice::from_ref(dataset), options).unwrap_or_else(|e| panic!("{source}: {e}"));
     let member = &parsed.members[0][0];
@@ -642,8 +664,7 @@ fn assert_evaluates(source: &str, dataset: &Dataset<f64>, options: &Options<f64,
     evaluator.eval(&member.expr, &member.plans, options, dataset.x.view());
     for (i, column) in dataset.x.columns().into_iter().enumerate() {
         let (got, want) = (evaluator.yhat[i], expected(&column.to_vec()));
-        let close = (got.is_nan() && want.is_nan()) || (got - want).abs() <= 1e-12 * got.abs().max(want.abs());
-        assert!(close, "{source}: row {i}: {got} vs {want}");
+        assert!(close(got, want), "{source}: row {i}: {got} vs {want}");
     }
 }
 
