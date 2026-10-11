@@ -446,12 +446,15 @@ where
         let n_tasks: usize = self.outputs.iter().map(|o| o.pops.len()).sum();
         let n_workers = usable_threads.min(n_tasks).max(1);
 
-        let (completed_total, error) = rayon::in_place_scope(|scope| {
-            let (result_tx, result_rx) = std::sync::mpsc::channel::<SearchTaskResult<T, Ops, D>>();
+        let (completed_total, error, panic) = rayon::in_place_scope(|scope| {
+            // A worker's panic travels back as its result, so that the loop below stops waiting
+            // for it and the panic resumes on the calling thread once the scope drains.
+            let (result_tx, result_rx) = std::sync::mpsc::channel::<std::thread::Result<SearchTaskResult<T, Ops, D>>>();
             let mut in_flight = 0usize;
             let mut completed_total = 0usize;
             let mut stop_dispatching = false;
             let mut error: Option<String> = None;
+            let mut panic = None;
 
             while completed_total < n_cycles && (!stop_dispatching || in_flight > 0) {
                 if is_finished(self) {
@@ -513,20 +516,21 @@ where
                             pop_state,
                             controller,
                         );
-                        let _ = result_tx.send(res);
+                        let _ = result_tx.send(Ok(res));
                     } else {
                         let result_tx = result_tx.clone();
                         scope.spawn(move |_| {
-                            let full_dataset = TaggedDataset::new(dataset, baseline_loss);
-                            let res = execute_task(
-                                full_dataset,
-                                options,
-                                (output, pop_idx),
-                                curmaxsize,
-                                stats_snapshot,
-                                pop_state,
-                                controller,
-                            );
+                            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                execute_task(
+                                    TaggedDataset::new(dataset, baseline_loss),
+                                    options,
+                                    (output, pop_idx),
+                                    curmaxsize,
+                                    stats_snapshot,
+                                    pop_state,
+                                    controller,
+                                )
+                            }));
                             let _ = result_tx.send(res);
                         });
                     }
@@ -542,6 +546,14 @@ where
 
                 let res = result_rx.recv().expect("worker result channel closed early");
                 in_flight -= 1;
+                let res = match res {
+                    Ok(res) => res,
+                    Err(payload) => {
+                        panic.get_or_insert(payload);
+                        stop_dispatching = true;
+                        continue;
+                    }
+                };
                 let applied = self.apply_task_result(datasets, options, res, controller);
                 completed_total += 1;
                 if let Err(message) = applied {
@@ -555,8 +567,11 @@ where
                 }
             }
 
-            (completed_total, error)
+            (completed_total, error, panic)
         });
+        if let Some(payload) = panic {
+            std::panic::resume_unwind(payload);
+        }
 
         if error.is_some() || is_finished(self) {
             self.finish_progress_if_needed();

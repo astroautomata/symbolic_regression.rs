@@ -776,10 +776,16 @@ impl<T: Float, Ops, const D: usize> Options<T, Ops, D> {
         if self.batch_size == Some(0) {
             return Err("batch_size must be positive".into());
         }
+        let mut total_mutation_weight = 0.0;
         for (_, weight) in self.resolved_mutations() {
             if !weight.is_finite() || weight < 0.0 {
                 return Err("mutation weights must be finite and non-negative".into());
             }
+            total_mutation_weight += weight;
+        }
+        // SymbolicRegression.jl's `_sample_mutation` throws on every draw from such a list.
+        if total_mutation_weight <= 0.0 {
+            return Err("at least one mutation weight must be positive".into());
         }
         for (_, weight) in self.resolved_crossovers() {
             if !weight.is_finite() || weight < 0.0 {

@@ -1,8 +1,82 @@
+use std::sync::mpsc;
+use std::time::Duration;
+
 use ndarray::{Array1, Array2};
 
 use super::common::{D, T, TestOps};
 use crate::operator_library::OperatorLibrary;
-use crate::{Options, equation_search};
+use crate::{BuiltinMutation, Options, Parallelism, SearchEngine, equation_search};
+
+fn quadratic_dataset() -> crate::Dataset<T> {
+    let x: Vec<T> = (0..64).map(|i| i as T / 64.0).collect();
+    let y = x.iter().map(|xi| xi * xi + xi).collect();
+    crate::Dataset::new(Array2::from_shape_vec((1, 64), x).unwrap(), Array1::from_vec(y))
+}
+
+fn small_options() -> Options<T, TestOps, D> {
+    Options {
+        save_to_file: false,
+        progress: false,
+        seed: Some(0),
+        operators: OperatorLibrary::sr_default::<TestOps, D>(),
+        populations: 4,
+        population_size: 20,
+        niterations: 2,
+        ncycles_per_iteration: 10,
+        maxsize: 10,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn searches_reject_mutation_lists_without_a_positive_weight() {
+    let dataset = quadratic_dataset();
+    for default_mutations in [vec![(BuiltinMutation::DoNothing, 0.0)], Vec::new()] {
+        let options = Options {
+            default_mutations: Some(default_mutations),
+            ..small_options()
+        };
+        let message = "at least one mutation weight must be positive";
+        let search = equation_search(std::slice::from_ref(&dataset), &options);
+        assert_eq!(search.err().as_deref(), Some(message));
+        let engine = SearchEngine::new(vec![dataset.clone()], options);
+        assert_eq!(engine.err().as_deref(), Some(message));
+    }
+}
+
+/// Only constant mutations, which have no weight on a tree without constants: the first such
+/// tree a worker mutates panics, as SymbolicRegression.jl's `_sample_mutation` throws.
+#[test]
+fn a_panicking_worker_fails_the_search_instead_of_hanging_it() {
+    let options = Options {
+        default_mutations: Some(vec![(BuiltinMutation::Constant(Default::default()), 1.0)]),
+        parallelism: Parallelism::Multithreading,
+        ..small_options()
+    };
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pool.install(|| equation_search(&[quadratic_dataset()], &options).map(|_| ()))
+        }));
+        let message = outcome.map_err(|payload| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+        });
+        tx.send(message).unwrap();
+    });
+    let outcome = rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the search did not finish within 60 s");
+    assert_eq!(
+        outcome.err(),
+        Some(Some(
+            "at least one conditioned mutation weight must be positive".to_string()
+        ))
+    );
+}
 
 #[test]
 fn equation_search_runs() {
