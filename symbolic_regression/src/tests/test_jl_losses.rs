@@ -192,7 +192,7 @@ fn early_stop_condition() {
             .from_names(&["+", "*", "/", "sub", "cos", "exp"])
             .unwrap(),
         populations: 20,
-        niterations: 1_000_000,
+        niterations: 100,
         seed: 0,
         deterministic: true,
         progress: false,
@@ -201,9 +201,13 @@ fn early_stop_condition() {
     };
 
     let mut engine = SearchEngine::new(dataset, options);
-    engine.step(usize::MAX).unwrap();
+    // SymbolicRegression.jl evolves every population as its own task, so all 20 are in flight
+    // whatever the core count. Inside a pool one thread runs the search loop, so a thread per
+    // population plus one keeps all 20 in flight here too, even on two cores.
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(20 + 1).build().unwrap();
+    pool.install(|| engine.step(usize::MAX)).unwrap();
     assert!(engine.is_finished());
-    assert!(engine.cycles_completed() < engine.total_cycles());
+    assert!(engine.cycles_completed() < engine.total_cycles() / 5);
     assert!(
         engine
             .hall_of_fame()
