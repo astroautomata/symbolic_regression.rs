@@ -291,6 +291,9 @@ struct OutputSearch<T: Float + AddAssign, Ops, const D: usize> {
     seeds: Vec<PopMember<T, Ops, D>>,
 }
 
+/// SymbolicRegression.jl's warning for a dataset of more than 50,000 rows, logged once per search.
+pub(crate) const LARGE_DATASET_WARNING: &str = "You are using a dataset with more than 50,000 datapoints. Symbolic regression rarely benefits from this many points; consider subsampling to 10,000 points or fewer. If you have high noise, denoise the data first rather than using more points.";
+
 /// Rejects options that cannot search `dataset` (see [`Options::check_dataset`]), before the
 /// search starts.
 fn check_dataset<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
@@ -671,10 +674,15 @@ where
             .collect();
 
         let controller = StopController::from_options(options);
+        let mut warnings = Vec::new();
+        if datasets.iter().any(|d| d.n_rows > 50_000) {
+            warnings.push(LARGE_DATASET_WARNING.to_string());
+        }
         let ParsedGuesses {
             members: seeds,
-            mut warnings,
+            warnings: guess_warnings,
         } = seed_members(&tagged, options)?;
+        warnings.extend(guess_warnings);
 
         let (prior_evals, mut saved) = match previous {
             Some(p) => (p.total_evals, Some((p.halls_of_fame, p.populations, p.rngs))),

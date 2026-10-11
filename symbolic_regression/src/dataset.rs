@@ -83,9 +83,17 @@ impl<T: Float> Dataset<T> {
         let y = contiguous(y);
         let weights = weights.map(contiguous);
         let (n_features, n_rows) = x.dim();
-        assert_eq!(y.len(), n_rows);
-        if let Some(ref w) = weights {
-            assert_eq!(w.len(), n_rows);
+        assert!(
+            y.len() == n_rows,
+            "Number of samples in `x` (x.ncols() = {n_rows}) does not match the length of `y` ({}). `x` should have shape (n_features, n_rows).",
+            y.len()
+        );
+        if let Some(w) = &weights {
+            assert!(
+                w.len() == n_rows,
+                "Number of samples in `x` (x.ncols() = {n_rows}) does not match the length of `weights` ({}).",
+                w.len()
+            );
         }
 
         let avg_y = avg_y.unwrap_or_else(|| {
