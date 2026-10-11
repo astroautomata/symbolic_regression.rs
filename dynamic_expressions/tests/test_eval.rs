@@ -68,3 +68,52 @@ fn nan_detection_sets_complete_false() {
     let (_out, ok) = eval_tree_array::<f64, TestOps, 3>(&expr, &TestOps::new(), x.view(), &opts);
     assert!(!ok);
 }
+
+/// SymbolicRegression.jl rejects an expression whose operators read a non-finite feature or
+/// constant, even where the value is finite, as for `relu(NaN) = 0`. Validity does not depend on
+/// `early_exit`, which only decides whether evaluation stops, and the derivative evaluators agree.
+#[test]
+fn nonfinite_leaves_make_the_evaluation_incomplete() {
+    use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
+    use dynamic_expressions::{
+        DiffContext, GradContext, Metadata, OperatorSet, PNode, PostfixExpr, eval_diff_tree_array, eval_grad_tree_array,
+    };
+    let ops = BuiltinOpsF64::new();
+    let relu = ops.lookup_with_arity("relu", 1).unwrap().id;
+    let relu_of = |leaf: PNode, consts: Vec<f64>| {
+        PostfixExpr::<f64, BuiltinOpsF64, 3>::new(
+            vec![leaf, PNode::Op { arity: 1, op: relu }],
+            consts,
+            Metadata::default(),
+        )
+    };
+    let finite = ndarray::Array2::from_shape_vec((1, 2), vec![-1.0, 2.0]).unwrap();
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let x = ndarray::Array2::from_shape_vec((1, 2), vec![bad, 2.0]).unwrap();
+        let cases = [
+            (relu_of(PNode::Var { feature: 0 }, vec![]), x.view()),
+            (relu_of(PNode::Const { idx: 0 }, vec![bad]), finite.view()),
+        ];
+        for (expr, x) in cases {
+            for (check_finite, early_exit) in [(true, true), (true, false), (false, false)] {
+                let opts = EvalOptions {
+                    check_finite,
+                    early_exit,
+                };
+                let what = format!(
+                    "{bad} in {:?}, check_finite {check_finite}, early_exit {early_exit}",
+                    expr.nodes
+                );
+                let (out, ok) = eval_tree_array(&expr, &ops, x, &opts);
+                assert_eq!(ok, !check_finite, "{what}");
+                if !early_exit && expr.consts.is_empty() {
+                    assert_eq!(out[1], 2.0, "{what}");
+                }
+                let (_, _, ok) = eval_grad_tree_array(&expr, &ops, x, true, &mut GradContext::new(2), &opts);
+                assert_eq!(ok, !check_finite, "grad: {what}");
+                let (_, _, ok) = eval_diff_tree_array(&expr, &ops, x, 0, &mut DiffContext::new(2), &opts);
+                assert_eq!(ok, !check_finite, "diff: {what}");
+            }
+        }
+    }
+}

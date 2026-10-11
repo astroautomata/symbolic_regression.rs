@@ -80,6 +80,22 @@ impl<T: Float, const D: usize> EvalContext<T, D> {
     }
 }
 
+/// Whether every feature column and constant `plan` reads is finite. SymbolicRegression.jl rejects
+/// an expression that reads a non-finite leaf, even where an operator such as `relu` maps it to a
+/// finite value: DynamicExpressions checks each operator's arguments, leaves included.
+pub(crate) fn leaves_finite<T: Float, const D: usize>(
+    plan: &EvalPlan<D>,
+    x_data: &[T],
+    n_rows: usize,
+    consts: &[T],
+) -> bool {
+    plan.leaf_features.iter().all(|&f| {
+        x_data[f as usize * n_rows..(f as usize + 1) * n_rows]
+            .iter()
+            .all(|v| v.is_finite())
+    }) && plan.leaf_consts.iter().all(|&c| consts[c as usize].is_finite())
+}
+
 pub(crate) fn resolve_val_src<'a, T: Float>(
     src: Src,
     x_columns: &'a [T],
@@ -152,21 +168,10 @@ where
     }
     let scratch_data = scratch.as_slice_mut().expect("scratch buffer must stay contiguous");
 
-    // SymbolicRegression.jl rejects an expression that reads a non-finite feature or constant,
-    // even where an operator such as `relu` maps it to a finite value: DynamicExpressions checks
-    // each operator's arguments, leaves included.
-    if opts.check_finite && opts.early_exit {
-        let column = |f: u16| &x_data[f as usize * n_rows..(f as usize + 1) * n_rows];
-        let finite_leaves = plan
-            .leaf_features
-            .iter()
-            .all(|&f| column(f).iter().all(|v| v.is_finite()))
-            && plan.leaf_consts.iter().all(|&c| expr.consts[c as usize].is_finite());
-        if !finite_leaves {
-            return false;
-        }
+    let mut complete = !opts.check_finite || leaves_finite(plan, x_data, n_rows, &expr.consts);
+    if opts.early_exit && !complete {
+        return false;
     }
-    let mut complete = true;
     let slot_stride = n_rows;
 
     for instr in plan.instrs.iter().copied() {

@@ -3,7 +3,7 @@ use num_traits::Float;
 
 use crate::compile::{EvalPlan, compile_plan};
 use crate::dispatch::{GradKernelCtx, GradRef, SrcRef};
-use crate::evaluate::{EvalOptions, resolve_val_src};
+use crate::evaluate::{EvalOptions, leaves_finite, resolve_val_src};
 use crate::expression::PostfixExpr;
 use crate::node::Src;
 use crate::traits::{OpId, OperatorSet};
@@ -163,6 +163,10 @@ where
         .as_slice_mut()
         .expect("grad scratch must be contiguous");
     let x_data = x_columns.as_slice().expect("X must be contiguous");
+    complete &= !opts.check_finite || leaves_finite(plan, x_data, n_rows, &expr.consts);
+    if opts.early_exit && !complete {
+        return nan_grad_return(n_rows, n_dir);
+    }
     let slot_stride = n_rows;
     let jac_stride = n_rows * n_dir;
 
