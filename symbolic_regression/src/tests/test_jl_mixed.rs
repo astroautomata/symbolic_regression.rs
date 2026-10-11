@@ -58,6 +58,7 @@ fn options() -> Options<f32, BuiltinOpsF32, 2> {
             do_nothing: 1.0,
             ..Default::default()
         },
+        save_to_file: false,
         ..Default::default()
     }
 }

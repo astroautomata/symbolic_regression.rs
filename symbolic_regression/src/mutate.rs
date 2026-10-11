@@ -335,7 +335,10 @@ impl MutationChoice {
                     &mut expr,
                     temperature,
                     options,
-                    match selected_mutation { Some(crate::options::BuiltinMutation::Constant(c)) => c, _ => options.constant_mutation() },
+                    match selected_mutation {
+                        Some(crate::options::BuiltinMutation::Constant(c)) => c,
+                        _ => options.constant_mutation(),
+                    },
                 );
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
@@ -459,7 +462,19 @@ impl MutationChoice {
             }
             MutationChoice::Backsolve => {
                 trace.kind = "backsolve";
-                match backsolve::backsolve_mutation(rng, member, dataset, curmaxsize, options, evaluator, population, match selected_mutation { Some(crate::options::BuiltinMutation::Backsolve(params)) => params, _ => options.backsolve }) {
+                match backsolve::backsolve_mutation(
+                    rng,
+                    member,
+                    dataset,
+                    curmaxsize,
+                    options,
+                    evaluator,
+                    population,
+                    match selected_mutation {
+                        Some(crate::options::BuiltinMutation::Backsolve(params)) => params,
+                        _ => options.backsolve,
+                    },
+                ) {
                     (Ok(member), evals) => MutationResult::ProposedMember { member, evals },
                     (Err(reason), evals) => {
                         trace.outcome = Some(("reject", reason));
@@ -569,10 +584,7 @@ where
                 target < cumulative
             })
             .expect("positive mutation weight");
-        (
-            MutationChoice::from_builtin(selected.0),
-            Some(selected.0),
-        )
+        (MutationChoice::from_builtin(selected.0), Some(selected.0))
     };
 
     let (baby, accepted, evals, after) = mutate_and_accept(

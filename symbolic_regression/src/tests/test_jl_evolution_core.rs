@@ -20,6 +20,7 @@ fn options() -> Options<T, TestOps, D> {
         progress: false,
         use_frequency: false,
         use_frequency_in_tournament: false,
+        save_to_file: false,
         ..Default::default()
     }
 }
@@ -51,6 +52,8 @@ fn mutate_member(
             stats: &statistics,
             options,
             evaluator: &mut evaluator,
+            population: &[],
+            weights_state: &mut crate::plugins::MutationWeightsState::default(),
             _ops: std::marker::PhantomData,
         },
     );
@@ -403,6 +406,7 @@ fn deterministic_search_repeats_best_equation() {
         niterations: 5,
         parallelism: Parallelism::Serial,
         progress: false,
+        save_to_file: false,
         ..Default::default()
     };
     let results: Vec<_> = (0..2)
@@ -502,6 +506,7 @@ fn subnormal_mutation_weights_select_the_only_positive_entry() {
         randomize: 0.0,
         do_nothing: f64::from_bits(1),
         optimize: 0.0,
+        backsolve: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
     };

@@ -342,7 +342,12 @@ fn annealing_temperature_scales_constant_perturbations() {
         let mut largest: f64 = 0.0;
         for _ in 0..500 {
             let mut expr = infix::<Ops, D>(&options.operators.set, "x1 * 1.0");
-            assert!(mutate_constant_in_place(&mut rng, &mut expr, temperature, &options));
+            assert!(mutate_constant_in_place(
+                &mut rng,
+                &mut expr,
+                temperature,
+                options.constant_mutation()
+            ));
             let factor = expr.consts[0].abs();
             largest = largest.max(factor.max(1.0 / factor));
         }

@@ -17,6 +17,7 @@ fn options() -> Options<f64, Ops, 2> {
     Options {
         operators: Ops::new().from_names(["+", "*"]).unwrap(),
         use_tracing: true,
+        save_to_file: false,
         ..Default::default()
     }
 }

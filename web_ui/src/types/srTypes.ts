@@ -50,7 +50,8 @@ export type WasmGuess = string | [string, WasmTemplateGuessValue][];
 export type WasmBuiltinMutation =
   | { Constant: { perturbation_factor: number; probability_negate: number } }
   | "Operator" | "Feature" | "SwapOperands" | "RotateTree" | "AddNode"
-  | "InsertNode" | "DeleteNode" | "Simplify" | "Randomize" | "DoNothing" | "Optimize";
+  | "InsertNode" | "DeleteNode" | "Simplify" | "Randomize" | "DoNothing" | "Optimize"
+  | { Backsolve: { max_library_size: number; max_terms: number; min_improvement: number; node_attempts: number } };
 
 export type WasmSearchOptions = {
   has_headers: boolean;

@@ -13,6 +13,7 @@ fn fixture() -> (
         niterations: 0,
         populations: 1,
         population_size: 5,
+        tournament_selection_n: 2,
         maxsize: 7,
         deterministic: true,
         should_optimize_constants: false,

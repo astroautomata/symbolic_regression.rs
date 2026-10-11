@@ -33,7 +33,7 @@ fn options(dir: &TempDir, run_id: &str) -> Options<f64, BuiltinOpsF64, 2> {
         ncycles_per_iteration: 1,
         maxsize: 20,
         deterministic: true,
-        seed: 0,
+        seed: Some(0),
         should_optimize_constants: false,
         progress: false,
         verbosity: Some(0),

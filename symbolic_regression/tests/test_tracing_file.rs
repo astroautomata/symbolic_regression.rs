@@ -43,12 +43,13 @@ fn options(tracing_file: &Path, use_tracing: bool) -> Options<f32, BuiltinOpsF32
     let mut options = Options::<f32, BuiltinOpsF32, 2> {
         operators: BuiltinOpsF32::new().from_names(["+", "*", "/", "sub", "cos"]).unwrap(),
         use_tracing,
+        save_to_file: false,
         tracing_file: tracing_file.to_path_buf(),
         populations: POPULATIONS,
         population_size: POPULATION_SIZE,
         maxsize: 20,
         niterations: NITERATIONS,
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         progress: false,
         ..Default::default()

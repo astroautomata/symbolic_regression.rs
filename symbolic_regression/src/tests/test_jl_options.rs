@@ -52,6 +52,7 @@ fn max_arity_follows_operator_set() {
     assert_eq!(ops.ops_with_arity(4).count(), 0);
     let options = Options::<f64, Ops, 5> {
         operators: ops.from_names(["sin", "+", "max5"]).unwrap(),
+        save_to_file: false,
         ..Default::default()
     };
     for op in options.operators.ops_by_arity.iter().flatten() {
@@ -75,6 +76,7 @@ fn operator_in_two_arities_needs_an_arity() {
     let operator_set = BuiltinOpsF64::new().with_custom(CustomOps::default());
     let mut options = Options::<f64, Ops, 3> {
         operators: operator_set.from_names(["neg", "sub", "+"]).unwrap(),
+        save_to_file: false,
         ..Default::default()
     };
     let sub = options.operators.set.lookup_with_arity("-", 2).unwrap();
@@ -94,6 +96,7 @@ fn default_constraints_cover_every_arity() {
         operators: operator_set
             .from_names(["sin", "cos", "+", "*", "sub", "max5"])
             .unwrap(),
+        save_to_file: false,
         ..Default::default()
     };
     let ops = &options.operators.set;
@@ -115,6 +118,7 @@ fn options_optimizer_and_loss_scale() {
         optimizer_iterations: 16,
         optimizer_f_calls_limit: 100,
         optimizer_x_abstol: 1e-16,
+        save_to_file: false,
         ..Default::default()
     };
     assert_eq!(options.optimizer_iterations, 16);
@@ -232,6 +236,7 @@ fn mutation_collection_overrides() {
     use crate::{BuiltinMutation as M, ConstantMutation, Crossover};
     let mut options = Options::<f64, Ops, 2> {
         mutations: vec![(M::Constant(ConstantMutation::default()), 0.0)],
+        save_to_file: false,
         ..Default::default()
     };
     let resolved: Vec<_> = options.resolved_mutations().collect();
@@ -268,6 +273,7 @@ fn mutation_collection_overrides() {
 fn dependent_defaults_and_validation() {
     let mut options = Options::<f64, Ops, 2> {
         maxsize: 42,
+        save_to_file: false,
         ..Default::default()
     };
     assert_eq!(options.effective_maxdepth(), 42);
@@ -302,6 +308,7 @@ fn unset_seed_draws_independent_search_streams() {
         population_size: 6,
         tournament_selection_n: 2,
         progress: false,
+        save_to_file: false,
         ..Default::default()
     };
     let dataset = crate::Dataset::new(ndarray::Array2::zeros((2, 16)), ndarray::Array1::zeros(16));
@@ -330,6 +337,7 @@ fn explicit_seed_repeats_initial_population() {
         population_size: 6,
         tournament_selection_n: 2,
         progress: false,
+        save_to_file: false,
         ..Default::default()
     };
     let dataset = crate::Dataset::new(ndarray::Array2::zeros((2, 16)), ndarray::Array1::zeros(16));
@@ -343,4 +351,36 @@ fn explicit_seed_repeats_initial_population() {
             .collect::<Vec<_>>()
     };
     assert_eq!(initial(), initial());
+}
+
+#[test]
+fn backsolve_collection_overrides_default_parameters() {
+    use crate::BuiltinMutation;
+    use crate::backsolve::BacksolveOptions;
+    let options = Options::<f64, Ops, 2> {
+        mutations: vec![(
+            BuiltinMutation::Backsolve(BacksolveOptions {
+                max_terms: 4,
+                ..Default::default()
+            }),
+            1.0,
+        )],
+        save_to_file: false,
+        ..Default::default()
+    };
+    let resolved: Vec<_> = options.resolved_mutations().collect();
+    assert_eq!(resolved[0], options.mutations[0]);
+    assert_eq!(
+        resolved
+            .iter()
+            .filter(|(m, _)| matches!(m, BuiltinMutation::Backsolve(_)))
+            .count(),
+        1
+    );
+    assert_eq!(resolved.len(), options.default_mutations().len());
+    let explicit_only = Options {
+        default_mutations: Some(vec![]),
+        ..options
+    };
+    assert_eq!(explicit_only.resolved_mutations().count(), 1);
 }
