@@ -636,19 +636,6 @@ pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize>(
     true
 }
 
-pub(crate) fn add_node_in_place<T: Float, Ops, const D: usize>(
-    rng: &mut Rng,
-    expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<Ops, D>,
-    n_features: usize,
-) -> bool {
-    if rng.bool() {
-        append_random_op_in_place(rng, expr, operators, n_features)
-    } else {
-        prepend_random_op_in_place(rng, expr, operators, n_features)
-    }
-}
-
 pub(crate) fn delete_random_op_in_place<T: Clone, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,

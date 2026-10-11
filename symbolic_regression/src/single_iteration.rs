@@ -12,6 +12,7 @@ use crate::pop_member::{Evaluator, generate_reference};
 use crate::population::Population;
 use crate::regularized_evolution::{RegEvolCtx, reg_evol_cycle};
 use crate::stop_controller::StopController;
+use crate::tracing::IterationTrace;
 
 pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub rng: &'a mut Rng,
@@ -22,6 +23,7 @@ pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut dynamic_expressions::GradContext<T, D>,
     pub controller: &'a StopController,
+    pub trace: Option<&'a mut IterationTrace<T, Ops, D>>,
     pub _ops: core::marker::PhantomData<Ops>,
 }
 
@@ -61,6 +63,7 @@ where
                 options: ctx.options,
                 evaluator: ctx.evaluator,
                 controller: ctx.controller,
+                trace: ctx.trace.as_deref_mut(),
                 _ops: core::marker::PhantomData,
             },
         );
@@ -96,10 +99,12 @@ where
         }
     }
 
+    // Which members were constant-optimized, kept only for the trace.
+    let mut optimized = vec![false; if ctx.trace.is_some() { pop.len() } else { 0 }];
     if ctx.options.should_optimize_constants && ctx.options.optimizer_probability > 0.0 {
         ctx.evaluator.ensure_n_rows(opt_dataset.n_rows);
         ctx.grad_ctx.n_rows = opt_dataset.n_rows;
-        for m in &mut pop.members {
+        for (j, m) in pop.members.iter_mut().enumerate() {
             if ctx.controller.is_cancelled() {
                 return num_evals;
             }
@@ -116,6 +121,9 @@ where
                 );
                 let _ = improved;
                 num_evals += evals;
+                if let Some(o) = optimized.get_mut(j) {
+                    *o = true;
+                }
             }
         }
     }
@@ -134,9 +142,13 @@ where
     }
 
     // SymbolicRegression.jl gives every member a new reference once the cycle has tuned it.
-    for m in &mut pop.members {
-        m.parent = m.reference;
+    for (j, m) in pop.members.iter_mut().enumerate() {
+        let old_ref = m.reference;
+        m.parent = old_ref;
         m.reference = generate_reference();
+        if let Some(trace) = ctx.trace.as_deref_mut() {
+            trace.optimization(m, old_ref, optimized[j]);
+        }
     }
     num_evals
 }

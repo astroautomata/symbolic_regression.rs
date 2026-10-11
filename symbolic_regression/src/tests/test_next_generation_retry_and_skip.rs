@@ -149,6 +149,7 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         controller: &controller,
         temperature: 1.0,
         curmaxsize: 1,
+        trace: None,
         _ops: core::marker::PhantomData,
     };
 

@@ -15,6 +15,7 @@ use crate::options::{MutationWeights, Options};
 use crate::pop_member::{Evaluator, PopMember};
 use crate::random::{usize_range, usize_range_inclusive};
 use crate::selection::weighted_index;
+use crate::tracing::StepTrace;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MutationChoice {
@@ -160,6 +161,7 @@ struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
     curmaxsize: usize,
     options: &'a Options<T, Ops, D>,
     evaluator: &'a mut Evaluator<T, D>,
+    trace: &'a mut StepTrace,
 }
 
 /// SymbolicRegression.jl's `mutate_constant` for a candidate: a template with parameters mutates
@@ -206,6 +208,7 @@ impl MutationChoice {
             curmaxsize,
             options,
             evaluator,
+            trace,
         } = ctx;
         let n_features = dataset.n_features;
         let edits_one_tree = !matches!(
@@ -225,38 +228,54 @@ impl MutationChoice {
 
         match self {
             MutationChoice::MutateConstant => {
+                trace.kind = "mutate_constant";
                 mutate_constant(rng, &mut expr, temperature, options);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::MutateOperator => {
+                trace.kind = "mutate_operator";
                 let _ = mutation_functions::mutate_operator_in_place(rng, tree, &options.operators);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::MutateFeature => {
+                trace.kind = "mutate_feature";
                 mutation_functions::mutate_feature_in_place(rng, tree, local_features);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::SwapOperands => {
+                trace.kind = "swap_operands";
                 let _ = mutation_functions::swap_operands_in_place(rng, tree);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::RotateTree => {
+                trace.kind = "rotate_tree";
                 let _ = mutation_functions::rotate_tree_in_place(rng, tree);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::AddNode => {
-                let _ = mutation_functions::add_node_in_place(rng, tree, &options.operators, local_features);
+                if rng.bool() {
+                    trace.kind = "add_node:append";
+                    let _ =
+                        mutation_functions::append_random_op_in_place(rng, tree, &options.operators, local_features);
+                } else {
+                    trace.kind = "add_node:prepend";
+                    let _ =
+                        mutation_functions::prepend_random_op_in_place(rng, tree, &options.operators, local_features);
+                }
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::InsertNode => {
+                trace.kind = "insert_node";
                 let _ = mutation_functions::insert_random_op_in_place(rng, tree, &options.operators, local_features);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::DeleteNode => {
+                trace.kind = "delete_node";
                 let _ = mutation_functions::delete_random_op_in_place(rng, tree);
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::Simplify => {
+                trace.kind = "simplify";
                 for tree in expr.trees.iter_mut() {
                     let _ = dynamic_expressions::simplify_in_place(tree, &options.operators.set, &evaluator.eval_opts);
                 }
@@ -281,6 +300,7 @@ impl MutationChoice {
                 }
             }
             MutationChoice::Randomize => {
+                trace.kind = "randomize";
                 // Match SymbolicRegression.jl: sample a *uniform* random size in 1:curmaxsize.
                 let max_size = curmaxsize.max(1).min(options.maxsize.max(1));
                 let target_size = usize_range_inclusive(rng, 1..=max_size);
@@ -290,6 +310,7 @@ impl MutationChoice {
             MutationChoice::DoNothing => {
                 // Match SymbolicRegression.jl: identity mutation is accepted immediately and keeps
                 // the old loss/cost.
+                *trace = StepTrace::identity();
                 let mut out = PopMember::from_expr(expr, n_features, options);
                 out.parent = member.reference;
                 out.plans = member.plans.clone();
@@ -302,6 +323,7 @@ impl MutationChoice {
                 }
             }
             MutationChoice::Optimize => {
+                trace.kind = "optimize";
                 let mut out = PopMember::from_expr(expr, n_features, options);
 
                 // Match SymbolicRegression.jl: optimize returns immediately with loss/cost already
@@ -354,6 +376,7 @@ where
     weights
 }
 
+#[cfg(any(test, feature = "bench"))]
 pub fn next_generation<
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
     Ops,
@@ -361,6 +384,22 @@ pub fn next_generation<
 >(
     member: &PopMember<T, Ops, D>,
     ctx: NextGenerationCtx<'_, T, Ops, D>,
+) -> (PopMember<T, Ops, D>, bool, f64)
+where
+    Ops: dynamic_expressions::OperatorSet<T = T>,
+{
+    next_generation_traced(member, ctx, &mut StepTrace::default())
+}
+
+/// [`next_generation`], recording the attempt in `trace` as SymbolicRegression.jl's `tmp_trace`.
+pub(crate) fn next_generation_traced<
+    T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
+    Ops,
+    const D: usize,
+>(
+    member: &PopMember<T, Ops, D>,
+    ctx: NextGenerationCtx<'_, T, Ops, D>,
+    trace: &mut StepTrace,
 ) -> (PopMember<T, Ops, D>, bool, f64)
 where
     Ops: dynamic_expressions::OperatorSet<T = T>,
@@ -398,6 +437,7 @@ where
             curmaxsize,
             options,
             evaluator,
+            trace: &mut *trace,
         });
         match outcome {
             MutationResult::ProposedExpr { expr, evals: e } => {
@@ -419,6 +459,7 @@ where
     }
 
     if !successful {
+        trace.outcome = Some(("reject", "failed_constraint_check"));
         let mut baby = PopMember::from_expr(member.expr.clone(), n_features, options);
         baby.parent = member.reference;
         baby.complexity = member.complexity;
@@ -433,6 +474,7 @@ where
     evals += dataset.dataset_fraction();
     let after_cost = baby.cost.to_f64().unwrap_or(f64::INFINITY);
     if after_cost.is_nan() {
+        trace.outcome = Some(("reject", "nan_loss"));
         let mut reject = PopMember::from_expr(member.expr.clone(), n_features, options);
         reject.parent = member.reference;
         reject.complexity = member.complexity;
@@ -463,6 +505,7 @@ where
     }
 
     if prob < rng.f64() {
+        trace.outcome = Some(("reject", "acceptance"));
         let mut reject = PopMember::from_expr(member.expr.clone(), n_features, options);
         reject.parent = member.reference;
         reject.complexity = member.complexity;
@@ -471,6 +514,7 @@ where
         return (reject, false, evals);
     }
 
+    trace.outcome = Some(("accept", "pass"));
     (baby, true, evals)
 }
 
@@ -491,10 +535,24 @@ pub(crate) fn crossover_expressions<T: Float, Ops, const D: usize>(
     (child_a, child_b)
 }
 
+#[cfg(test)]
 pub fn crossover_generation<T: Float + AddAssign, Ops, const D: usize>(
     member1: &PopMember<T, Ops, D>,
     member2: &PopMember<T, Ops, D>,
     ctx: CrossoverCtx<'_, T, Ops, D>,
+) -> (PopMember<T, Ops, D>, PopMember<T, Ops, D>, bool, f64)
+where
+    Ops: dynamic_expressions::OperatorSet<T = T>,
+{
+    crossover_generation_traced(member1, member2, ctx, &mut StepTrace::default())
+}
+
+/// [`crossover_generation`], recording the crossover in `trace` as SymbolicRegression.jl does.
+pub(crate) fn crossover_generation_traced<T: Float + AddAssign, Ops, const D: usize>(
+    member1: &PopMember<T, Ops, D>,
+    member2: &PopMember<T, Ops, D>,
+    ctx: CrossoverCtx<'_, T, Ops, D>,
+    trace: &mut StepTrace,
 ) -> (PopMember<T, Ops, D>, PopMember<T, Ops, D>, bool, f64)
 where
     Ops: dynamic_expressions::OperatorSet<T = T>,
@@ -512,6 +570,7 @@ where
     let mut tries = 0;
     loop {
         let (c1_expr, c2_expr) = crossover_expressions(rng, &member1.expr, &member2.expr);
+        trace.kind = "subtree_crossover";
         tries += 1;
         if check_expression(&c1_expr, options, curmaxsize) && check_expression(&c2_expr, options, curmaxsize) {
             let mut baby1 = PopMember::from_expr(c1_expr, dataset.n_features, options);
@@ -520,9 +579,11 @@ where
             baby2.parent = member2.reference;
             let _ = baby1.evaluate(&dataset, options, evaluator);
             let _ = baby2.evaluate(&dataset, options, evaluator);
+            trace.outcome = Some(("accept", "pass"));
             return (baby1, baby2, true, 2.0 * dataset.dataset_fraction());
         }
         if tries >= max_tries {
+            trace.outcome = Some(("reject", "failed_constraint_check"));
             let baby1 = member1.clone();
             let baby2 = member2.clone();
             return (baby1, baby2, false, 0.0);

@@ -232,6 +232,8 @@ macro_rules! sr_options_spec {
                     (false, deterministic, "deterministic"),
                 dimensionless_constants_only:
                     (false, dimensionless_constants_only, "dimensionless-constants-only"),
+                use_tracing:
+                    (false, use_tracing, "use-tracing"),
             }
         }
     };
@@ -371,6 +373,10 @@ macro_rules! __define_options {
             /// };
             /// ```
             pub guesses: Vec<Vec<Guess<T, Ops, D>>>,
+
+            /// SymbolicRegression.jl's `tracing_file`: the JSON Lines file a search with
+            /// `use_tracing` writes its trace to, replacing any earlier contents.
+            pub tracing_file: std::path::PathBuf,
         }
 
         impl<T: Float, Ops: Default, const D: usize> Default for Options<T, Ops, D> {
@@ -390,6 +396,7 @@ macro_rules! __define_options {
                     early_stop_condition: None,
                     template: None,
                     guesses: Vec::new(),
+                    tracing_file: "pysr_trace.jsonl".into(),
                 }
             }
         }
@@ -442,6 +449,31 @@ macro_rules! __define_wasm_options_shim {
 }
 
 sr_options_spec!(__define_wasm_options_shim);
+
+macro_rules! __define_options_describe {
+    (
+        values { $( $name:ident: ($ty:ty, $default:expr, $cli_long:literal), )* }
+        neg_flags { $( $iname:ident: ($bdefault:expr, $cli_name:ident, $cli_blong:literal), )* }
+        pos_flags { $( $pname:ident: ($pdefault:expr, $cli_pname:ident, $cli_plong:literal), )* }
+    ) => {
+        impl<T: Float, Ops, const D: usize> Options<T, Ops, D> {
+            /// SymbolicRegression.jl's `string(options)`: `Options(` followed by each setting
+            /// as `name=value`.
+            pub(crate) fn describe(&self) -> String {
+                let fields = [
+                    $(format!("{}={:?}", stringify!($name), self.$name),)*
+                    $(format!("{}={:?}", stringify!($iname), self.$iname),)*
+                    $(format!("{}={:?}", stringify!($pname), self.$pname),)*
+                    format!("mutation_weights={:?}", self.mutation_weights),
+                    format!("tracing_file={:?}", self.tracing_file),
+                ];
+                format!("Options({})", fields.join(", "))
+            }
+        }
+    };
+}
+
+sr_options_spec!(__define_options_describe);
 
 impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T, Ops, D> {
     #[inline]

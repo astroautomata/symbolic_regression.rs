@@ -24,4 +24,5 @@ mod test_random_distributions;
 mod test_rotate_tree_proptests;
 mod test_swap_operands_arity_gt2;
 mod test_termination_max_evals;
+mod test_tracing;
 mod test_units;

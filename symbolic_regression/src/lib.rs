@@ -31,6 +31,7 @@ pub(crate) mod search_utils;
 pub(crate) mod selection;
 pub(crate) mod single_iteration;
 pub(crate) mod stop_controller;
+pub(crate) mod tracing;
 pub mod units;
 pub(crate) mod warmup;
 

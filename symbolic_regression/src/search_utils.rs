@@ -21,7 +21,8 @@ use crate::population::Population;
 use crate::progress_bars::SearchProgress;
 use crate::random::{shuffle, standard_normal};
 use crate::stop_controller::StopController;
-use crate::{migration, single_iteration, warmup};
+use crate::tracing::IterationTrace;
+use crate::{migration, single_iteration, tracing, warmup};
 
 /// What a search found, with the state SymbolicRegression.jl's `return_state` returns: pass it to
 /// [`resume_search`] or [`SearchEngine::resume`] to continue the search.
@@ -217,6 +218,8 @@ struct SearchTaskResult<T: Float + AddAssign, Ops, const D: usize> {
     best_seen: HallOfFame<T, Ops, D>,
     best_sub_pop: Vec<PopMember<T, Ops, D>>,
     pop_state: PopState<T, Ops, D>,
+    /// The cycle's `"iteration"` trace record, when tracing.
+    trace: Option<String>,
 }
 
 pub(crate) struct PopState<T: Float + AddAssign, Ops, const D: usize> {
@@ -225,6 +228,8 @@ pub(crate) struct PopState<T: Float + AddAssign, Ops, const D: usize> {
     pub(crate) grad_ctx: dynamic_expressions::GradContext<T, D>,
     pub(crate) rng: Rng,
     pub(crate) batch_dataset: Option<Dataset<T>>,
+    /// Cycles this population has run in this search, which numbers its trace records.
+    pub(crate) iteration: usize,
 }
 
 impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
@@ -235,9 +240,11 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             grad_ctx: dynamic_expressions::GradContext::new(n_rows),
             rng,
             batch_dataset: None,
+            iteration: 0,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_iteration_phase<'a, F, Ret>(
         &'a mut self,
         f: F,
@@ -246,6 +253,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
         curmaxsize: usize,
         stats: &'a RunningSearchStatistics,
         controller: &'a StopController,
+        trace: Option<&'a mut IterationTrace<T, Ops, D>>,
     ) -> Ret
     where
         F: FnOnce(
@@ -283,6 +291,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             evaluator: &mut self.evaluator,
             grad_ctx: &mut self.grad_ctx,
             controller,
+            trace,
             _ops: core::marker::PhantomData,
         };
 
@@ -568,6 +577,9 @@ where
         } = &mut self.outputs[output];
         best_sub_pops[pop_idx] = res.best_sub_pop;
         let st = pops[pop_idx].insert(res.pop_state);
+        if let Some(record) = &res.trace {
+            tracing::write_record(&options.tracing_file, record, true)?;
+        }
 
         stats.update_from_population(st.pop.members.iter().map(|m| m.complexity));
         stats.move_window();
@@ -684,6 +696,9 @@ where
             .collect();
 
         let controller = StopController::from_options(options);
+        if options.use_tracing {
+            tracing::write_record(&options.tracing_file, &tracing::search_record(options), false)?;
+        }
         let mut warnings = Vec::new();
         if datasets.iter().any(|d| d.n_rows > 50_000) {
             warnings.push(LARGE_DATASET_WARNING.to_string());
@@ -969,7 +984,7 @@ fn execute_task<T, Ops, const D: usize>(
     controller: &StopController,
 ) -> SearchTaskResult<T, Ops, D>
 where
-    T: Float + FromPrimitive + ToPrimitive + AddAssign,
+    T: Float + FromPrimitive + ToPrimitive + Display + AddAssign,
     Ops: OperatorSet<T = T>,
 {
     if controller.is_cancelled() {
@@ -980,8 +995,13 @@ where
             best_seen: HallOfFame::new(options.maxsize),
             best_sub_pop: migration::best_sub_pop(&pop_state.pop, options.topn),
             pop_state,
+            trace: None,
         };
     }
+    let mut trace = options
+        .use_tracing
+        .then(|| IterationTrace::start(output + 1, pop_idx + 1, pop_state.iteration, &pop_state.pop));
+    pop_state.iteration += 1;
     let (evals1, best_seen) = pop_state.run_iteration_phase(
         single_iteration::s_r_cycle,
         full_dataset,
@@ -989,6 +1009,7 @@ where
         curmaxsize,
         &stats,
         controller,
+        trace.as_mut(),
     );
 
     let evals2 = pop_state.run_iteration_phase(
@@ -998,6 +1019,7 @@ where
         curmaxsize,
         &stats,
         controller,
+        trace.as_mut(),
     );
     let evals = evals1.max(0.0) + evals2.max(0.0);
 
@@ -1010,6 +1032,7 @@ where
         best_seen,
         best_sub_pop,
         pop_state,
+        trace: trace.map(|t| t.to_json(options)),
     }
 }
 
