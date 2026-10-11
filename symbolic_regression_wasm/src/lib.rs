@@ -11,7 +11,10 @@ use ndarray::{ArcArray2, Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
 use symbolic_regression::units::UnitLabels;
-use symbolic_regression::{Dataset, Options, SearchEngine, WasmOptionsShim, choose_best, parse_early_stop, parse_loss};
+use symbolic_regression::{
+    Dataset, Guess, Options, SearchEngine, TemplateGuessValue, WasmOptionsShim, choose_best, parse_early_stop,
+    parse_loss,
+};
 use wasm_bindgen::prelude::*;
 
 type WasmOps = BuiltinOpsF64<CustomOps<f64>>;
@@ -147,6 +150,8 @@ pub struct WasmSearchOptions {
     pub early_stop_condition: Option<String>,
     /// A template expression, as PySR's `TemplateExpressionSpec`; `None` searches plain expressions.
     pub template: Option<WasmTemplateOptions>,
+    /// SymbolicRegression.jl's `guesses`: equations that seed the search.
+    pub guesses: Vec<WasmGuess>,
 
     #[serde(flatten)]
     pub core: WasmOptionsShim,
@@ -170,6 +175,43 @@ pub struct WasmTemplateOptions {
     pub parameters: Vec<(String, usize)>,
 }
 
+/// A plain search's guess is an equation over the selected columns' names. A template search's
+/// guess is `[name, value]` pairs, as PySR's dict guesses: each subexpression as an equation over
+/// its arguments `#1`, `#2`, ..., and each parameter vector as numbers.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WasmGuess {
+    Equation(String),
+    Template(Vec<(String, WasmTemplateGuessValue)>),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WasmTemplateGuessValue {
+    Equation(String),
+    Parameter(Vec<f64>),
+}
+
+impl From<&WasmGuess> for Guess<f64, WasmOps, 3> {
+    fn from(guess: &WasmGuess) -> Self {
+        match guess {
+            WasmGuess::Equation(src) => Guess::Equation(src.clone()),
+            WasmGuess::Template(entries) => Guess::Template(
+                entries
+                    .iter()
+                    .map(|(name, value)| {
+                        let value = match value {
+                            WasmTemplateGuessValue::Equation(src) => TemplateGuessValue::Equation(src.clone()),
+                            WasmTemplateGuessValue::Parameter(values) => TemplateGuessValue::Parameter(values.clone()),
+                        };
+                        (name.clone(), value)
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
 impl Default for WasmSearchOptions {
     fn default() -> Self {
         Self {
@@ -184,6 +226,7 @@ impl Default for WasmSearchOptions {
             loss: "L2DistLoss()".to_string(),
             early_stop_condition: None,
             template: None,
+            guesses: Vec::new(),
             core: WasmOptionsShim::default(),
         }
     }
@@ -393,6 +436,9 @@ fn options_from_wasm(
     out.loss = loss;
     out.early_stop_condition = early_stop_condition;
     out.template = template;
+    if !opts.guesses.is_empty() {
+        out.guesses = vec![opts.guesses.iter().map(Guess::from).collect()];
+    }
 
     Ok(out)
 }
@@ -1230,5 +1276,52 @@ mod tests {
                 m.loss
             );
         }
+    }
+
+    fn guess_search(csv: &str, opts: serde_json::Value) -> Result<super::WasmSearch, String> {
+        let opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
+        super::WasmSearch::build(csv, &opts, &[], &tokens(&["+", "*"]), &[])
+    }
+
+    fn best_guess_loss(search: &super::WasmSearch) -> f64 {
+        let front = super::snapshot(&search.engine, usize::MAX).unwrap().pareto_points;
+        front.iter().map(|p| p.loss).fold(f64::INFINITY, f64::min)
+    }
+
+    #[test]
+    fn guesses_enter_the_hall_of_fame_before_any_step_with_optimized_constants() {
+        let mut csv = "x,y\n".to_string();
+        for i in 0..20 {
+            let x = f64::from(i) / 4.0 - 2.0;
+            csv.push_str(&format!("{x},{}\n", 2.0 * x + 0.5));
+        }
+        let plain =
+            serde_json::json!({ "populations": 1, "population_size": 20, "seed": 1, "guesses": ["1.0 * x + 0.0"] });
+        let search = guess_search(&csv, plain).unwrap();
+        assert_eq!(search.engine.cycles_completed(), 0);
+        assert!(best_guess_loss(&search) < 1e-12);
+
+        let template = serde_json::json!({
+            "populations": 1,
+            "population_size": 20,
+            "seed": 1,
+            "template": { "combine": "f(x) + p[c]", "expressions": ["f"], "parameters": [["p", 2]] },
+            "guesses": [[["f", "#1 * 1.0"], ["p", [0.0, 0.0]]]],
+        });
+        let search = guess_search(&template_csv(), template).unwrap();
+        assert_eq!(search.engine.cycles_completed(), 0);
+        assert!(best_guess_loss(&search) < 1e-12);
+    }
+
+    #[test]
+    fn invalid_guesses_fail_at_setup_naming_the_guess() {
+        let opts = serde_json::json!({ "guesses": ["x + 1.0", "z * 2.0"] });
+        let err = guess_search("x,y\n1,1\n2,2\n3,3\n", opts)
+            .err()
+            .expect("unknown variable must fail");
+        assert!(
+            err.starts_with("invalid guess `z * 2.0`: `z` is not a variable"),
+            "{err}"
+        );
     }
 }
