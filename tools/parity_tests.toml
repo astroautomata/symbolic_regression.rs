@@ -437,8 +437,8 @@ file = "test/integration/ext/loopvectorization/test_template_expression.jl"
 line = 631
 name = "TemplateExpression guess validation"
 pr = 5
-status = "todo"
-note = "Parses subexpressions from strings, as guesses do; ported with guesses (PR 5)."
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::template_expression_guess_validation"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
@@ -993,42 +993,50 @@ file = "test/unit/dataset/test_batched_dataset.jl"
 line = 1
 name = "SubDataset properties"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::sub_dataset_properties"]
+note = "A batch is a buffer the search refills from the full dataset; the port has no dataset without a target."
 
 [[testitem]]
 file = "test/unit/dataset/test_dataset.jl"
 line = 1
 name = "Dataset mismatched X/y dimensions"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::dataset_mismatched_x_y_dimensions"]
+note = "Mismatched shapes panic with SymbolicRegression.jl's message; the port has no dataset without a target."
 
 [[testitem]]
 file = "test/unit/dataset/test_dataset.jl"
 line = 12
 name = "Dataset construction"
-pr = 5
-status = "todo"
+status = "excluded"
+excluded = "Rust `Dataset<T>` has one element type for `x`, `y`, and weights; mixed element types are Julia-only"
 
 [[testitem]]
 file = "test/unit/dataset/test_dataset.jl"
 line = 21
 name = "Dataset with deprecated kwarg"
-pr = 5
-status = "todo"
+status = "excluded"
+excluded = "Julia's deprecated `loss_type` keyword with complex data (custom value types are not supported)"
 
 [[testitem]]
 file = "test/unit/dataset/test_dataset.jl"
 line = 30
 name = "Vector output dataset"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::vector_output_dataset"]
+note = "The port has no tuple-valued targets; a search takes several targets as one dataset per output (`Dataset::multi_output`), sharing `x`."
 
 [[testitem]]
 file = "test/unit/dataset/test_dataset.jl"
 line = 40
 name = "Large dataset warning"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::large_dataset_warning"]
+note = "The warning is recorded once per search; there is no `verbosity` option."
 
 [[testitem]]
 file = "test/unit/evaluation/test_deterministic.jl"
@@ -1051,8 +1059,9 @@ file = "test/unit/evaluation/test_early_stop.jl"
 line = 24
 name = "State preservation with niterations=0"
 pr = 5
-status = "todo"
-note = "Despite its file, the subject is resuming from `saved_state` with `return_state`, which PR 5 adds."
+status = "done"
+rust = ["symbolic_regression/tests/test_warm_start.rs::state_preservation_with_niterations_0"]
+note = "The saved state comes from a search rather than hand-built populations, which the port does not expose."
 
 [[testitem]]
 file = "test/unit/evaluation/test_evaluation.jl"
@@ -1303,8 +1312,9 @@ file = "test/unit/expressions/test_expression_builder.jl"
 line = 2
 name = "NamedTuple support in parse_expression"
 pr = 5
-status = "todo"
-note = "Parses subexpressions from strings, as guesses do; ported with guesses (PR 5)."
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::named_tuple_support_in_parse_expression"]
+note = "Template guesses parse through `parse_guesses` with `Options::template`; the `expression_options` and `expression_spec` keyword variants have no separate counterpart."
 
 [[testitem]]
 file = "test/unit/expressions/test_template_inner_expression_type.jl"
@@ -1376,7 +1386,8 @@ file = "test/unit/misc/test_guesses.jl"
 line = 1
 name = "Single output, single guess"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::single_output_single_guess"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
@@ -1391,119 +1402,138 @@ file = "test/unit/misc/test_guesses.jl"
 line = 44
 name = "parse_guesses with NamedTuple"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::parse_guesses_with_named_tuple"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 96
 name = "parse_guesses with NamedTuple and parameters"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::parse_guesses_with_named_tuple_and_parameters"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 126
 name = "NamedTuple guesses with different variable names"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::named_tuple_guesses_with_different_variable_names"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 162
 name = "Float32 dataset with Float64 guess literals"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::float32_dataset_with_float64_guess_literals"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 195
 name = "Custom operators in string guesses"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_in_string_guesses"]
+note = "`pythag_neg` is written with a ternary, since the DSL has no assignment inside an expression."
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 250
 name = "Custom operators in equation_search guesses"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_in_equation_search_guesses"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 286
 name = "Custom operators error handling in guesses"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_error_handling_in_guesses"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 313
 name = "Custom operators with NamedTuple guesses"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_with_named_tuple_guesses"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 352
 name = "Smoke test migration with multiple outputs and templates"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::smoke_test_migration_with_multiple_outputs_and_templates"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 381
 name = "parse_guesses with mix of strings and expression objects"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::parse_guesses_with_mix_of_strings_and_expression_objects"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 424
 name = "maxsize warning"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::maxsize_warning"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 456
 name = "Vector of vectors input for single output"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::vector_of_vectors_input_for_single_output"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 475
 name = "Multiple outputs guesses format validation"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::multiple_outputs_guesses_format_validation"]
+note = "`Options::guesses` always holds one list per output, so a flat list cannot be written; the port checks the error for a wrong number of lists."
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 491
 name = "File saving with niterations=0"
-pr = 5
+pr = 6
 status = "todo"
+note = "Needs hall-of-fame files (PR 6)."
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 556
 name = "Hall of fame CSV escapes equation quotes"
-pr = 5
+pr = 6
 status = "todo"
+note = "Needs hall-of-fame files (PR 6)."
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 582
 name = "parse_guesses evaluates custom constants in parse scope"
-pr = 5
-status = "todo"
+status = "excluded"
+excluded = "Custom value types (`Vec2` constants in guesses) are not supported"
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 637
 name = "Template guesses preserve supplied parameters"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::template_guesses_preserve_supplied_parameters"]
+note = "The guess owns its parameter vector, so SymbolicRegression.jl's aliasing checks have no counterpart."
 
 [[testitem]]
 file = "test/unit/misc/test_hash.jl"
@@ -2118,8 +2148,9 @@ file = "test/unit/templates/test_template_parameter_value_types.jl"
 line = 82
 name = "template parser splits and validates flat parameter entries"
 pr = 5
-status = "todo"
-note = "Parses subexpressions from strings, as guesses do; ported with guesses (PR 5)."
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::template_parser_splits_and_validates_flat_parameter_entries"]
+note = "The separate `parameters=` keyword of `parse_expression` has no counterpart: a guess gives its parameters by name. A scalar parameter cannot be written; an equation string in its place is rejected."
 
 [[testitem]]
 file = "test/unit/templates/test_template_parameter_value_types.jl"

@@ -77,3 +77,34 @@ fn warm_start_rejects_changed_maxsize_or_operators() {
         );
     }
 }
+
+/// test/unit/evaluation/test_early_stop.jl | "State preservation with niterations=0". The saved
+/// state comes from a search rather than hand-built populations, which the port does not expose.
+#[test]
+fn state_preservation_with_niterations_0() {
+    let mut rng = fastrand::Rng::with_seed(42);
+    let x = Array2::from_shape_fn((2, 10), |_| rng.f64() * 2.0 - 1.0);
+    let y = x.row(0).to_owned() + x.row(1);
+    let datasets = [Dataset::new(x, y)];
+    let options = Options::<f64, Ops, 2> {
+        operators: Ops::new().from_names(["+"]).unwrap(),
+        niterations: 0,
+        population_size: 5,
+        populations: 2,
+        maxsize: 5,
+        tournament_selection_n: 2,
+        progress: false,
+        ..Default::default()
+    };
+    let saved = equation_search(&datasets, &options).unwrap();
+    let result = resume_search(saved.clone(), &datasets, &options).unwrap();
+
+    assert_eq!(result.populations[0].len(), 2);
+    for (pop, saved_pop) in result.populations[0].iter().zip(&saved.populations[0]) {
+        assert_eq!(pop.members.len(), 5);
+        let hashes: Vec<u64> = pop.members.iter().map(|m| m.expr.hash_nodes()).collect();
+        let saved_hashes: Vec<u64> = saved_pop.members.iter().map(|m| m.expr.hash_nodes()).collect();
+        assert_eq!(hashes, saved_hashes);
+    }
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+}
