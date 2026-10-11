@@ -78,6 +78,37 @@ fn warm_start_rejects_changed_maxsize_or_operators() {
     }
 }
 
+/// Custom operators are numbered in the order they are defined, so a saved tree's operator ids
+/// name other functions once the definitions are reordered.
+#[test]
+fn warm_start_rejects_renumbered_custom_operators() {
+    let mut rng = fastrand::Rng::with_seed(2);
+    let x = Array2::from_shape_fn((1, 16), |_| rng.f64());
+    let y = x.row(0).mapv(|v| v + 1.0);
+    let datasets = [Dataset::new(x, y)];
+    let options = |definitions: [&str; 2]| {
+        let (custom, _) = parse_operator_tokens::<f64, _>(definitions).unwrap();
+        Options::<f64, BuiltinOpsF64<CustomOps<f64>>, 2> {
+            operators: BuiltinOpsF64::new()
+                .with_custom(custom)
+                .from_names(["+", "f", "g"])
+                .unwrap(),
+            niterations: 1,
+            populations: 2,
+            progress: false,
+            ..Default::default()
+        }
+    };
+    let saved = equation_search(&datasets, &options(["f(x) = x + 1", "g(x) = x * 3"])).unwrap();
+    let Err(err) = resume_search(saved, &datasets, &options(["g(x) = x * 3", "f(x) = x + 1"])) else {
+        panic!("a search resumed with its custom operators renumbered");
+    };
+    assert_eq!(
+        err,
+        "Warm start incompatible due to changed field(s): operators. Start a new search instead."
+    );
+}
+
 /// test/unit/evaluation/test_early_stop.jl | "State preservation with niterations=0". The saved
 /// state comes from a search rather than hand-built populations, which the port does not expose.
 #[test]

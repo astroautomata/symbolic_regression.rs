@@ -72,9 +72,16 @@ impl WarmStartKey {
             .flatten()
             .map(|&op| match set.ir(op) {
                 Some(OpIr::Defined(def)) => {
-                    format!("{}/{} {:?} {:?}", set.name(op), op.arity, def.graph.nodes(), def.root)
+                    format!(
+                        "{}/{} #{} {:?} {:?}",
+                        set.name(op),
+                        op.arity,
+                        op.id,
+                        def.graph.nodes(),
+                        def.root
+                    )
                 }
-                _ => format!("{}/{}", set.name(op), op.arity),
+                _ => format!("{}/{} #{}", set.name(op), op.arity, op.id),
             })
             .collect();
         let mut op_constraints: Vec<_> = options
