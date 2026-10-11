@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* Accept PySR unit strings for selected features and the target, retain units across validation splits, and annotate display equations with units.
+
 ## [0.7.4](https://github.com/astroautomata/symbolic_regression.rs/compare/symbolic_regression_wasm-v0.7.3...symbolic_regression_wasm-v0.7.4) (2026-05-22)
 
 

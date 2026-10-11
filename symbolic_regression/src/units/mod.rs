@@ -186,7 +186,7 @@ impl Units {
 
 /// The unit annotations SymbolicRegression.jl prints in the hall of fame: `y[kg] = x1[m] * 3.2[?]`.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct UnitLabels {
+pub struct UnitLabels {
     /// Each feature's [`Unit::label`].
     pub variables: Vec<String>,
     /// `[?]` after each constant, whose units are free, unless constants are dimensionless.

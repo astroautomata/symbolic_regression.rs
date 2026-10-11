@@ -7,6 +7,7 @@ use dynamic_expressions::strings::StringTreeOptions;
 use ndarray::{Array1, Array2};
 use symbolic_regression::PopMember;
 use symbolic_regression::prelude::*;
+use symbolic_regression::units::UnitLabels;
 
 type Ops = BuiltinOpsF64<CustomOps<f64>>;
 
@@ -30,13 +31,7 @@ fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> Vec<PopMemb
     let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
     let result = pool.install(|| equation_search::<f64, Ops, 2>(dataset, options).unwrap());
     let units = dataset.units.as_ref().unwrap();
-    let labels: Vec<String> = units.x.iter().map(|u| u.label()).collect();
-    let target = units.y.as_ref().map_or("[?]".to_string(), |y| y.label());
-    let constant = if options.dimensionless_constants_only {
-        ""
-    } else {
-        "[?]"
-    };
+    let labels = UnitLabels::new(units, options.dimensionless_constants_only);
     println!("seed {}:", options.seed);
     let front = result.hall_of_fame.pareto_front();
     for m in &front {
@@ -44,12 +39,12 @@ fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> Vec<PopMemb
             options,
             StringTreeOptions {
                 print_precision: Some(5),
-                variable_suffixes: Some(&labels),
-                constant_suffix: constant,
+                variable_suffixes: Some(&labels.variables),
+                constant_suffix: labels.constant,
                 ..Default::default()
             },
         );
-        println!("  {}\t{:e}\ty{target} = {equation}", m.complexity, m.loss);
+        println!("  {}\t{:e}\ty{} = {equation}", m.complexity, m.loss, labels.target);
     }
     front
 }

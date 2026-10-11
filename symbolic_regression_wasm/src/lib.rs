@@ -10,6 +10,7 @@ use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
+use symbolic_regression::units::UnitLabels;
 use symbolic_regression::{Dataset, Options, SearchEngine, WasmOptionsShim, choose_best, parse_early_stop, parse_loss};
 use wasm_bindgen::prelude::*;
 
@@ -131,6 +132,11 @@ pub struct WasmSearchOptions {
     pub y_column: Option<usize>,
     pub weights_column: Option<usize>,
     pub validation_fraction: f64,
+    /// One PySR unit string per selected x column, in `x_columns` order, such as
+    /// "kg", "m/s^2", or "Constants.G".
+    pub x_units: Option<Vec<String>>,
+    /// The target unit, written as PySR takes units, such as "kg", "m/s^2", or "Constants.G".
+    pub y_units: Option<String>,
 
     /// PySR's `elementwise_loss`: a built-in such as `"L1DistLoss()"` or `"HuberLoss(1.5)"`, or a
     /// definition such as `"f(x, y) = abs(x - y)^1.5"` (with a third weight argument when the data
@@ -172,6 +178,8 @@ impl Default for WasmSearchOptions {
             y_column: None,
             weights_column: None,
             validation_fraction: 0.0,
+            x_units: None,
+            y_units: None,
 
             loss: "L2DistLoss()".to_string(),
             early_stop_condition: None,
@@ -446,19 +454,25 @@ fn summary_from_member(
     m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
     score: f64,
 ) -> EquationSummary {
-    let string = |print_precision| {
+    let labels = engine
+        .dataset()
+        .units
+        .as_ref()
+        .map(|units| UnitLabels::new(units, engine.options().dimensionless_constants_only));
+    let string = |print_precision, labels: Option<&UnitLabels>| {
         m.expr.string(
             engine.options(),
             StringTreeOptions {
                 variable_names: Some(engine.dataset().variable_names.as_slice()),
                 pretty: false,
                 print_precision,
-                ..Default::default()
+                variable_suffixes: labels.map(|l| l.variables.as_slice()),
+                constant_suffix: labels.map_or("", |l| l.constant),
             },
         )
     };
-    let equation = string(Some(engine.options().print_precision));
-    let equation_full = string(None);
+    let equation = string(Some(engine.options().print_precision), labels.as_ref());
+    let equation_full = string(None, None);
     EquationSummary {
         id: m.expr.hash_nodes().to_string(),
         complexity: m.complexity,
@@ -703,8 +717,11 @@ fn build_full_dataset(
         Some(v) => v.clone(),
         None => (0..n_cols).filter(|&c| c != y_col && Some(c) != w_col).collect(),
     };
-    x_cols.sort_unstable();
-    x_cols.dedup();
+    for i in (0..x_cols.len()).rev() {
+        if x_cols[..i].contains(&x_cols[i]) {
+            x_cols.remove(i);
+        }
+    }
     if x_cols.is_empty() {
         return Err("x_columns is empty".to_string());
     }
@@ -742,7 +759,8 @@ fn build_full_dataset(
         (0..n_features).map(|i| format!("x{}", i)).collect()
     };
 
-    let dataset = Dataset::with_weights_and_names(x, y, None, variable_names.clone());
+    let dataset = Dataset::with_weights_and_names(x, y, None, variable_names.clone())
+        .with_units(opts.x_units.as_deref(), opts.y_units.as_deref())?;
     Ok((dataset, variable_names, w))
 }
 
@@ -780,13 +798,15 @@ fn split_train_val(
     split: &WasmSplitIndices,
 ) -> Result<(Dataset<f64>, Option<Dataset<f64>>), String> {
     let (x_train, y_train, w_train) = select_rows(&dataset_all.x, &dataset_all.y, weights_all, &split.train)?;
-    let train = Dataset::with_weights_and_names(x_train, y_train, w_train, variable_names.to_vec());
+    let mut train = Dataset::with_weights_and_names(x_train, y_train, w_train, variable_names.to_vec());
+    train.units = dataset_all.units.clone();
 
     if split.val.is_empty() {
         return Ok((train, None));
     }
     let (x_val, y_val, w_val) = select_rows(&dataset_all.x, &dataset_all.y, weights_all, &split.val)?;
-    let val = Dataset::with_weights_and_names(x_val, y_val, w_val, variable_names.to_vec());
+    let mut val = Dataset::with_weights_and_names(x_val, y_val, w_val, variable_names.to_vec());
+    val.units = dataset_all.units.clone();
     Ok((train, Some(val)))
 }
 
@@ -822,6 +842,78 @@ fn select_rows(
 #[cfg(test)]
 mod tests {
     use super::WasmSearchOptions;
+    #[test]
+    fn dimensional_options_are_in_serialized_defaults() {
+        for opts in [
+            serde_json::to_value(super::WasmOptionsShim::default()).unwrap(),
+            serde_json::to_value(WasmSearchOptions::default()).unwrap(),
+        ] {
+            assert_eq!(opts["dimensional_constraint_penalty"], 1000.0);
+            assert_eq!(opts["dimensionless_constants_only"], false);
+        }
+    }
+
+    fn units_search(opts: serde_json::Value) -> Result<super::WasmSearch, String> {
+        let mut opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
+        opts.core.niterations = 1;
+        opts.core.populations = 1;
+        opts.core.population_size = 20;
+        opts.core.seed = 1;
+        super::WasmSearch::build("x,y\n1,1\n2,2\n3,3\n4,4\n", &opts, &[], &tokens(&["+", "*"]), &[])
+    }
+
+    #[test]
+    fn units_survive_splitting_and_annotate_display_equations() {
+        let mut search = units_search(serde_json::json!({
+            "x_units": ["m"], "y_units": "m", "validation_fraction": 0.25,
+        }))
+        .unwrap();
+        let units = search.engine.dataset().units.as_ref().expect("training units");
+        assert_eq!(units.x[0].label(), "[m]");
+        assert_eq!(units.y.as_ref().unwrap().label(), "[m]");
+        assert_eq!(search.val_dataset.as_ref().unwrap().units.as_ref(), Some(units));
+        search.engine.step(usize::MAX).unwrap();
+        let best = super::snapshot(&search.engine, 10).unwrap().best.unwrap();
+        assert!(best.equation.contains("[m]"), "{}", best.equation);
+        assert!(!best.equation_full.contains('['), "{}", best.equation_full);
+    }
+
+    #[test]
+    fn invalid_units_name_the_bad_token() {
+        for opts in [
+            serde_json::json!({ "x_units": ["not_a_unit"], "y_units": "m" }),
+            serde_json::json!({ "x_units": ["m"], "y_units": "not_a_unit" }),
+        ] {
+            let err = units_search(opts).err().expect("invalid units must fail");
+            assert!(err.contains("not_a_unit"), "{err}");
+        }
+    }
+
+    #[test]
+    fn x_units_count_must_match_selected_columns() {
+        let err = units_search(serde_json::json!({ "x_units": ["m", "s"] }))
+            .err()
+            .expect("wrong unit count must fail");
+        assert!(
+            err.contains("Number of features (1) does not match number of units (2)"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn units_follow_the_selected_column_order() {
+        let opts = serde_json::from_value(serde_json::json!({
+            "x_columns": [1, 0], "x_units": ["m", "s"], "y_units": "m",
+        }))
+        .unwrap();
+        let (dataset, names, _) =
+            super::build_full_dataset(&tokens(&["time", "distance", "y"]), &[vec![2.0, 3.0, 3.0]], &opts).unwrap();
+        assert_eq!(names, ["distance", "time"]);
+        assert_eq!(dataset.x[(0, 0)], 3.0);
+        let units = dataset.units.unwrap();
+        assert_eq!(units.x[0].label(), "[m]");
+        assert_eq!(units.x[1].label(), "[s]");
+    }
 
     #[test]
     fn wasm_options_shim_defaults_match_known_spec_values() {
