@@ -1,4 +1,5 @@
 pub(crate) mod common;
+mod test_backsolve;
 mod test_batching_constraints_complexity;
 mod test_compress_constants;
 mod test_constant_optimization_birth_reset;
