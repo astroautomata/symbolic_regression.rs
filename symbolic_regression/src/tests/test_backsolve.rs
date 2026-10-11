@@ -13,6 +13,7 @@ use crate::check_constraints::check_constraints;
 use crate::dataset::TaggedDataset;
 use crate::mutate::{self, NextGenerationCtx};
 use crate::pop_member::Evaluator;
+use crate::tracing::StepTrace;
 use crate::{Dataset, MutationWeights, Options, PopMember};
 
 type Ops = BuiltinOpsF64;
@@ -584,7 +585,75 @@ fn backsolve_fires_in_next_generation() {
             assert!(child.cost < parent.cost);
             assert!(child.loss < 1e-20, "loss {:e}", child.loss);
             assert_ne!(child.expr.trees[0].nodes, parent.expr.trees[0].nodes);
+            assert_eq!(child.parent, parent.reference);
         }
     }
     assert!(fired > 0);
+}
+
+/// SymbolicRegression.jl's `mutate!` for `BacksolveMutation` records why it rejected a candidate.
+#[test]
+fn backsolve_failure_records_reject_reason() {
+    let x = array![[1.0, 2.0, 3.0]];
+    let dataset = Dataset::new(x, array![2.0, 4.0, 6.0]);
+    let tagged = TaggedDataset::new(&dataset, None);
+    let backsolve_only = MutationWeights {
+        mutate_constant: 0.0,
+        mutate_operator: 0.0,
+        mutate_feature: 0.0,
+        swap_operands: 0.0,
+        rotate_tree: 0.0,
+        add_node: 0.0,
+        insert_node: 0.0,
+        delete_node: 0.0,
+        simplify: 0.0,
+        randomize: 0.0,
+        do_nothing: 0.0,
+        optimize: 0.0,
+        form_connection: 0.0,
+        break_connection: 0.0,
+        backsolve: 1.0,
+    };
+    let with_mul = Options {
+        mutation_weights: backsolve_only.clone(),
+        ..options(&["sin"], &["+", "*"])
+    };
+    let without_mul = Options {
+        mutation_weights: backsolve_only,
+        ..options(&["sin"], &["+", "-"])
+    };
+    let mut stats = RunningSearchStatistics::new(with_mul.maxsize, 1000);
+    stats.normalize();
+    let mut evaluator = Evaluator::<f64, 2>::new(dataset.n_rows);
+    let mut rng = Rng::with_seed(0);
+
+    for (options, src, reason) in [
+        (&with_mul, "x1", "backsolve_single_node"),
+        (&without_mul, "x1 + 1.0", "backsolve_missing_operators"),
+        (&with_mul, "x1 * 2.0", "backsolve_cost_not_improved"),
+    ] {
+        let mut parent = PopMember::from_expr(expr(options, src), 1, options);
+        parent.evaluate(&tagged, options, &mut evaluator);
+        let population = [parent.clone()];
+        let mut trace = StepTrace::default();
+        let (child, accepted, _) = mutate::next_generation_traced(
+            &parent,
+            NextGenerationCtx {
+                rng: &mut rng,
+                dataset: tagged,
+                temperature: 1.0,
+                curmaxsize: options.maxsize,
+                stats: &stats,
+                options,
+                evaluator: &mut evaluator,
+                population: &population,
+                _ops: core::marker::PhantomData,
+            },
+            &mut trace,
+        );
+        assert!(!accepted, "{src}");
+        assert_eq!(child.parent, parent.reference);
+        assert_eq!(trace.kind, "backsolve");
+        assert_eq!(trace.outcome, Some(("reject", reason)), "{src}");
+    }
 }

@@ -669,19 +669,21 @@ struct Rewriter<'a, T: Float, Ops, const D: usize> {
 }
 
 impl<T: Float, Ops: OperatorSet<T = T>, const D: usize> Rewriter<'_, T, Ops, D> {
+    /// The rewritten tree, or SymbolicRegression.jl's reason for the miss: `None` when the
+    /// subtree has no size budget left, which SymbolicRegression.jl skips without a reason.
     fn rewrite(
         &mut self,
         tree: &PostfixExpr<T, Ops, D>,
         node: usize,
         evals: &mut f64,
         fraction: f64,
-    ) -> Option<PostfixExpr<T, Ops, D>> {
+    ) -> Result<PostfixExpr<T, Ops, D>, Option<&'static str>> {
         let ops = &self.options.operators.set;
         let y = self.dataset.y.as_slice().expect("y is contiguous");
         let (target, valid) = eval_inverse_tree_array_masked(tree, ops, self.dataset.x.view(), node, y);
         *evals += fraction;
         if valid.iter().filter(|&&v| v).count() < y.len().min(10) {
-            return None;
+            return Err(Some("backsolve_inversion_invalid"));
         }
         let sizes = subtree_sizes(&tree.nodes);
         let start = node + 1 - sizes[node];
@@ -689,7 +691,8 @@ impl<T: Float, Ops: OperatorSet<T = T>, const D: usize> Rewriter<'_, T, Ops, D> 
         let parent_complexity = compute_complexity(&tree.nodes, self.options);
         let budget = (self.curmaxsize + node_complexity)
             .checked_sub(parent_complexity)
-            .filter(|&b| b >= 1)?;
+            .filter(|&b| b >= 1)
+            .ok_or(None)?;
         if self.setup.is_none() {
             let setup = prepare_backsolve_setup(
                 self.dataset,
@@ -715,7 +718,8 @@ impl<T: Float, Ops: OperatorSet<T = T>, const D: usize> Rewriter<'_, T, Ops, D> 
             Some(budget),
         );
         *evals += 2.0 * fraction;
-        Some(replace_subtree(tree, start, node, &fitted?))
+        let fitted = fitted.ok_or(Some("backsolve_fit_failed"))?;
+        Ok(replace_subtree(tree, start, node, &fitted))
     }
 }
 
@@ -748,13 +752,14 @@ where
     };
     rewriter
         .rewrite(tree, node, &mut 0.0, 1.0)
-        .unwrap_or_else(|| tree.clone())
+        .unwrap_or_else(|_| tree.clone())
 }
 
 /// The backsolve mutation of `member`, as SymbolicRegression.jl's `mutate!` for
 /// `BacksolveMutation`: up to `node_attempts` rewrites of random non-root subtrees, returning the
-/// first child that satisfies the constraints and costs less than its parent, with the
-/// evaluations spent. Library terms come from `population`.
+/// first child that satisfies the constraints and costs less than its parent, or
+/// SymbolicRegression.jl's reason for the failure, with the evaluations spent. Library terms come
+/// from `population`.
 pub(crate) fn backsolve_mutation<T, Ops, const D: usize>(
     rng: &mut Rng,
     member: &PopMember<T, Ops, D>,
@@ -763,18 +768,21 @@ pub(crate) fn backsolve_mutation<T, Ops, const D: usize>(
     options: &Options<T, Ops, D>,
     evaluator: &mut Evaluator<T, D>,
     population: &[PopMember<T, Ops, D>],
-) -> (Option<PopMember<T, Ops, D>>, f64)
+) -> (Result<PopMember<T, Ops, D>, &'static str>, f64)
 where
     T: Float,
     Ops: OperatorSet<T = T>,
 {
     let mut evals = 0.0;
-    if options.template.is_some() || weighted_sum_ops(options).is_none() {
-        return (None, evals);
+    if options.template.is_some() {
+        return (Err("backsolve_unsupported_expression"), evals);
     }
     let tree = &member.expr.trees[0];
     if tree.nodes.len() == 1 {
-        return (None, evals);
+        return (Err("backsolve_single_node"), evals);
+    }
+    if weighted_sum_ops(options).is_none() {
+        return (Err("backsolve_missing_operators"), evals);
     }
     let fraction = dataset.dataset_fraction();
     let mut rewriter = Rewriter {
@@ -787,15 +795,22 @@ where
         setup: None,
     };
     let n_features = dataset.n_features;
+    let mut reason = "backsolve_no_viable_node";
     for _ in 0..options.backsolve.node_attempts {
         let node = usize_range(rng, 0..tree.nodes.len() - 1);
-        let Some(candidate) = rewriter.rewrite(tree, node, &mut evals, fraction) else {
-            continue;
+        let candidate = match rewriter.rewrite(tree, node, &mut evals, fraction) {
+            Ok(candidate) => candidate,
+            Err(miss) => {
+                reason = miss.unwrap_or(reason);
+                continue;
+            }
         };
         if !check_constraints(&candidate, options, curmaxsize) {
+            reason = "backsolve_failed_constraint_check";
             continue;
         }
         let mut child = PopMember::from_expr(candidate, n_features, options);
+        child.parent = member.reference;
         child.evaluate(&dataset, options, evaluator);
         evals += fraction;
 
@@ -813,8 +828,9 @@ where
             child.cost.is_finite()
         };
         if improved {
-            return (Some(child), evals);
+            return (Ok(child), evals);
         }
+        reason = "backsolve_cost_not_improved";
     }
-    (None, evals)
+    (Err(reason), evals)
 }

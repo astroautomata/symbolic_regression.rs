@@ -359,9 +359,13 @@ impl MutationChoice {
                 MutationResult::ProposedMember { member: out, evals }
             }
             MutationChoice::Backsolve => {
+                trace.kind = "backsolve";
                 match backsolve::backsolve_mutation(rng, member, dataset, curmaxsize, options, evaluator, population) {
-                    (Some(member), evals) => MutationResult::ProposedMember { member, evals },
-                    (None, evals) => MutationResult::Failed { evals },
+                    (Ok(member), evals) => MutationResult::ProposedMember { member, evals },
+                    (Err(reason), evals) => {
+                        trace.outcome = Some(("reject", reason));
+                        MutationResult::Failed { evals }
+                    }
                 }
             }
         }
@@ -479,7 +483,7 @@ where
     }
 
     if !successful {
-        trace.outcome = Some(("reject", "failed_constraint_check"));
+        trace.outcome.get_or_insert(("reject", "failed_constraint_check"));
         let mut baby = PopMember::from_expr(member.expr.clone(), n_features, options);
         baby.parent = member.reference;
         baby.complexity = member.complexity;
