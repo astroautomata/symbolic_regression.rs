@@ -1031,9 +1031,9 @@ mod tests {
         use symbolic_regression::LossScale;
 
         let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Log);
+        assert!(search.step(usize::MAX).unwrap_err().contains("negative loss"));
         let err = super::snapshot(&search, 10).unwrap_err();
         assert!(err.contains("negative loss"), "{err}");
-        assert!(search.step(usize::MAX).unwrap_err().contains("negative loss"));
 
         let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Linear);
         search.step(usize::MAX).unwrap();

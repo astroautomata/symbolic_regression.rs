@@ -8,6 +8,7 @@ mod test_early_stop;
 mod test_equation_search_runs;
 mod test_frequency_in_tournament;
 mod test_jl_constraints;
+mod test_jl_guesses;
 mod test_jl_losses;
 mod test_jl_options;
 mod test_jl_templates;

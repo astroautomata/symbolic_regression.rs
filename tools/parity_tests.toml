@@ -1383,7 +1383,8 @@ file = "test/unit/misc/test_guesses.jl"
 line = 28
 name = "Guesses violating constraints do not enter the Hall of Fame"
 pr = 5
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::guesses_violating_constraints_do_not_enter_the_hall_of_fame"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"

@@ -723,8 +723,8 @@ where
                             ));
                         }
                         let rng = Rng::with_seed(options.seed.wrapping_add((j * options.populations + i) as u64));
-                        let Some(state) = new_population(*dataset, options, &controller, rng, i == 0, &mut hall)
-                            .map_err(|e| e.to_string())?
+                        let Some(state) =
+                            new_population(*dataset, options, &controller, rng, i == 0).map_err(|e| e.to_string())?
                         else {
                             break;
                         };
@@ -995,8 +995,8 @@ where
     }
 }
 
-/// Builds and scores a random population, adding its members to `hall`; `None` when the search is
-/// cancelled before a member exists. With
+/// Builds and scores a random population; `None` when the search is cancelled before a member
+/// exists. As in SymbolicRegression.jl, its members reach the hall of fame only after a cycle. With
 /// `check_template`, fails when the template cannot be evaluated, which the first member's
 /// evaluation finds.
 fn new_population<T, Ops, const D: usize>(
@@ -1005,7 +1005,6 @@ fn new_population<T, Ops, const D: usize>(
     controller: &StopController,
     mut rng: Rng,
     check_template: bool,
-    hall: &mut HallOfFame<T, Ops, D>,
 ) -> Result<Option<PopState<T, Ops, D>>, TemplateEvalError>
 where
     T: Float + FromPrimitive + ToPrimitive + AddAssign,
@@ -1031,7 +1030,6 @@ where
             evaluator.eval_checked(&m.expr, &m.plans, options, dataset.x.view())?;
         }
         let _ = m.evaluate(&full_dataset, options, &mut evaluator);
-        hall.consider(&m, options);
         members.push(m);
     }
     if members.is_empty() {
