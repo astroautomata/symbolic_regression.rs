@@ -143,7 +143,10 @@ impl WarmStartKey {
             ("expression_type", template.is_some().to_string()),
             ("expression_options", format!("{template:?}")),
             ("number of outputs", datasets.len().to_string()),
-            ("number of features", datasets[0].n_features.to_string()),
+            (
+                "number of features",
+                format!("{:?}", datasets.iter().map(|d| d.n_features).collect::<Vec<_>>()),
+            ),
         ])
     }
 

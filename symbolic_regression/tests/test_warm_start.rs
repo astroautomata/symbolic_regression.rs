@@ -109,6 +109,26 @@ fn warm_start_rejects_renumbered_custom_operators() {
     );
 }
 
+#[test]
+fn warm_start_rejects_a_changed_feature_count_on_any_output() {
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut dataset = |n_features| {
+        let x = Array2::from_shape_fn((n_features, 16), |_| rng.f64());
+        let y = x.row(0).to_owned();
+        Dataset::new(x, y)
+    };
+    let saved_datasets = [dataset(2), dataset(2)];
+    let saved = equation_search(&saved_datasets, &options(&["+", "*"], 1)).unwrap();
+    let datasets = [dataset(2), dataset(1)];
+    let Err(err) = resume_search(saved, &datasets, &options(&["+", "*"], 1)) else {
+        panic!("a search resumed with fewer features on its second output");
+    };
+    assert_eq!(
+        err,
+        "Warm start incompatible due to changed field(s): number of features. Start a new search instead."
+    );
+}
+
 /// test/unit/evaluation/test_early_stop.jl | "State preservation with niterations=0". The saved
 /// state comes from a search rather than hand-built populations, which the port does not expose.
 #[test]
