@@ -47,6 +47,8 @@ function setCommonState(args: { xColumns: number[] }) {
       y_column: 1,
       weights_column: null,
       validation_fraction: 0,
+      x_units: null,
+      y_units: null,
       loss: "L2DistLoss()",
       early_stop_condition: null,
       template: null,
@@ -76,6 +78,7 @@ function setCommonState(args: { xColumns: number[] }) {
       topn: 12,
       print_precision: 5,
       loss_scale: "log",
+      dimensional_constraint_penalty: 1000,
 
       use_frequency: true,
       use_frequency_in_tournament: true,
@@ -87,6 +90,7 @@ function setCommonState(args: { xColumns: number[] }) {
       use_baseline: true,
       progress: false,
       should_simplify: false,
+      dimensionless_constants_only: false,
 
       mutation_weights: {
         mutate_constant: 0.0346,
@@ -146,7 +150,11 @@ describe("SearchSolutions fit plot", () => {
     useSessionStore.setState({
       csvText: "x,y\n0,1\n1,3\n2,5\n",
       parsed: null,
-      options: { has_headers: true, x_columns: [0], y_column: 1, weights_column: null, validation_fraction: 0, niterations: 10 } as any,
+      options: {
+        has_headers: true, x_columns: [0], y_column: 1, weights_column: null, validation_fraction: 0,
+        x_units: null, y_units: null, dimensional_constraint_penalty: 1000, dimensionless_constants_only: false,
+        niterations: 10
+      } as any,
       runtime: {
         status: "ready",
         error: null,

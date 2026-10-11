@@ -14,6 +14,17 @@ describe("ModelingTask template expression", () => {
     useSessionStore.setState({ options, operatorRegistry: [], unaryOps: [], binaryOps: [], ternaryOps: [] });
   });
 
+  it("updates the dimensional penalty and toggles dimensionless constants", () => {
+    render(<ModelingTask />);
+    type("dimensional_constraint_penalty", "250");
+    expect(useSessionStore.getState().options?.dimensional_constraint_penalty).toBe(250);
+    const toggle = screen.getByLabelText("dimensionless_constants_only");
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(useSessionStore.getState().options?.dimensionless_constants_only).toBe(true);
+    fireEvent.click(toggle);
+    expect(useSessionStore.getState().options?.dimensionless_constants_only).toBe(false);
+  });
   it("is off by default and toggles an empty template on and off", () => {
     render(<ModelingTask />);
     const toggle = screen.getByLabelText("search a template expression");

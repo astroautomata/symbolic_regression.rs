@@ -365,6 +365,22 @@ export function ModelingTask(): React.ReactElement {
                 <div className="label">topn</div>
                 <input type="number" min={1} value={options.topn} onChange={(e) => setOptionsPatch({ topn: Number(e.target.value) })} />
               </label>
+              <label className="field">
+                <div className="label">dimensional_constraint_penalty</div>
+                <input
+                  type="number"
+                  value={options.dimensional_constraint_penalty}
+                  onChange={(e) => setOptionsPatch({ dimensional_constraint_penalty: Number(e.target.value) })}
+                />
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.dimensionless_constants_only}
+                  onChange={(e) => setOptionsPatch({ dimensionless_constants_only: e.target.checked })}
+                />
+                dimensionless_constants_only
+              </label>
             </section>
 
             <section className="section">

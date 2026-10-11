@@ -47,6 +47,10 @@ export type WasmSearchOptions = {
   y_column: number | null;
   weights_column: number | null;
   validation_fraction: number;
+  /** One PySR unit string per selected x column, in x_columns order. */
+  x_units: string[] | null;
+  /** PySR unit string for the target column. */
+  y_units: string | null;
   /** PySR `elementwise_loss`: a built-in such as "L1DistLoss()" or a definition such as "f(x, y) = abs(x - y)". */
   loss: string;
   /** PySR `early_stop_condition`: a loss threshold such as "1e-6", or a definition of (loss, complexity). */
@@ -79,6 +83,7 @@ export type WasmSearchOptions = {
   topn: number;
   print_precision: number;
   loss_scale: LossScale;
+  dimensional_constraint_penalty: number;
 
   use_frequency: boolean;
   use_frequency_in_tournament: boolean;
@@ -90,6 +95,7 @@ export type WasmSearchOptions = {
   use_baseline: boolean;
   progress: boolean;
   should_simplify: boolean;
+  dimensionless_constants_only: boolean;
 
   mutation_weights: WasmMutationWeights;
 };
