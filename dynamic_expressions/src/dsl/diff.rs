@@ -74,6 +74,7 @@ fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, mut rules: Rules<'_>) -
                     let mut partial_wrt = w.clone();
                     partial_wrt.push(j);
                     let partial = match partial_form(expr, &partial_wrt) {
+                        PartialForm::Const(0.0) => continue,
                         PartialForm::Const(c) => graph.constant(c),
                         PartialForm::Arg(i) => args[usize::from(i)],
                         PartialForm::Other => graph.intern(Node::Call {
@@ -82,7 +83,7 @@ fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, mut rules: Rules<'_>) -
                             args: args.clone(),
                         }),
                     };
-                    let term = mul(graph, partial, da);
+                    let term = chain_mul(graph, partial, da, true);
                     total = add(graph, total, term);
                 }
                 total
@@ -101,6 +102,27 @@ fn op_derivative(g: &mut Graph, kernel: Kernel, args: &[NodeId], d: &[NodeId], c
         Kernel::Add => add(g, da(0), da(1)),
         Kernel::Sub => sub(g, da(0), da(1)),
         Kernel::Neg => neg(g, da(0)),
+        Kernel::Mul if closed => {
+            let left = chain_mul(g, args[1], da(0), true);
+            let right = chain_mul(g, args[0], da(1), true);
+            add(g, left, right)
+        }
+        Kernel::Div if closed => {
+            let (a, b) = (args[0], args[1]);
+            let first = if is_zero(g, da(0)) {
+                zero(g)
+            } else {
+                value_div(g, da(0), b)
+            };
+            let second = if is_zero(g, da(1)) {
+                zero(g)
+            } else {
+                let num = chain_mul(g, a, da(1), true);
+                let den = g.op(Kernel::Mul, vec![b, b]);
+                value_div(g, num, den)
+            };
+            sub(g, first, second)
+        }
         Kernel::Mul => {
             let left = mul(g, da(0), args[1]);
             let right = mul(g, args[0], da(1));
@@ -140,7 +162,10 @@ fn op_derivative(g: &mut Graph, kernel: Kernel, args: &[NodeId], d: &[NodeId], c
                 } else {
                     g.partial(k, idx, args.to_vec())
                 };
-                let term = mul(g, partial, da(j));
+                if closed && is_zero(g, partial) {
+                    continue;
+                }
+                let term = chain_mul(g, partial, da(j), closed);
                 total = add(g, total, term);
             }
             total
@@ -465,6 +490,30 @@ fn mul(g: &mut Graph, a: NodeId, b: NodeId) -> NodeId {
         a
     } else {
         g.op(Kernel::Mul, vec![a, b])
+    }
+}
+
+// DynamicDiff folds the argument's derivative. An argument-valued partial of zero still
+// multiplies non-finite derivatives.
+fn chain_mul(g: &mut Graph, partial: NodeId, derivative: NodeId, closed: bool) -> NodeId {
+    if !closed {
+        mul(g, partial, derivative)
+    } else if is_zero(g, derivative) {
+        zero(g)
+    } else if is_one(g, derivative) {
+        partial
+    } else if is_one(g, partial) {
+        derivative
+    } else {
+        g.op(Kernel::Mul, vec![partial, derivative])
+    }
+}
+
+fn value_div(g: &mut Graph, numerator: NodeId, denominator: NodeId) -> NodeId {
+    if is_one(g, denominator) {
+        numerator
+    } else {
+        g.op(Kernel::Div, vec![numerator, denominator])
     }
 }
 

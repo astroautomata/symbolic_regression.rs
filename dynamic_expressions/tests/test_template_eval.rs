@@ -801,3 +801,49 @@ fn rust_operators_cannot_be_differentiated() {
     assert_eq!(derivative.check_operators(&ops, &[twice]), Err(err.clone()));
     assert!(err.to_string().contains("`D` cannot differentiate operator"), "{err}");
 }
+
+#[test]
+fn template_derivatives_preserve_nonfinite_partial_factors() {
+    let ops = BuiltinOpsF64::new();
+    let inv = || apply(&ops, "inv", arg(1));
+    for tree in [
+        constant(0.0) * inv(),
+        inv() * 0.0,
+        constant(0.0) / arg(1),
+        inv() - inv(),
+        arg(1) / arg(1),
+    ] {
+        for order in 1..=2 {
+            for point in [0.0, -0.0, f64::NAN] {
+                let src = nested_d(order, 1, "x");
+                assert!(
+                    d_at(&src, &["x"], &tree, &[point]).is_none(),
+                    "{src} of {:?} at {point}",
+                    tree.nodes
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn zero_derivatives_discard_only_inactive_argument_derivatives() {
+    for (tree, first) in [
+        (cos(arg(1) * 0.0), 0.0),
+        (arg(1) - arg(1), 0.0),
+        (arg(1), 1.0),
+        (arg(1) * 2.0, 2.0),
+        (constant(2.0), 0.0),
+    ] {
+        assert_d(
+            d_at(&nested_d(1, 1, "x"), &["x"], &tree, &[f64::NAN]),
+            Some(first),
+            "first derivative at NaN",
+        );
+        assert_d(
+            d_at(&nested_d(2, 1, "x"), &["x"], &tree, &[f64::NAN]),
+            Some(0.0),
+            "second derivative at NaN",
+        );
+    }
+}
