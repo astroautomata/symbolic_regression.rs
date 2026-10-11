@@ -43,16 +43,8 @@ pub fn best_of_sample<T: Float, Ops, const D: usize>(
     let mut scored: Vec<(f64, usize)> = Vec::with_capacity(n);
     for idx in indices {
         let m = &pop.members[idx];
-        let mut adjusted = m.cost.to_f64().unwrap_or(f64::INFINITY);
-        if options.use_frequency_in_tournament {
-            let size = m.complexity;
-            let freq = if size > 0 && size <= options.maxsize {
-                stats.normalized_frequencies[size - 1]
-            } else {
-                0.0
-            };
-            adjusted *= (options.adaptive_parsimony_scaling * freq).exp();
-        }
+        let adjusted = m.cost.to_f64().unwrap_or(f64::INFINITY)
+            * crate::adaptive_parsimony::tournament_cost_multiplier(stats, options, m.complexity);
         scored.push((adjusted, idx));
     }
 

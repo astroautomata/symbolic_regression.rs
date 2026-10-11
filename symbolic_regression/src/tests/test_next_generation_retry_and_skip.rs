@@ -81,6 +81,7 @@ fn next_generation_fails_constraints_after_retries() {
             options: &options,
             evaluator: &mut evaluator,
             population: &[],
+            weights_state: &mut Default::default(),
             _ops: core::marker::PhantomData,
         },
     );
@@ -149,6 +150,8 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         stats: &stats,
         options: &options,
         evaluator: &mut evaluator,
+        weights_state: &mut Default::default(),
+        best_seen: &mut crate::HallOfFame::new(options.maxsize),
         controller: &controller,
         temperature: 1.0,
         curmaxsize: 1,

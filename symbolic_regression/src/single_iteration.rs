@@ -8,6 +8,7 @@ use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
 use crate::hall_of_fame::HallOfFame;
 use crate::options::Options;
+use crate::plugins::MutationWeightsState;
 use crate::pop_member::{Evaluator, generate_reference};
 use crate::population::Population;
 use crate::regularized_evolution::{RegEvolCtx, reg_evol_cycle};
@@ -22,9 +23,20 @@ pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut dynamic_expressions::GradContext<T, D>,
+    pub weights_state: &'a mut MutationWeightsState,
     pub controller: &'a StopController,
     pub trace: Option<&'a mut IterationTrace<T, Ops, D>>,
     pub _ops: core::marker::PhantomData<Ops>,
+}
+
+/// SymbolicRegression.jl's `SimulatedAnnealingPlugin` temperature at (0-based) cycle `i` of
+/// `ncycles`: `LinRange(1.0, 0.0, ncycles)[i + 1]`, or `1` for a single cycle.
+pub(crate) fn annealing_temperature(i: usize, ncycles: usize) -> f64 {
+    if ncycles <= 1 {
+        return 1.0;
+    }
+    let t = (i as f64) / ((ncycles - 1) as f64);
+    1.0 - t
 }
 
 pub fn s_r_cycle<T, Ops, const D: usize>(
@@ -36,8 +48,6 @@ where
     T: Float + FromPrimitive + ToPrimitive + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    let max_temp = 1.0;
-    let min_temp = if ctx.options.annealing { 0.0 } else { 1.0 };
     let ncycles = ctx.options.ncycles_per_iteration.max(1);
     let mut num_evals = 0.0;
     let mut best_seen = HallOfFame::new(ctx.options.maxsize);
@@ -46,11 +56,10 @@ where
         if ctx.controller.is_cancelled() {
             break;
         }
-        let temperature = if ncycles <= 1 {
-            max_temp
+        let temperature = if ctx.options.annealing {
+            annealing_temperature(i, ncycles)
         } else {
-            let t = (i as f64) / ((ncycles - 1) as f64);
-            max_temp + t * (min_temp - max_temp)
+            1.0
         };
         num_evals += reg_evol_cycle(
             pop,
@@ -62,6 +71,8 @@ where
                 stats: ctx.stats,
                 options: ctx.options,
                 evaluator: ctx.evaluator,
+                weights_state: ctx.weights_state,
+                best_seen: &mut best_seen,
                 controller: ctx.controller,
                 trace: ctx.trace.as_deref_mut(),
                 _ops: core::marker::PhantomData,

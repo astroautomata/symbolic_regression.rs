@@ -266,6 +266,7 @@ fn bench_utils(c: &mut Criterion) {
                             options: &options,
                             evaluator: &mut evaluator,
                             population: &population.members,
+                            weights_state: &mut Default::default(),
                             _ops: PhantomData::<Ops>,
                         };
                         let _ = next_generation(member, ctx);

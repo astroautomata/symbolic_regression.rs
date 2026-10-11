@@ -11,6 +11,7 @@ use crate::dataset::TaggedDataset;
 use crate::expression::Expression;
 use crate::loss_functions::loss_to_cost;
 use crate::options::{MutationWeights, Options};
+use crate::plugins::{MutationEvent, MutationWeightsState};
 use crate::pop_member::{Evaluator, PopMember};
 use crate::random::{usize_range, usize_range_inclusive};
 use crate::selection::weighted_index;
@@ -34,6 +35,43 @@ pub enum MutationChoice {
     Backsolve,
 }
 
+impl MutationChoice {
+    /// Every kind, in sampling order.
+    pub const ALL: [MutationChoice; 13] = [
+        MutationChoice::MutateConstant,
+        MutationChoice::MutateOperator,
+        MutationChoice::MutateFeature,
+        MutationChoice::SwapOperands,
+        MutationChoice::RotateTree,
+        MutationChoice::AddNode,
+        MutationChoice::InsertNode,
+        MutationChoice::DeleteNode,
+        MutationChoice::Simplify,
+        MutationChoice::Randomize,
+        MutationChoice::DoNothing,
+        MutationChoice::Optimize,
+        MutationChoice::Backsolve,
+    ];
+
+    pub(crate) fn weight_mut(self, weights: &mut MutationWeights) -> &mut f64 {
+        match self {
+            MutationChoice::MutateConstant => &mut weights.mutate_constant,
+            MutationChoice::MutateOperator => &mut weights.mutate_operator,
+            MutationChoice::MutateFeature => &mut weights.mutate_feature,
+            MutationChoice::SwapOperands => &mut weights.swap_operands,
+            MutationChoice::RotateTree => &mut weights.rotate_tree,
+            MutationChoice::AddNode => &mut weights.add_node,
+            MutationChoice::InsertNode => &mut weights.insert_node,
+            MutationChoice::DeleteNode => &mut weights.delete_node,
+            MutationChoice::Simplify => &mut weights.simplify,
+            MutationChoice::Randomize => &mut weights.randomize,
+            MutationChoice::DoNothing => &mut weights.do_nothing,
+            MutationChoice::Optimize => &mut weights.optimize,
+            MutationChoice::Backsolve => &mut weights.backsolve,
+        }
+    }
+}
+
 pub struct NextGenerationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub rng: &'a mut Rng,
     pub dataset: TaggedDataset<'a, T>,
@@ -44,6 +82,9 @@ pub struct NextGenerationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub evaluator: &'a mut Evaluator<T, D>,
     /// The population `member` was drawn from; the backsolve mutation takes library terms from it.
     pub population: &'a [PopMember<T, Ops, D>],
+    /// The population's adaptive-mutation-weights statistics, read and updated when
+    /// `options.adaptive_mutation_weights` is set.
+    pub weights_state: &'a mut MutationWeightsState,
     pub _ops: core::marker::PhantomData<Ops>,
 }
 
@@ -131,24 +172,9 @@ pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
 }
 
 pub fn sample_mutation(rng: &mut Rng, weights: &MutationWeights) -> MutationChoice {
-    let choices = [
-        (MutationChoice::MutateConstant, weights.mutate_constant),
-        (MutationChoice::MutateOperator, weights.mutate_operator),
-        (MutationChoice::MutateFeature, weights.mutate_feature),
-        (MutationChoice::SwapOperands, weights.swap_operands),
-        (MutationChoice::RotateTree, weights.rotate_tree),
-        (MutationChoice::AddNode, weights.add_node),
-        (MutationChoice::InsertNode, weights.insert_node),
-        (MutationChoice::DeleteNode, weights.delete_node),
-        (MutationChoice::Simplify, weights.simplify),
-        (MutationChoice::Randomize, weights.randomize),
-        (MutationChoice::DoNothing, weights.do_nothing),
-        (MutationChoice::Optimize, weights.optimize),
-        (MutationChoice::Backsolve, weights.backsolve),
-    ];
-    let w: Vec<f64> = choices.iter().map(|(_, v)| *v).collect();
-    let idx = weighted_index(rng, &w);
-    choices[idx].0
+    let mut weights = weights.clone();
+    let w = MutationChoice::ALL.map(|c| *c.weight_mut(&mut weights));
+    MutationChoice::ALL[weighted_index(rng, &w)]
 }
 
 enum MutationResult<T: Float + AddAssign, Ops, const D: usize> {
@@ -431,15 +457,97 @@ where
         options,
         evaluator,
         population,
+        weights_state,
         ..
     } = ctx;
 
-    let before_cost = member.cost.to_f64().unwrap_or(f64::INFINITY);
-    let _before_loss = member.loss.to_f64().unwrap_or(f64::INFINITY);
-    let n_features = dataset.n_features;
-
-    let weights = next_generation_weights(member, options, curmaxsize, n_features);
+    let mut weights = next_generation_weights(member, options, curmaxsize, dataset.n_features);
+    if let Some(config) = &options.adaptive_mutation_weights {
+        weights_state.condition_weights(config, &mut weights);
+    }
     let choice = sample_mutation(rng, &weights);
+
+    let (baby, accepted, evals, after) = mutate_and_accept(
+        choice,
+        member,
+        rng,
+        dataset,
+        temperature,
+        curmaxsize,
+        stats,
+        options,
+        evaluator,
+        trace,
+        population,
+    );
+    if let Some(config) = &options.adaptive_mutation_weights {
+        let event = MutationEvent {
+            accepted,
+            before_cost: member.cost.to_f64().unwrap_or(f64::INFINITY),
+            before_loss: member.loss.to_f64().unwrap_or(f64::INFINITY),
+            after,
+        };
+        weights_state.record(config, choice, event);
+    }
+    (baby, accepted, evals)
+}
+
+/// SymbolicRegression.jl's acceptance probability of a valid child: the product of the
+/// annealing multiplier `exp(-(after_cost - before_cost) / (temperature * alpha))` and the
+/// adaptive parsimony multiplier, each `1` when its option is off.
+pub(crate) fn acceptance_probability<T: Float, Ops, const D: usize>(
+    options: &Options<T, Ops, D>,
+    stats: &RunningSearchStatistics,
+    temperature: f64,
+    (before_cost, after_cost): (f64, f64),
+    (parent_complexity, child_complexity): (usize, usize),
+) -> f64 {
+    let mut prob = 1.0f64;
+    if options.annealing {
+        let delta = after_cost - before_cost;
+        prob *= (-delta / (temperature * options.alpha)).exp();
+    }
+    prob * crate::adaptive_parsimony::mutation_acceptance_multiplier(
+        stats,
+        options,
+        parent_complexity,
+        child_complexity,
+    )
+}
+
+/// A mutation's child, whether it was accepted, its evaluations, and the evaluated child's
+/// `(cost, loss)`.
+type MutationOutcome<T, Ops, const D: usize> = (PopMember<T, Ops, D>, bool, f64, Option<(f64, f64)>);
+
+/// Applies `choice` to `member` and decides acceptance; a rejected child is the parent's copy.
+#[allow(clippy::too_many_arguments)]
+fn mutate_and_accept<T, Ops, const D: usize>(
+    choice: MutationChoice,
+    member: &PopMember<T, Ops, D>,
+    rng: &mut Rng,
+    dataset: TaggedDataset<'_, T>,
+    temperature: f64,
+    curmaxsize: usize,
+    stats: &RunningSearchStatistics,
+    options: &Options<T, Ops, D>,
+    evaluator: &mut Evaluator<T, D>,
+    trace: &mut StepTrace,
+    population: &[PopMember<T, Ops, D>],
+) -> MutationOutcome<T, Ops, D>
+where
+    T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
+    Ops: dynamic_expressions::OperatorSet<T = T>,
+{
+    let before_cost = member.cost.to_f64().unwrap_or(f64::INFINITY);
+    let n_features = dataset.n_features;
+    let parent_copy = || {
+        let mut copy = PopMember::from_expr(member.expr.clone(), n_features, options);
+        copy.parent = member.reference;
+        copy.complexity = member.complexity;
+        copy.loss = member.loss;
+        copy.cost = member.cost;
+        copy
+    };
 
     let max_attempts = 10;
     let mut successful = false;
@@ -473,7 +581,11 @@ where
                 evals: delta_evals,
             } => {
                 evals += delta_evals;
-                return (out, true, evals);
+                let after = (
+                    out.cost.to_f64().unwrap_or(f64::INFINITY),
+                    out.loss.to_f64().unwrap_or(f64::INFINITY),
+                );
+                return (out, true, evals, Some(after));
             }
             MutationResult::Failed { evals: e } => {
                 evals += e;
@@ -484,12 +596,7 @@ where
 
     if !successful {
         trace.outcome.get_or_insert(("reject", "failed_constraint_check"));
-        let mut baby = PopMember::from_expr(member.expr.clone(), n_features, options);
-        baby.parent = member.reference;
-        baby.complexity = member.complexity;
-        baby.loss = member.loss;
-        baby.cost = member.cost;
-        return (baby, false, evals);
+        return (parent_copy(), false, evals, None);
     }
 
     let mut baby = PopMember::from_expr(tree, n_features, options);
@@ -499,47 +606,24 @@ where
     let after_cost = baby.cost.to_f64().unwrap_or(f64::INFINITY);
     if after_cost.is_nan() {
         trace.outcome = Some(("reject", "nan_loss"));
-        let mut reject = PopMember::from_expr(member.expr.clone(), n_features, options);
-        reject.parent = member.reference;
-        reject.complexity = member.complexity;
-        reject.loss = member.loss;
-        reject.cost = member.cost;
-        return (reject, false, evals);
+        return (parent_copy(), false, evals, None);
     }
+    let after = Some((after_cost, baby.loss.to_f64().unwrap_or(f64::INFINITY)));
 
-    let mut prob = 1.0f64;
-    if options.annealing {
-        let delta = after_cost - before_cost;
-        prob *= (-delta / (temperature * options.alpha)).exp();
-    }
-    if options.use_frequency {
-        let old_size = member.complexity;
-        let new_size = baby.complexity;
-        let old_f = if old_size > 0 && old_size <= options.maxsize {
-            stats.freq(old_size)
-        } else {
-            1e-6
-        };
-        let new_f = if new_size > 0 && new_size <= options.maxsize {
-            stats.freq(new_size)
-        } else {
-            1e-6
-        };
-        prob *= old_f / new_f;
-    }
-
+    let prob = acceptance_probability(
+        options,
+        stats,
+        temperature,
+        (before_cost, after_cost),
+        (member.complexity, baby.complexity),
+    );
     if prob < rng.f64() {
         trace.outcome = Some(("reject", "acceptance"));
-        let mut reject = PopMember::from_expr(member.expr.clone(), n_features, options);
-        reject.parent = member.reference;
-        reject.complexity = member.complexity;
-        reject.loss = member.loss;
-        reject.cost = member.cost;
-        return (reject, false, evals);
+        return (parent_copy(), false, evals, after);
     }
 
     trace.outcome = Some(("accept", "pass"));
-    (baby, true, evals)
+    (baby, true, evals, after)
 }
 
 /// SymbolicRegression.jl's `crossover_trees`: each parent contributes one tree, a random

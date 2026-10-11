@@ -10,6 +10,7 @@ use crate::backsolve::BacksolveOptions;
 use crate::dataset::Dataset;
 use crate::guesses::Guess;
 use crate::loss_functions::{BuiltinLoss, LossObject};
+use crate::plugins::{AdaptiveMutationWeights, MutationBurst};
 
 /// Matches SymbolicRegression.jl `early_stop_condition`: takes `(loss, complexity)` and returns
 /// `true` to terminate the search early. Wrapping a scalar threshold `t` is `EarlyStop::below(t)`.
@@ -398,6 +399,11 @@ macro_rules! __define_options {
             /// SymbolicRegression.jl's `tracing_file`: the JSON Lines file a search with
             /// `use_tracing` writes its trace to, replacing any earlier contents.
             pub tracing_file: std::path::PathBuf,
+            /// SymbolicRegression.jl's default `AdaptiveMutationWeightsPlugin`; `None` samples
+            /// the configured `mutation_weights` throughout.
+            pub adaptive_mutation_weights: Option<AdaptiveMutationWeights>,
+            /// SymbolicRegression.jl's `MutationBurstPlugin`, off by default.
+            pub mutation_burst: Option<MutationBurst>,
         }
 
         impl<T: Float, Ops: Default, const D: usize> Default for Options<T, Ops, D> {
@@ -424,6 +430,8 @@ macro_rules! __define_options {
                     template: None,
                     guesses: Vec::new(),
                     tracing_file: "pysr_trace.jsonl".into(),
+                    adaptive_mutation_weights: Some(AdaptiveMutationWeights::default()),
+                    mutation_burst: None,
                 }
             }
         }

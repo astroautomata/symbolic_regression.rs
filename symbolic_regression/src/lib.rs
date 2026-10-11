@@ -23,6 +23,7 @@ pub(crate) mod operator_library;
 pub mod operator_selection;
 pub(crate) mod optim;
 pub(crate) mod options;
+pub(crate) mod plugins;
 pub(crate) mod pop_member;
 pub(crate) mod population;
 pub mod prelude;
@@ -56,6 +57,7 @@ pub use operator_selection::OperatorsSampling;
 pub use options::{
     EarlyStop, EarlyStopCondition, LossScale, MutationWeights, Options, OutputStyle, WasmOptionsShim, parse_early_stop,
 };
+pub use plugins::{AdaptiveMutationWeights, MutationBurst, Reward};
 pub use pop_member::PopMember;
 pub use population::Population;
 pub use printing::{format_hall, format_member, format_search_state, split_string, wrap_equation_string};
@@ -71,6 +73,7 @@ pub use {
     check_constraints::check_constraints,
     constant_optimization::{OptimizeConstantsCtx, optimize_constants},
     mutate::{NextGenerationCtx, next_generation},
+    plugins::MutationWeightsState,
     pop_member::Evaluator,
     selection::best_of_sample,
 };

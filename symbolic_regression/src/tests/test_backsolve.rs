@@ -574,6 +574,7 @@ fn backsolve_fires_in_next_generation() {
                 options: &options,
                 evaluator: &mut evaluator,
                 population: &population,
+                weights_state: &mut Default::default(),
                 _ops: core::marker::PhantomData,
             },
         );
@@ -647,6 +648,7 @@ fn backsolve_failure_records_reject_reason() {
                 options,
                 evaluator: &mut evaluator,
                 population: &population,
+                weights_state: &mut Default::default(),
                 _ops: core::marker::PhantomData,
             },
             &mut trace,

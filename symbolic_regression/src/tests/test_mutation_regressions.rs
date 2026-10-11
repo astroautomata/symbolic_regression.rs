@@ -76,6 +76,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
             options: &options,
             evaluator: &mut evaluator,
             population: &[],
+            weights_state: &mut Default::default(),
             _ops: core::marker::PhantomData,
         },
     );
@@ -224,6 +225,7 @@ fn add_node_includes_append_at_leaf_move() {
                 options: &options,
                 evaluator: &mut evaluator,
                 population: &[],
+                weights_state: &mut Default::default(),
                 _ops: core::marker::PhantomData,
             },
         );
@@ -320,6 +322,7 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
             options: &options,
             evaluator: &mut evaluator,
             population: &[],
+            weights_state: &mut Default::default(),
             _ops: core::marker::PhantomData,
         },
     );

@@ -16,6 +16,7 @@ use crate::guesses::{ParsedGuesses, seed_members};
 use crate::hall_of_fame::HallOfFame;
 use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::options::Options;
+use crate::plugins::MutationWeightsState;
 use crate::pop_member::{Evaluator, PopMember};
 use crate::population::Population;
 use crate::progress_bars::SearchProgress;
@@ -234,6 +235,7 @@ pub(crate) struct PopState<T: Float + AddAssign, Ops, const D: usize> {
     pub(crate) batch_dataset: Option<Dataset<T>>,
     /// Cycles this population has run in this search, which numbers its trace records.
     pub(crate) iteration: usize,
+    pub(crate) weights_state: MutationWeightsState,
 }
 
 impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
@@ -245,6 +247,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             rng,
             batch_dataset: None,
             iteration: 0,
+            weights_state: MutationWeightsState::default(),
         }
     }
 
@@ -294,6 +297,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             options,
             evaluator: &mut self.evaluator,
             grad_ctx: &mut self.grad_ctx,
+            weights_state: &mut self.weights_state,
             controller,
             trace,
             _ops: core::marker::PhantomData,
@@ -495,8 +499,7 @@ where
                     let cycles_remaining_start = out.counters.cycles_remaining_start_for_next_dispatch();
                     let curmaxsize =
                         warmup::get_cur_maxsize(options, out.counters.total_cycles, cycles_remaining_start);
-                    let mut stats_snapshot = out.stats.clone();
-                    stats_snapshot.normalize();
+                    let stats_snapshot = out.stats.fork();
                     let (dataset, baseline_loss) = (&datasets[output], baselines[output]);
 
                     if need_inline {
@@ -740,6 +743,7 @@ where
         if options.print_precision == 0 {
             return Err("print_precision must be positive".to_string());
         }
+        crate::plugins::check_plugins(options)?;
         for dataset in datasets {
             check_dataset(dataset, options);
         }
@@ -1058,6 +1062,21 @@ where
     /// The warnings SymbolicRegression.jl logs while setting up the search.
     pub fn warnings(&self) -> &[String] {
         &self.search.warnings
+    }
+
+    /// Output `output`'s population `pop` adaptive-mutation-weights statistics.
+    #[cfg(test)]
+    pub(crate) fn weights_state(&self, output: usize, pop: usize) -> &MutationWeightsState {
+        &self.search.core.outputs[output].pops[pop]
+            .as_ref()
+            .expect("population exists")
+            .weights_state
+    }
+
+    /// Output `output`'s adaptive-parsimony statistics, which every dispatch forks.
+    #[cfg(test)]
+    pub(crate) fn parsimony_stats(&self, output: usize) -> &RunningSearchStatistics {
+        &self.search.core.outputs[output].stats
     }
 
     /// Runs up to `n_cycles` more cycles and returns how many completed. Fails, after the cycles
