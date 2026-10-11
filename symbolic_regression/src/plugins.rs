@@ -18,11 +18,12 @@ pub enum Reward {
 }
 
 /// SymbolicRegression.jl's `AdaptiveMutationWeightsPlugin`: each population learns a multiplier
-/// for every mutation kind from how often that kind strictly improves the reward objective. After
-/// each mutation, the sampled kind's multiplier moves by an exponential moving average toward its
-/// smoothed success rate relative to the mean rate, clamped to `[floor, 1/floor]`, and the
-/// multipliers are renormalized to unit mean. Sampling multiplies each weight by
-/// `multiplier^adaptation_strength`. Simplify and do-nothing mutations take no part.
+/// for every mutation kind in `Options::resolved_mutations` from how often that kind strictly
+/// improves the reward objective. After each mutation, the sampled kind's multiplier moves by an
+/// exponential moving average toward its smoothed success rate relative to the mean rate, clamped
+/// to `[floor, 1/floor]`, and the multipliers are renormalized to unit mean. Sampling multiplies
+/// each weight by `multiplier^adaptation_strength`. Simplify and do-nothing mutations, and kinds
+/// missing from the resolved list, take no part.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AdaptiveMutationWeights {
     /// The moving average's factor, in `[0, 1]`.
@@ -158,8 +159,14 @@ pub(crate) struct MutationEvent {
 
 const N_KINDS: usize = MutationChoice::ALL.len();
 
+/// SymbolicRegression.jl's `skip_in_adaptive_weights`.
+fn skip_in_adaptive_weights(choice: MutationChoice) -> bool {
+    matches!(choice, MutationChoice::Simplify | MutationChoice::DoNothing)
+}
+
 /// One population's [`AdaptiveMutationWeights`] statistics, indexed by [`MutationChoice`]. Each
 /// population keeps its own across the search, as SymbolicRegression.jl's worker plugin state.
+/// [`Default`] is the state for the default mutation list, which holds every kind.
 #[derive(Clone, Debug)]
 pub struct MutationWeightsState {
     pub(crate) attempts: [f64; N_KINDS],
@@ -174,12 +181,27 @@ impl Default for MutationWeightsState {
             attempts: [0.0; N_KINDS],
             successes: [0.0; N_KINDS],
             multipliers: [1.0; N_KINDS],
-            active: MutationChoice::ALL.map(|c| !matches!(c, MutationChoice::Simplify | MutationChoice::DoNothing)),
+            active: MutationChoice::ALL.map(|c| !skip_in_adaptive_weights(c)),
         }
     }
 }
 
 impl MutationWeightsState {
+    /// SymbolicRegression.jl's `init_plugin_state`: every kind in `options.resolved_mutations()`,
+    /// zero weights included, takes part unless `skip_in_adaptive_weights`; kinds the list leaves
+    /// out take no part.
+    pub(crate) fn new<T: Float, Ops, const D: usize>(options: &Options<T, Ops, D>) -> Self {
+        let mut active = [false; N_KINDS];
+        for (mutation, _) in options.resolved_mutations() {
+            let choice = MutationChoice::from_builtin(mutation);
+            active[choice as usize] = !skip_in_adaptive_weights(choice);
+        }
+        Self {
+            active,
+            ..Self::default()
+        }
+    }
+
     /// Multiplies each of `weights` by its kind's learned multiplier.
     pub(crate) fn condition_weights(&self, config: &AdaptiveMutationWeights, weights: &mut MutationWeights) {
         let exponent = config.adaptation_strength;

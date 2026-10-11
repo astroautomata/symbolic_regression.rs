@@ -223,6 +223,68 @@ fn skipped_mutation_kinds_stay_out_of_adaptive_weights_accounting() {
     }
 }
 
+/// SymbolicRegression.jl's `init_plugin_state` keeps one entry per mutation of the resolved list,
+/// zero weights included, and leaves simplify and do-nothing mutations out of the accounting.
+#[test]
+fn adaptive_mutation_weights_track_the_resolved_mutation_list() {
+    use crate::BuiltinMutation::{AddNode, Constant, DoNothing, Simplify};
+    let fresh_state = |options: Opts| {
+        let engine = SearchEngine::new(vec![dataset(|x| x * x)], options).unwrap();
+        engine.weights_state(0, 0).clone()
+    };
+    let active_kinds = |state: &MutationWeightsState| -> Vec<MutationChoice> {
+        MutationChoice::ALL
+            .into_iter()
+            .filter(|&c| state.active[c as usize])
+            .collect()
+    };
+    let defaults: Vec<_> = MutationChoice::ALL
+        .into_iter()
+        .filter(|c| !matches!(c, MutationChoice::Simplify | MutationChoice::DoNothing))
+        .collect();
+    assert_eq!(active_kinds(&fresh_state(engine_options(1))), defaults);
+
+    let listed = Options {
+        default_mutations: Some(vec![
+            (Constant(Default::default()), 1.0),
+            (AddNode, 1.0),
+            (DoNothing, 1.0),
+        ]),
+        ..engine_options(1)
+    };
+    let explicit = Options {
+        default_mutations: Some(Vec::new()),
+        mutations: vec![(Constant(Default::default()), 1.0), (AddNode, 0.0), (Simplify, 1.0)],
+        ..engine_options(1)
+    };
+    let a = MutationChoice::AddNode as usize;
+    for options in [listed, explicit] {
+        let mut state = fresh_state(options);
+        assert_eq!(
+            active_kinds(&state),
+            [MutationChoice::MutateConstant, MutationChoice::AddNode]
+        );
+        let config = AdaptiveMutationWeights {
+            smoothing: 0.2,
+            ..Default::default()
+        };
+        state.record(&config, MutationChoice::MutateOperator, event(true, 1.0, 0.5, 1.0, 0.5));
+        assert!(state.attempts.iter().all(|&a| a == 0.0));
+        assert!(state.multipliers.iter().all(|&m| m == 1.0));
+
+        state.record(&config, MutationChoice::MutateConstant, event(true, 1.0, 0.5, 1.0, 0.5));
+        let updated = 0.8 + 0.2 * ((2.0 / 3.0) / (3.0 / 5.0));
+        let normalizer = (updated + 1.0) / 2.0;
+        assert_close(state.multipliers[C], updated / normalizer);
+        assert_close(state.multipliers[a], 1.0 / normalizer);
+        for c in MutationChoice::ALL {
+            if !matches!(c, MutationChoice::MutateConstant | MutationChoice::AddNode) {
+                assert_eq!(state.multipliers[c as usize], 1.0, "{c:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn adaptive_mutation_weights_reward_the_configured_objective() {
     let improves_cost_only = event(true, 1.0, 0.5, 1.0, 2.0);

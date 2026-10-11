@@ -239,7 +239,7 @@ pub(crate) struct PopState<T: Float + AddAssign, Ops, const D: usize> {
 }
 
 impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
-    fn new(pop: Population<T, Ops, D>, rng: Rng, n_rows: usize) -> Self {
+    fn new(pop: Population<T, Ops, D>, rng: Rng, n_rows: usize, weights_state: MutationWeightsState) -> Self {
         Self {
             pop,
             evaluator: Evaluator::new(n_rows),
@@ -247,7 +247,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             rng,
             batch_dataset: None,
             iteration: 0,
-            weights_state: MutationWeightsState::default(),
+            weights_state,
         }
     }
 
@@ -821,7 +821,7 @@ where
                         for m in &mut pop.members {
                             m.evaluate(dataset, options, &mut evaluator);
                         }
-                        PopState::new(pop, rng, dataset.n_rows)
+                        PopState::new(pop, rng, dataset.n_rows, MutationWeightsState::new(options))
                     }
                     saved_pop => {
                         if saved_pop.is_some() {
@@ -1199,7 +1199,12 @@ where
     if members.is_empty() {
         return Ok(None);
     }
-    let mut state = PopState::new(Population::new(members), rng, dataset.n_rows);
+    let mut state = PopState::new(
+        Population::new(members),
+        rng,
+        dataset.n_rows,
+        MutationWeightsState::new(options),
+    );
     state.evaluator = evaluator;
     Ok(Some(state))
 }

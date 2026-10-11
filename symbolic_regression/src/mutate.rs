@@ -73,7 +73,7 @@ impl MutationChoice {
 }
 
 impl MutationChoice {
-    fn from_builtin(mutation: crate::options::BuiltinMutation) -> Self {
+    pub(crate) fn from_builtin(mutation: crate::options::BuiltinMutation) -> Self {
         match mutation {
             crate::options::BuiltinMutation::Constant(_) => Self::MutateConstant,
             crate::options::BuiltinMutation::Operator => Self::MutateOperator,
