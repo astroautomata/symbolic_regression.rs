@@ -422,21 +422,12 @@ pub mod builtin {
         partial: |[x, y, _z], idx| { if idx == 0 { y } else if idx == 1 { x } else { T::one() } },
     });
 
+    // Julia's `clamp(x, lo, hi) = x > hi ? hi : x < lo ? lo : x`, which accepts inverted bounds.
     crate::op!(Clamp for<T> {
-        eval: |[x, lo, hi]| {
-            // `Float::clamp` may panic if `lo > hi`, but SR might violate this,
-            // so we handle it with a NaN.
-            if lo <= hi { x.clamp(lo, hi) } else { T::nan() }
-        },
+        eval: |[x, lo, hi]| { if x > hi { hi } else if x < lo { lo } else { x } },
         partial: |[x, lo, hi], idx| {
-            #[allow(clippy::collapsible_else_if)]
-            if idx == 0 {
-                if x < lo || x > hi { T::zero() } else { T::one() }
-            } else if idx == 1 {
-                if x < lo { T::one() } else { T::zero() }
-            } else {
-                if x > hi { T::one() } else { T::zero() }
-            }
+            let picked = if x > hi { 2 } else if x < lo { 1 } else { 0 };
+            if idx == picked { T::one() } else { T::zero() }
         },
     });
 

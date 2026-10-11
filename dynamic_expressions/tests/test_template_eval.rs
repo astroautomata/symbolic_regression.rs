@@ -554,6 +554,37 @@ fn nonsmooth_operators_follow_forward_diff_at_their_boundaries() {
     }
 }
 
+/// `clamp` is Julia's, `x > hi ? hi : x < lo ? lo : x`, so SymbolicRegression.jl evaluates it
+/// with inverted bounds. Expected values are SymbolicRegression.jl f97764fb's.
+#[test]
+fn clamp_accepts_inverted_bounds() {
+    use dynamic_expressions::operators::clamp;
+    let tree = clamp(arg(1), arg(2), arg(3));
+    let srcs = [
+        "f(x, lo, hi)",
+        "D(f, 1)(x, lo, hi)",
+        "D(f, 2)(x, lo, hi)",
+        "D(f, 3)(x, lo, hi)",
+    ];
+    let cases = [
+        ([0.5, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+        ([2.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+        ([-1.0, 1.0, 0.0], [1.0, 0.0, 1.0, 0.0]),
+    ];
+    for (point, want) in cases {
+        for (src, want) in srcs.iter().zip(want) {
+            let got = d_at(src, &["x", "lo", "hi"], &tree, &point);
+            assert_d(got, Some(want), &format!("{src} at {point:?}"));
+        }
+    }
+
+    let ops = BuiltinOpsF64::new();
+    let t = template("f(x)", &["f"], None, &["x"], &[], &ops);
+    let tree = clamp(arg(1), constant(1.0), constant(0.0));
+    let got = eval(&t, &tree, &[], &ops, &[&[0.5, 2.0, -1.0]]).unwrap();
+    assert_eq!(got, Some(vec![0.0, 0.0, 1.0]));
+}
+
 /// `min` and `max` are Julia's, so a NaN argument makes the result NaN and SymbolicRegression.jl
 /// rejects the expression, in a subexpression or in the combining formula.
 #[test]
