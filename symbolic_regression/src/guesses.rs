@@ -106,7 +106,7 @@ where
             TaggedDataset::new(d, baseline)
         })
         .collect();
-    seed_members(&tagged, options)
+    seed_members(&tagged, options, options.seed.unwrap_or_else(|| fastrand::u64(..)))
 }
 
 /// One list of seed members per output, and SymbolicRegression.jl's warnings about them.
@@ -118,6 +118,7 @@ pub struct ParsedGuesses<T: Float, Ops, const D: usize> {
 pub(crate) fn seed_members<T, Ops, const D: usize>(
     datasets: &[TaggedDataset<'_, T>],
     options: &Options<T, Ops, D>,
+    seed: u64,
 ) -> Result<ParsedGuesses<T, Ops, D>, String>
 where
     T: Float + FromPrimitive + ToPrimitive + AddAssign + Display,
@@ -137,7 +138,7 @@ where
             datasets.len()
         ));
     }
-    let mut rng = Rng::with_seed(options.seed ^ 0x6775_6573_7365_7321);
+    let mut rng = Rng::with_seed(seed ^ 0x6775_6573_7365_7321);
     for ((guesses, dataset), members) in options.guesses.iter().zip(datasets).zip(&mut parsed.members) {
         let mut evaluator = Evaluator::new(dataset.n_rows);
         let mut grad_ctx = GradContext::new(dataset.n_rows);

@@ -22,7 +22,7 @@ fn equation_search_runs() {
 
     let options = Options::<T, TestOps, D> {
         save_to_file: false,
-        seed: 123,
+        seed: Some(123),
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         populations: 2,
         population_size: 40,

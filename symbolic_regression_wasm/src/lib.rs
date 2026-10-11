@@ -369,10 +369,12 @@ impl WasmSearch {
 
         let (dataset_all, variable_names, weights_all) = build_full_dataset(&headers, &rows, opts)?;
 
-        let split = make_split_indices(dataset_all.n_rows, opts.validation_fraction, opts.core.seed);
+        let seed = opts.core.seed.unwrap_or_else(|| fastrand::u64(..));
+        let split = make_split_indices(dataset_all.n_rows, opts.validation_fraction, seed);
         let (train, val) = split_train_val(&dataset_all, weights_all.as_ref(), &variable_names, &split)?;
 
-        let options = options_from_wasm(opts, operators, &variable_names)?;
+        let mut options = options_from_wasm(opts, operators, &variable_names)?;
+        options.seed = Some(seed);
         options.check_dataset(&train)?;
         if let Some(val) = &val {
             options.check_dataset(val)?;
@@ -904,7 +906,7 @@ mod tests {
         opts.core.save_to_file = false;
         opts.core.populations = 1;
         opts.core.population_size = 20;
-        opts.core.seed = 1;
+        opts.core.seed = Some(1);
         super::WasmSearch::build("x,y\n1,1\n2,2\n3,3\n4,4\n", &opts, &[], &tokens(&["+", "*"]), &[])
     }
 
@@ -964,7 +966,7 @@ mod tests {
     #[test]
     fn wasm_options_shim_defaults_match_known_spec_values() {
         let core = WasmSearchOptions::default().core;
-        assert_eq!(core.seed, 0);
+        assert_eq!(core.seed, None);
         assert_eq!(core.niterations, 100);
         assert_eq!(core.populations, 31);
         assert_eq!(core.population_size, 27);
@@ -1009,14 +1011,14 @@ mod tests {
     #[test]
     fn wasm_options_shim_apply_to_patches_core_options() {
         let mut core = WasmSearchOptions::default().core;
-        core.seed = 123;
+        core.seed = Some(123);
         core.niterations = 9;
         core.progress = false;
 
         let mut opt: symbolic_regression::Options<f64, super::WasmOps, 3> = Default::default();
         core.apply_to(&mut opt);
 
-        assert_eq!(opt.seed, 123);
+        assert_eq!(opt.seed, Some(123));
         assert_eq!(opt.niterations, 9);
         assert!(!opt.progress);
     }

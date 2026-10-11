@@ -71,7 +71,7 @@ export type WasmSearchOptions = {
   /** SymbolicRegression.jl `guesses`: equations that seed the search. */
   guesses: WasmGuess[];
 
-  seed: number;
+  seed: number | null;
   niterations: number;
   populations: number;
   population_size: number;

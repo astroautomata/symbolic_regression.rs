@@ -16,7 +16,7 @@ fn options(tokens: &[&str], stop: fn(f64, usize) -> bool) -> Options<f64, Ops, 2
     Options {
         save_to_file: false,
         operators: BuiltinOpsF64::new().with_custom(custom).from_names(&names).unwrap(),
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         niterations: 100,
         populations: 8,
@@ -33,7 +33,7 @@ fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> Vec<PopMemb
     let result = pool.install(|| equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap());
     let units = dataset.units.as_ref().unwrap();
     let labels = UnitLabels::new(units, options.dimensionless_constants_only);
-    println!("seed {}:", options.seed);
+    println!("seed {:?}:", options.seed);
     let front = result.halls_of_fame[0].pareto_front();
     for m in &front {
         let equation = m.expr.string(

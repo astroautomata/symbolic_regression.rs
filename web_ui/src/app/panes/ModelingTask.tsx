@@ -358,7 +358,7 @@ export function ModelingTask(): React.ReactElement {
           </label>
           <label className="field">
             <div className="label">seed</div>
-            <input type="number" min={0} value={options.seed} onChange={(e) => setOptionsPatch({ seed: Number(e.target.value) })} />
+            <input type="number" min={0} value={options.seed ?? ""} placeholder="Random" onChange={(e) => setOptionsPatch({ seed: e.target.value === "" ? null : Number(e.target.value) })} />
           </label>
         </div>
 

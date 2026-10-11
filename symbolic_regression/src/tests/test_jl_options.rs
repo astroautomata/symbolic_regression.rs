@@ -190,7 +190,8 @@ fn versioned_default_profiles() {
     assert_eq!(current.batch_size, v2.batch_size);
     assert_eq!(v1.default_mutations(), v2.default_mutations());
     assert_eq!(current.default_mutations(), v2.default_mutations());
-    // Options.jl:1344,1382-1385; unset depth and simplification resolve at 877-886,1011.
+    assert_eq!(current.seed, None);
+    // Options.jl:697,1344,1382-1385; unset depth and simplification resolve at 877-886,1011.
     assert_eq!(current.adaptive_parsimony_scaling, 1040.0);
     assert_eq!(current.maxdepth, None);
     assert_eq!(current.effective_maxdepth(), 30);
@@ -287,4 +288,59 @@ fn dependent_defaults_and_validation() {
     assert!(options.validate().unwrap_err().contains("tournament"));
     options.tournament_selection_n -= 1;
     assert!(options.validate().is_ok());
+}
+
+#[test]
+fn unset_seed_draws_independent_search_streams() {
+    let options = Options::<f64, Ops, 2> {
+        operators: BuiltinOpsF64::new()
+            .with_custom(CustomOps::default())
+            .from_names(["+", "*"])
+            .unwrap(),
+        niterations: 0,
+        populations: 1,
+        population_size: 6,
+        tournament_selection_n: 2,
+        progress: false,
+        ..Default::default()
+    };
+    let dataset = crate::Dataset::new(ndarray::Array2::zeros((2, 16)), ndarray::Array1::zeros(16));
+    let initial = || {
+        crate::equation_search(std::slice::from_ref(&dataset), &options)
+            .unwrap()
+            .populations[0][0]
+            .members
+            .iter()
+            .map(|m| m.expr.string(&options, Default::default()))
+            .collect::<Vec<_>>()
+    };
+    assert_ne!(initial(), initial());
+}
+
+#[test]
+fn explicit_seed_repeats_initial_population() {
+    let options = Options::<f64, Ops, 2> {
+        operators: BuiltinOpsF64::new()
+            .with_custom(CustomOps::default())
+            .from_names(["+", "*"])
+            .unwrap(),
+        seed: Some(0),
+        niterations: 0,
+        populations: 1,
+        population_size: 6,
+        tournament_selection_n: 2,
+        progress: false,
+        ..Default::default()
+    };
+    let dataset = crate::Dataset::new(ndarray::Array2::zeros((2, 16)), ndarray::Array1::zeros(16));
+    let initial = || {
+        crate::equation_search(std::slice::from_ref(&dataset), &options)
+            .unwrap()
+            .populations[0][0]
+            .members
+            .iter()
+            .map(|m| m.expr.string(&options, Default::default()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(initial(), initial());
 }

@@ -770,6 +770,7 @@ where
             .map(|(d, &b)| TaggedDataset::new(d, b))
             .collect();
 
+        let seed = options.seed.unwrap_or_else(|| fastrand::u64(..));
         let controller = StopController::from_options(options);
         if options.use_tracing {
             tracing::write_record(&options.tracing_file, &tracing::search_record(options), false)?;
@@ -781,7 +782,7 @@ where
         let ParsedGuesses {
             members: seeds,
             warnings: guess_warnings,
-        } = seed_members(&tagged, options)?;
+        } = seed_members(&tagged, options, seed)?;
         warnings.extend(guess_warnings);
 
         let (prior_evals, mut saved) = match previous {
@@ -830,7 +831,7 @@ where
                                 i + 1
                             ));
                         }
-                        let rng = Rng::with_seed(options.seed.wrapping_add((j * options.populations + i) as u64));
+                        let rng = Rng::with_seed(seed.wrapping_add((j * options.populations + i) as u64));
                         let Some(state) =
                             new_population(*dataset, options, &controller, rng, i == 0).map_err(|e| e.to_string())?
                         else {
@@ -884,7 +885,7 @@ where
             halls,
             total_evals,
             progress,
-            order_rng: Rng::with_seed(options.seed ^ 0x9e37_79b9_7f4a_7c15),
+            order_rng: Rng::with_seed(seed ^ 0x9e37_79b9_7f4a_7c15),
             cur_iter: 0,
             task_order: Vec::new(),
             next_task: 0,

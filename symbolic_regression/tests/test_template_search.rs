@@ -28,7 +28,7 @@ fn options(
     Options {
         save_to_file: false,
         operators: BuiltinOpsF64::new().from_names(operators).unwrap(),
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         niterations,
         populations: 8,
@@ -54,7 +54,7 @@ fn simplest_below(
     tol: f64,
 ) -> PopMember<f64, Ops, 2> {
     let front = result.halls_of_fame[0].pareto_front();
-    println!("seed {}:", options.seed);
+    println!("seed {:?}:", options.seed);
     for m in &front {
         println!(
             "  {}\t{:e}\t{}",

@@ -56,7 +56,7 @@ fn seeded<O: OperatorSet<T = f64> + Default>(
         niterations: 0,
         populations: 2,
         progress: false,
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         ..Default::default()
     }

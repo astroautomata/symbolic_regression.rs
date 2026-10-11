@@ -16,7 +16,7 @@ fn search_recovers_target_through_string_operator() {
     let options = Options::<f64, _, 2> {
         save_to_file: false,
         operators: operator_set.from_names(&names).unwrap(),
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         niterations: 40,
         populations: 8,
@@ -34,7 +34,7 @@ fn search_recovers_target_through_string_operator() {
         .expect("no hall-of-fame member reached loss 1e-10");
     let equation = best.expr.string(&options, Default::default());
     println!(
-        "seed {}: complexity {} loss {:e} {equation}",
+        "seed {:?}: complexity {} loss {:e} {equation}",
         options.seed, best.complexity, best.loss
     );
     assert_eq!(equation, "f(x0, x1)");

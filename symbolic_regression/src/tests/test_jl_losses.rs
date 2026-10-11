@@ -235,7 +235,7 @@ fn early_stop_condition() {
             .unwrap(),
         populations: 20,
         niterations: 100,
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         progress: false,
         early_stop_condition: Some(early_stop.clone()),

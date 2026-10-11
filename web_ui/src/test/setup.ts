@@ -18,7 +18,7 @@ if (typeof File !== "undefined" && typeof (File.prototype as any).text !== "func
 // Mock the WASM bindings so tests don't load real .wasm or depend on wasm-pack outputs.
 vi.mock("../pkg/symbolic_regression_wasm.js", () => {
   const coreDefaults = {
-    seed: 0,
+    seed: null,
     niterations: 100,
     populations: 2,
     population_size: 16,

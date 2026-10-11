@@ -18,7 +18,7 @@ fn options() -> Options<f64, Ops, 2> {
     Options {
         save_to_file: false,
         operators: BuiltinOpsF64::new().from_names(["+", "sub", "*"]).unwrap(),
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         niterations: 40,
         populations: 8,

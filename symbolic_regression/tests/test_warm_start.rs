@@ -10,7 +10,7 @@ fn options(operators: &[&str], niterations: usize) -> Options<f64, Ops, 2> {
     Options {
         save_to_file: false,
         operators: Ops::new().from_names(operators).unwrap(),
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         niterations,
         populations: 4,

@@ -39,7 +39,7 @@ fn custom_operator_is_used_in_end_to_end_search() {
     };
     let options = Options::<f64, CustomOps, 1> {
         save_to_file: false,
-        seed: 0,
+        seed: Some(0),
         niterations: 1,
         populations: 1,
         population_size: 128,

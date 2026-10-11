@@ -243,7 +243,7 @@ macro_rules! sr_options_spec {
                 parallelism:
                     (Parallelism, Parallelism::Multithreading, "parallelism"),
                 seed:
-                    (u64, 0, "seed"),
+                    (Option<u64>, None, "seed"),
                 niterations:
                     (usize, 100, "niterations"),
                 populations:

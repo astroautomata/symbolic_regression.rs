@@ -103,7 +103,7 @@ fn make_ops_utils() -> Operators<Ops, D> {
 
 fn make_search_options(seed: u64) -> Options<T, Ops, D> {
     let mut options = Options::<T, Ops, D> {
-        seed,
+        seed: Some(seed),
         niterations: 30,
         populations: 1,
         population_size: 64,

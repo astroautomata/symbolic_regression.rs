@@ -399,7 +399,7 @@ fn deterministic_search_repeats_best_equation() {
         crossover_probability: 0.0,
         max_evals: 10000,
         deterministic: true,
-        seed: 0,
+        seed: Some(0),
         niterations: 5,
         parallelism: Parallelism::Serial,
         progress: false,

@@ -25,7 +25,7 @@ fn seeded<Ops: OperatorSet<T = f64> + Default>(
         guesses: vec![guesses],
         niterations: 0,
         populations: 2,
-        seed: 0,
+        seed: Some(0),
         deterministic: true,
         progress: false,
         ..Default::default()

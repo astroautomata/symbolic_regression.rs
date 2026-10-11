@@ -44,7 +44,7 @@ fn options() -> Options<f32, BuiltinOpsF32, 2> {
         use_frequency: false,
         use_frequency_in_tournament: false,
         skip_mutation_failures: false,
-        seed: 0,
+        seed: Some(0),
         progress: false,
         early_stop_condition: Some(EarlyStop::below(1e-6)),
         mutation_weights: MutationWeights {
