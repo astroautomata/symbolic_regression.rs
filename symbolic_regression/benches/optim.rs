@@ -326,6 +326,28 @@ fn bench_utils(c: &mut Criterion) {
         });
     }
 
+    // compute_complexity_batch: a population-sized batch of trees of sampled size 10 to 30, the
+    // maxsize range of typical searches, summing every result
+    {
+        let options = make_utils_options();
+        let mut rng = StdRng::seed_from_u64(8);
+        let trees: Vec<_> = (0..1000)
+            .map(|_| {
+                let size = rng.random_range(10..=30);
+                random_expr::<Ops, D, _>(&mut rng, &options.operators, 3, size)
+            })
+            .collect();
+
+        group.bench_function(BenchmarkId::new("compute_complexity_batch", "1000"), |b| {
+            b.iter(|| {
+                trees
+                    .iter()
+                    .map(|tree| symbolic_regression::compute_complexity(&tree.nodes, &options))
+                    .sum::<usize>()
+            })
+        });
+    }
+
     // randomly_rotate_tree_x10
     {
         let options = make_utils_options();
