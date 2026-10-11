@@ -99,6 +99,90 @@ impl FromStr for LossScale {
     }
 }
 
+/// Hyperparameter profiles selected by SymbolicRegression.jl's defaults version.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum DefaultsProfile {
+    Legacy,
+    V1,
+    #[default]
+    V2,
+}
+
+/// Whether a search evolves on sampled rows.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum Batching {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+/// Constant optimizer used when an expression has more than one parameter.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum OptimizerAlgorithm {
+    #[default]
+    BFGS,
+    NelderMead,
+}
+
+/// Execution mode for independent populations.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum Parallelism {
+    Serial,
+    #[default]
+    Multithreading,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ConstantMutation {
+    pub perturbation_factor: f64,
+    pub probability_negate: f64,
+}
+impl Default for ConstantMutation {
+    fn default() -> Self {
+        Self {
+            perturbation_factor: 0.129,
+            probability_negate: 0.00743,
+        }
+    }
+}
+
+/// Built-in mutation configuration, with weights supplied separately.
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BuiltinMutation {
+    Constant(ConstantMutation),
+    Operator,
+    Feature,
+    SwapOperands,
+    RotateTree,
+    AddNode,
+    InsertNode,
+    DeleteNode,
+    Simplify,
+    Randomize,
+    DoNothing,
+    Optimize,
+    Backsolve(BacksolveOptions),
+}
+impl BuiltinMutation {
+    pub(crate) fn same_kind(self, other: Self) -> bool {
+        std::mem::discriminant(&self) == std::mem::discriminant(&other)
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Crossover {
+    Subtree,
+}
+
 #[rustfmt::skip]
 macro_rules! sr_mutation_weights_spec {
     ($m:ident) => {
@@ -142,6 +226,22 @@ macro_rules! sr_options_spec {
     ($m:ident) => {
         $m! {
             values {
+                batching:
+                    (Batching, Batching::Auto, "batching"),
+                should_simplify:
+                    (Option<bool>, None, "should-simplify"),
+                optimizer_algorithm:
+                    (OptimizerAlgorithm, OptimizerAlgorithm::BFGS, "optimizer-algorithm"),
+                optimizer_g_abstol:
+                    (f64, 1e-8, "optimizer-g-abstol"),
+                optimizer_x_abstol:
+                    (f64, 0.0, "optimizer-x-abstol"),
+                optimizer_f_reltol:
+                    (f64, 0.0, "optimizer-f-reltol"),
+                optimizer_g_calls_limit:
+                    (usize, 0, "optimizer-g-calls-limit"),
+                parallelism:
+                    (Parallelism, Parallelism::Multithreading, "parallelism"),
                 seed:
                     (u64, 0, "seed"),
                 niterations:
@@ -153,7 +253,7 @@ macro_rules! sr_options_spec {
                 ncycles_per_iteration:
                     (usize, 380, "ncycles-per-iteration"),
                 batch_size:
-                    (usize, 50, "batch-size"),
+                    (Option<usize>, None, "batch-size"),
                 complexity_of_constants:
                     (f32, 1.0, "complexity-of-constants"),
                 complexity_of_variables:
@@ -161,15 +261,15 @@ macro_rules! sr_options_spec {
                 maxsize:
                     (usize, 30, "maxsize"),
                 maxdepth:
-                    (usize, 30, "maxdepth"),
+                    (Option<usize>, None, "maxdepth"),
                 warmup_maxsize_by:
                     (f32, 0.0, "warmup-maxsize-by"),
                 parsimony:
                     (f64, 0.0, "parsimony"),
                 adaptive_parsimony_scaling:
-                    (f64, 20.0, "adaptive-parsimony-scaling"),
+                    (f64, 1040.0, "adaptive-parsimony-scaling"),
                 crossover_probability:
-                    (f64, 0.0259, "crossover-probability"),
+                    (f64, 0.20, "crossover-probability"),
                 perturbation_factor:
                     (f64, 0.129, "perturbation-factor"),
                 probability_negate_constant:
@@ -234,10 +334,6 @@ macro_rules! sr_options_spec {
                     (true, no_progress, "no-progress"),
             }
             pos_flags {
-                should_simplify:
-                    (true, should_simplify, "should-simplify"),
-                batching:
-                    (false, batching, "batching"),
                 deterministic:
                     (false, deterministic, "deterministic"),
                 dimensionless_constants_only:
@@ -312,6 +408,10 @@ macro_rules! __define_options {
             /// Parameters of the backsolve mutation (SymbolicRegression.jl's `BacksolveMutation`),
             /// which fires with weight `mutation_weights.backsolve`.
             pub backsolve: BacksolveOptions,
+            pub mutations: Vec<(BuiltinMutation, f64)>,
+            pub default_mutations: Option<Vec<(BuiltinMutation, f64)>>,
+            pub crossovers: Vec<(Crossover, f64)>,
+            pub default_crossovers: Option<Vec<(Crossover, f64)>>,
             /// The loss each equation minimizes; L2 (`L2DistLoss()`) by default. Losses written as
             /// strings, as PySR's `elementwise_loss` takes them, come from
             /// [`parse_loss`](crate::parse_loss):
@@ -415,6 +515,10 @@ macro_rules! __define_options {
                     operators: Operators::default(),
                     mutation_weights: MutationWeights::default(),
                     backsolve: BacksolveOptions::default(),
+                    mutations: Vec::new(),
+                    default_mutations: None,
+                    crossovers: Vec::new(),
+                    default_crossovers: None,
                     loss: BuiltinLoss::L2Dist.into_loss(),
                     output_style: OutputStyle::Auto,
                     output_directory: None,
@@ -459,6 +563,10 @@ macro_rules! __define_wasm_options_shim {
             $(pub $pname: bool,)*
 
             pub mutation_weights: MutationWeights,
+            pub mutations: Vec<(BuiltinMutation, f64)>,
+            pub default_mutations: Option<Vec<(BuiltinMutation, f64)>>,
+            pub crossovers: Vec<(Crossover, f64)>,
+            pub default_crossovers: Option<Vec<(Crossover, f64)>>,
         }
 
         impl Default for WasmOptionsShim {
@@ -468,6 +576,10 @@ macro_rules! __define_wasm_options_shim {
                     $($iname: $bdefault,)*
                     $($pname: $pdefault,)*
                     mutation_weights: MutationWeights::default(),
+                    mutations: Vec::new(),
+                    default_mutations: None,
+                    crossovers: Vec::new(),
+                    default_crossovers: None,
                 }
             }
         }
@@ -478,6 +590,10 @@ macro_rules! __define_wasm_options_shim {
                 $(opt.$iname = self.$iname;)*
                 $(opt.$pname = self.$pname;)*
                 opt.mutation_weights = self.mutation_weights.clone();
+                opt.mutations.clone_from(&self.mutations);
+                opt.default_mutations.clone_from(&self.default_mutations);
+                opt.crossovers.clone_from(&self.crossovers);
+                opt.default_crossovers.clone_from(&self.default_crossovers);
             }
         }
     };
@@ -509,6 +625,170 @@ macro_rules! __define_options_describe {
 }
 
 sr_options_spec!(__define_options_describe);
+impl<T: Float, Ops: Default, const D: usize> Options<T, Ops, D> {
+    pub fn with_defaults(profile: DefaultsProfile) -> Self {
+        let mut options = Self::default();
+        if profile != DefaultsProfile::V2 {
+            options.crossover_probability = 0.0259;
+            options.batching = Batching::Off;
+            options.batch_size = Some(50);
+        }
+        if profile == DefaultsProfile::Legacy {
+            options.maxsize = 20;
+            options.populations = 15;
+            options.population_size = 33;
+            options.ncycles_per_iteration = 550;
+            options.parsimony = 0.0032;
+            options.adaptive_parsimony_scaling = 20.0;
+            options.mutation_weights = MutationWeights {
+                mutate_constant: 0.048,
+                mutate_operator: 0.47,
+                swap_operands: 0.1,
+                rotate_tree: 0.0,
+                add_node: 0.79,
+                insert_node: 5.1,
+                delete_node: 1.7,
+                simplify: 0.0020,
+                randomize: 0.00023,
+                do_nothing: 0.21,
+                ..Default::default()
+            };
+            options.crossover_probability = 0.066;
+            options.annealing = false;
+            options.alpha = 0.1;
+            options.perturbation_factor = 0.076;
+            options.probability_negate_constant = 0.01;
+            options.tournament_selection_n = 12;
+            options.tournament_selection_p = 0.86;
+            options.fraction_replaced_hof = 0.035;
+        }
+        options
+    }
+}
+
+impl<T: Float, Ops, const D: usize> Options<T, Ops, D> {
+    #[inline]
+    pub fn effective_maxdepth(&self) -> usize {
+        self.maxdepth.unwrap_or(self.maxsize)
+    }
+
+    #[inline]
+    pub fn use_batching(&self, n: usize) -> bool {
+        self.batching == Batching::On || (self.batching == Batching::Auto && n > 1000)
+    }
+
+    #[inline]
+    pub fn get_batch_size(&self, n: usize) -> usize {
+        self.batch_size.map_or_else(
+            || match n {
+                0..=1000 => n,
+                1001..5000 => 128,
+                5000..50000 => 256,
+                _ => 512,
+            },
+            |size| size.min(n),
+        )
+    }
+
+    #[inline]
+    pub fn batching_required(&self, n: usize) -> bool {
+        self.use_batching(n) && self.get_batch_size(n) < n
+    }
+
+    #[inline]
+    pub fn effective_should_simplify(&self) -> bool {
+        self.should_simplify
+            .unwrap_or(self.op_constraints.limits.is_empty() && self.nested_constraints.limits.is_empty())
+    }
+
+    pub fn default_mutations(&self) -> [(BuiltinMutation, f64); 13] {
+        let w = &self.mutation_weights;
+        [
+            (
+                BuiltinMutation::Constant(ConstantMutation {
+                    perturbation_factor: self.perturbation_factor,
+                    probability_negate: self.probability_negate_constant,
+                }),
+                w.mutate_constant,
+            ),
+            (BuiltinMutation::Operator, w.mutate_operator),
+            (BuiltinMutation::Feature, w.mutate_feature),
+            (BuiltinMutation::SwapOperands, w.swap_operands),
+            (BuiltinMutation::RotateTree, w.rotate_tree),
+            (BuiltinMutation::AddNode, w.add_node),
+            (BuiltinMutation::InsertNode, w.insert_node),
+            (BuiltinMutation::DeleteNode, w.delete_node),
+            (BuiltinMutation::Simplify, w.simplify),
+            (BuiltinMutation::Randomize, w.randomize),
+            (BuiltinMutation::DoNothing, w.do_nothing),
+            (BuiltinMutation::Optimize, w.optimize),
+            (BuiltinMutation::Backsolve(self.backsolve), w.backsolve),
+        ]
+    }
+
+    pub fn resolved_mutations(&self) -> impl Iterator<Item = (BuiltinMutation, f64)> + '_ {
+        self.mutations.iter().copied().chain(
+            self.default_mutations
+                .iter()
+                .flatten()
+                .copied()
+                .chain(
+                    self.default_mutations()
+                        .into_iter()
+                        .filter(|_| self.default_mutations.is_none()),
+                )
+                .filter(|(mutation, _)| !self.mutations.iter().any(|(explicit, _)| explicit.same_kind(*mutation))),
+        )
+    }
+
+    pub fn resolved_crossovers(&self) -> impl Iterator<Item = (Crossover, f64)> + '_ {
+        self.crossovers.iter().copied().chain(
+            self.default_crossovers
+                .iter()
+                .flatten()
+                .copied()
+                .chain(
+                    [(Crossover::Subtree, 1.0)]
+                        .into_iter()
+                        .filter(|_| self.default_crossovers.is_none()),
+                )
+                .filter(|(crossover, _)| !self.crossovers.iter().any(|(explicit, _)| explicit == crossover)),
+        )
+    }
+
+    pub(crate) fn constant_mutation(&self) -> ConstantMutation {
+        ConstantMutation {
+            perturbation_factor: self.perturbation_factor,
+            probability_negate: self.probability_negate_constant,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.maxsize <= 3 {
+            return Err("maxsize must be greater than 3".into());
+        }
+        if self.warmup_maxsize_by.is_nan() || self.warmup_maxsize_by < 0.0 {
+            return Err("warmup_maxsize_by must be non-negative".into());
+        }
+        if self.tournament_selection_n >= self.population_size {
+            return Err("tournament_selection_n must be less than population_size".into());
+        }
+        if self.batch_size == Some(0) {
+            return Err("batch_size must be positive".into());
+        }
+        for (_, weight) in self.resolved_mutations() {
+            if !weight.is_finite() || weight < 0.0 {
+                return Err("mutation weights must be finite and non-negative".into());
+            }
+        }
+        for (_, weight) in self.resolved_crossovers() {
+            if !weight.is_finite() || weight < 0.0 {
+                return Err("crossover weights must be finite and non-negative".into());
+            }
+        }
+        Ok(())
+    }
+}
 
 impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T, Ops, D> {
     #[inline]

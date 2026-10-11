@@ -61,6 +61,7 @@ fn large_dataset_warning() {
         niterations: 0,
         populations: 1,
         population_size: 2,
+        tournament_selection_n: 1,
         progress: false,
         ..Default::default()
     };

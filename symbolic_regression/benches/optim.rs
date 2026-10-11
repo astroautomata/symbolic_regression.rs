@@ -400,7 +400,7 @@ fn bench_utils(c: &mut Criterion) {
     {
         let mut options = make_utils_options();
         options.maxsize = 30;
-        options.maxdepth = 20;
+        options.maxdepth = Some(20);
 
         let add: OpId = <Ops as HasOp<builtin::Add>>::op_id();
         let sub: OpId = <Ops as HasOp<builtin::Sub>>::op_id();

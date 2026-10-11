@@ -21,6 +21,7 @@ fn search_terminates_when_early_stop_condition_satisfied() {
         niterations: 100,
         populations: 2,
         population_size: 4,
+        tournament_selection_n: 3,
         ncycles_per_iteration: 5,
         early_stop_condition: Some(EarlyStop::below::<T>(1e-6)),
         ..Default::default()

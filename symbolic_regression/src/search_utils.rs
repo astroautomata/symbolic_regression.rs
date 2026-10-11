@@ -143,7 +143,7 @@ impl WarmStartKey {
                 options.dimensionless_constants_only.to_string(),
             ),
             ("maxsize", options.maxsize.to_string()),
-            ("maxdepth", options.maxdepth.to_string()),
+            ("maxdepth", options.effective_maxdepth().to_string()),
             ("populations", options.populations.to_string()),
             ("population_size", options.population_size.to_string()),
             ("expression_type", template.is_some().to_string()),
@@ -269,12 +269,12 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
             TaggedDataset<'a, T>,
         ) -> Ret,
     {
-        let phase_dataset = if options.batching {
+        let phase_dataset = if options.batching_required(full_dataset.n_rows) {
             let full_data = full_dataset.data();
             if full_data.n_rows == 0 {
                 panic!("Cannot batch from an empty dataset (n_rows = 0).");
             }
-            let bs = options.batch_size.max(1);
+            let bs = options.get_batch_size(full_dataset.n_rows);
             let needs_new = match self.batch_dataset.as_ref() {
                 None => true,
                 Some(b) => b.n_rows != bs || b.n_features != full_data.n_features,
@@ -444,7 +444,7 @@ where
         }
 
         let usable_threads = usable_rayon_threads();
-        let need_inline = usable_threads == 0;
+        let need_inline = usable_threads == 0 || options.parallelism == crate::options::Parallelism::Serial;
         let n_tasks: usize = self.outputs.iter().map(|o| o.pops.len()).sum();
         let n_workers = usable_threads.min(n_tasks).max(1);
 
@@ -737,6 +737,7 @@ where
         options: &Options<T, Ops, D>,
         previous: Option<SearchResult<T, Ops, D>>,
     ) -> Result<Self, String> {
+        options.validate()?;
         if datasets.is_empty() {
             return Err("a search needs at least one dataset".to_string());
         }
@@ -1252,16 +1253,17 @@ mod batching_search_tests {
         let operators = Ops::new().from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
         let options: Options<T, Ops, D> = Options {
             operators,
-            batching: true,
-            batch_size: 5,
+            batching: crate::options::Batching::On,
+            batch_size: Some(5),
             niterations: 1,
             ncycles_per_iteration: 1,
             populations: 1,
             population_size: 6,
+            tournament_selection_n: 2,
             progress: false,
             save_to_file: false,
             should_optimize_constants: false,
-            should_simplify: false,
+            should_simplify: Some(false),
             deterministic: true,
             ..Default::default()
         };
@@ -1280,7 +1282,7 @@ mod batching_search_tests {
 
         let pop_state = engine.search.core.outputs[0].pops[0].as_ref().expect("pop exists");
         let batch = pop_state.batch_dataset.as_ref().expect("batch buffer created");
-        assert_eq!(batch.n_rows, options.batch_size.max(1));
+        assert_eq!(batch.n_rows, options.get_batch_size(engine.datasets[0].n_rows));
         assert_eq!(batch.n_features, engine.datasets[0].n_features);
     }
 
@@ -1303,16 +1305,17 @@ mod batching_search_tests {
         let operators = Ops::new().from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
         let options: Options<T, Ops, D> = Options {
             operators,
-            batching: false,
-            batch_size: 5,
+            batching: crate::options::Batching::Off,
+            batch_size: Some(5),
             niterations: 1,
             ncycles_per_iteration: 1,
             populations: 1,
             population_size: 6,
+            tournament_selection_n: 2,
             progress: false,
             save_to_file: false,
             should_optimize_constants: false,
-            should_simplify: false,
+            should_simplify: Some(false),
             deterministic: true,
             ..Default::default()
         };
@@ -1322,5 +1325,33 @@ mod batching_search_tests {
 
         let pop_state = engine.search.core.outputs[0].pops[0].as_ref().expect("pop exists");
         assert!(pop_state.batch_dataset.is_none());
+    }
+
+    #[test]
+    fn automatic_batching_avoids_small_dataset_buffers() {
+        for n_rows in [1000, 1001] {
+            let dataset = Dataset::new(Array2::<f64>::zeros((1, n_rows)), Array1::zeros(n_rows));
+            let options = Options::<f64, BuiltinOpsF64, 2> {
+                operators: BuiltinOpsF64::new().from_names(["+"]).unwrap(),
+                niterations: 1,
+                ncycles_per_iteration: 1,
+                populations: 1,
+                population_size: 6,
+                tournament_selection_n: 2,
+                progress: false,
+                should_optimize_constants: false,
+                should_simplify: Some(false),
+                deterministic: true,
+                ..Default::default()
+            };
+            let mut engine = SearchEngine::new(vec![dataset], options).unwrap();
+            engine.step(1).unwrap();
+            let pop = engine.search.core.outputs[0].pops[0].as_ref().unwrap();
+            if n_rows == 1000 {
+                assert!(pop.batch_dataset.is_none());
+            } else {
+                assert_eq!(pop.batch_dataset.as_ref().unwrap().n_rows, 128);
+            }
+        }
     }
 }

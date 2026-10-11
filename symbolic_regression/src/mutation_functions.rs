@@ -7,7 +7,6 @@ use fastrand::Rng;
 use num_traits::Float;
 
 use crate::operator_selection::OperatorsSampling;
-use crate::options::Options;
 use crate::random::{standard_normal, usize_range, usize_range_excl};
 
 fn random_leaf<T: Float>(rng: &mut Rng, n_features: usize, consts: &mut Vec<T>) -> PNode {
@@ -161,7 +160,7 @@ pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
     temperature: f64,
-    options: &Options<T, Ops, D>,
+    mutation: crate::options::ConstantMutation,
 ) -> bool {
     let idxs = const_node_indices(&expr.nodes);
     if idxs.is_empty() {
@@ -172,19 +171,19 @@ pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize>(
         return false;
     };
     let ci = usize::from(idx);
-    expr.consts[ci] = expr.consts[ci] * mutate_factor(rng, temperature, options);
+    expr.consts[ci] = expr.consts[ci] * mutate_factor(rng, temperature, mutation);
     true
 }
 
 /// SymbolicRegression.jl's `mutate_factor`: the factor a mutated constant is multiplied by.
-fn mutate_factor<T: Float, Ops, const D: usize>(rng: &mut Rng, temperature: f64, options: &Options<T, Ops, D>) -> T {
-    let pf = options.perturbation_factor * temperature.max(0.0);
+fn mutate_factor<T: Float>(rng: &mut Rng, temperature: f64, mutation: crate::options::ConstantMutation) -> T {
+    let pf = mutation.perturbation_factor * temperature.max(0.0);
     let max_change = pf + 1.1;
     let exponent: f64 = rng.f64();
     let mut mul = max_change.powf(exponent);
     let make_const_bigger: bool = rng.bool();
     mul = if make_const_bigger { mul } else { 1.0 / mul };
-    if rng.f64() > options.probability_negate_constant {
+    if rng.f64() > mutation.probability_negate {
         mul = -mul;
     }
     T::from(mul).unwrap()
@@ -193,12 +192,12 @@ fn mutate_factor<T: Float, Ops, const D: usize>(rng: &mut Rng, temperature: f64,
 /// SymbolicRegression.jl's template parameter mutation: picks one parameter vector, then mutates
 /// between one and all of its entries, each as a constant. `params` holds the vectors
 /// concatenated; `lengths` gives each vector's length.
-pub(crate) fn mutate_parameters_in_place<T: Float, Ops, const D: usize>(
+pub(crate) fn mutate_parameters_in_place<T: Float>(
     rng: &mut Rng,
     params: &mut [T],
     lengths: &[usize],
     temperature: f64,
-    options: &Options<T, Ops, D>,
+    mutation: crate::options::ConstantMutation,
 ) {
     let v = usize_range(rng, 0..lengths.len());
     let offset: usize = lengths[..v].iter().sum();
@@ -209,7 +208,7 @@ pub(crate) fn mutate_parameters_in_place<T: Float, Ops, const D: usize>(
         let j = usize_range(rng, k..idxs.len());
         idxs.swap(k, j);
         let i = idxs[k];
-        entries[i] = entries[i] * mutate_factor(rng, temperature, options);
+        entries[i] = entries[i] * mutate_factor(rng, temperature, mutation);
     }
 }
 

@@ -55,7 +55,8 @@ pub use loss_functions::{BuiltinLoss, LossFn, LossObject, parse_loss};
 pub use operator_library::OperatorLibrary;
 pub use operator_selection::OperatorsSampling;
 pub use options::{
-    EarlyStop, EarlyStopCondition, LossScale, MutationWeights, Options, OutputStyle, WasmOptionsShim, parse_early_stop,
+    Batching, BuiltinMutation, ConstantMutation, Crossover, DefaultsProfile, EarlyStop, EarlyStopCondition, LossScale,
+    MutationWeights, OptimizerAlgorithm, Options, OutputStyle, Parallelism, WasmOptionsShim, parse_early_stop,
 };
 pub use plugins::{AdaptiveMutationWeights, MutationBurst, Reward};
 pub use pop_member::PopMember;

@@ -85,7 +85,7 @@ fn constraints_interface() {
 
     let mut opts = options(builtin(), &["+", "*", "cos"]);
     opts.maxsize = 100;
-    opts.maxdepth = 3;
+    opts.maxdepth = Some(3);
     let tree = (x(0) + x(1)) + (x(2) + x(0));
     assert_eq!(count_depth(&tree.nodes), 3);
     assert!(ok(&tree, &opts));

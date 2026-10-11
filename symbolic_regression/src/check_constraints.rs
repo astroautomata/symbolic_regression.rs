@@ -62,9 +62,9 @@ pub fn check_constraints<T: Float, Ops: dynamic_expressions::OperatorSet, const 
     options: &Options<T, Ops, D>,
     curmaxsize: usize,
 ) -> bool {
-    let needs_depth_check = options.maxdepth < curmaxsize  // maxsize is much faster to check, so ideally we skip depth check
+    let needs_depth_check = options.effective_maxdepth() < curmaxsize  // maxsize is much faster to check, so ideally we skip depth check
         || !options.uses_default_complexity(); // However, with a custom complexity, we have no idea if we can skip depth check
-    if needs_depth_check && node_utils::count_depth(&expr.nodes) > options.maxdepth {
+    if needs_depth_check && node_utils::count_depth(&expr.nodes) > options.effective_maxdepth() {
         return false;
     }
     if options.uses_default_complexity() {

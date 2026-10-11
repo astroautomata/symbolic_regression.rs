@@ -29,7 +29,7 @@ fn equation_search_runs() {
         niterations: 2,
         ncycles_per_iteration: 10,
         maxsize: 10,
-        maxdepth: 8,
+        maxdepth: Some(8),
         migration: false,
         hof_migration: false,
         optimizer_probability: 0.0,

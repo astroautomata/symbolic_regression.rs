@@ -354,7 +354,7 @@ export function ModelingTask(): React.ReactElement {
         <div className="row">
           <label className="field">
             <div className="label">maxsize</div>
-            <input type="number" min={1} value={options.maxsize} onChange={(e) => setOptionsPatch({ maxsize: Number(e.target.value) })} />
+            <input type="number" min={4} value={options.maxsize} onChange={(e) => setOptionsPatch({ maxsize: Number(e.target.value) })} />
           </label>
           <label className="field">
             <div className="label">seed</div>
@@ -403,7 +403,7 @@ export function ModelingTask(): React.ReactElement {
               <div className="subTitle">Constraints</div>
               <label className="field">
                 <div className="label">maxdepth</div>
-                <input type="number" min={1} value={options.maxdepth} onChange={(e) => setOptionsPatch({ maxdepth: Number(e.target.value) })} />
+                <input type="number" min={1} value={options.maxdepth ?? ""} placeholder={String(options.maxsize)} onChange={(e) => setOptionsPatch({ maxdepth: e.target.value === "" ? null : Number(e.target.value) })} />
               </label>
               <label className="field">
                 <div className="label">warmup_maxsize_by</div>
@@ -490,7 +490,7 @@ export function ModelingTask(): React.ReactElement {
                 skip_mutation_failures
               </label>
               <label className="checkbox">
-                <input type="checkbox" checked={options.should_simplify} onChange={(e) => setOptionsPatch({ should_simplify: e.target.checked })} />
+                <input type="checkbox" checked={options.should_simplify ?? true} onChange={(e) => setOptionsPatch({ should_simplify: e.target.checked })} />
                 should_simplify
               </label>
             </section>

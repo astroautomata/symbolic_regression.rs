@@ -69,7 +69,10 @@ fn warm_start_rejects_changed_maxsize_or_operators() {
 
     let mut bigger = options(&["+", "*"], 1);
     bigger.maxsize = 20;
-    let cases = [(bigger, "maxsize"), (options(&["+", "*", "sub"], 1), "operators")];
+    let cases = [
+        (bigger, "maxsize, maxdepth"),
+        (options(&["+", "*", "sub"], 1), "operators"),
+    ];
     for (changed, field) in cases {
         let err = resume_search(saved.clone(), &datasets, &changed).err().unwrap();
         assert_eq!(

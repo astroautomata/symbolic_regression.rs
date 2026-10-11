@@ -72,6 +72,70 @@ impl MutationChoice {
     }
 }
 
+impl MutationChoice {
+    fn from_builtin(mutation: crate::options::BuiltinMutation) -> Self {
+        match mutation {
+            crate::options::BuiltinMutation::Constant(_) => Self::MutateConstant,
+            crate::options::BuiltinMutation::Operator => Self::MutateOperator,
+            crate::options::BuiltinMutation::Feature => Self::MutateFeature,
+            crate::options::BuiltinMutation::SwapOperands => Self::SwapOperands,
+            crate::options::BuiltinMutation::RotateTree => Self::RotateTree,
+            crate::options::BuiltinMutation::AddNode => Self::AddNode,
+            crate::options::BuiltinMutation::InsertNode => Self::InsertNode,
+            crate::options::BuiltinMutation::DeleteNode => Self::DeleteNode,
+            crate::options::BuiltinMutation::Simplify => Self::Simplify,
+            crate::options::BuiltinMutation::Randomize => Self::Randomize,
+            crate::options::BuiltinMutation::DoNothing => Self::DoNothing,
+            crate::options::BuiltinMutation::Optimize => Self::Optimize,
+            crate::options::BuiltinMutation::Backsolve(_) => Self::Backsolve,
+        }
+    }
+    fn weight(self, weights: &MutationWeights) -> f64 {
+        match self {
+            Self::MutateConstant => weights.mutate_constant,
+            Self::MutateOperator => weights.mutate_operator,
+            Self::MutateFeature => weights.mutate_feature,
+            Self::SwapOperands => weights.swap_operands,
+            Self::RotateTree => weights.rotate_tree,
+            Self::AddNode => weights.add_node,
+            Self::InsertNode => weights.insert_node,
+            Self::DeleteNode => weights.delete_node,
+            Self::Simplify => weights.simplify,
+            Self::Randomize => weights.randomize,
+            Self::DoNothing => weights.do_nothing,
+            Self::Optimize => weights.optimize,
+            Self::Backsolve => weights.backsolve,
+        }
+    }
+}
+
+fn configured_weights<T: Float, Ops, const D: usize>(options: &Options<T, Ops, D>) -> MutationWeights {
+    if options.mutations.is_empty() && options.default_mutations.is_none() {
+        return options.mutation_weights.clone();
+    }
+    let mut weights = MutationWeights {
+        mutate_constant: 0.0,
+        mutate_operator: 0.0,
+        mutate_feature: 0.0,
+        swap_operands: 0.0,
+        rotate_tree: 0.0,
+        add_node: 0.0,
+        insert_node: 0.0,
+        delete_node: 0.0,
+        simplify: 0.0,
+        randomize: 0.0,
+        do_nothing: 0.0,
+        optimize: 0.0,
+        backsolve: 0.0,
+        form_connection: 0.0,
+        break_connection: 0.0,
+    };
+    for (mutation, weight) in options.resolved_mutations() {
+        *MutationChoice::from_builtin(mutation).weight_mut(&mut weights) += weight;
+    }
+    weights
+}
+
 pub struct NextGenerationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub rng: &'a mut Rng,
     pub dataset: TaggedDataset<'a, T>,
@@ -124,7 +188,7 @@ pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
             weights.add_node = 0.0;
             weights.insert_node = 0.0;
         }
-        if !options.should_simplify {
+        if !options.effective_should_simplify() {
             weights.simplify = 0.0;
         }
         return;
@@ -166,7 +230,7 @@ pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
         weights.insert_node = 0.0;
     }
 
-    if !options.should_simplify {
+    if !options.effective_should_simplify() {
         weights.simplify = 0.0;
     }
 }
@@ -194,6 +258,7 @@ struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
     evaluator: &'a mut Evaluator<T, D>,
     trace: &'a mut StepTrace,
     population: &'a [PopMember<T, Ops, D>],
+    selected_mutation: Option<crate::options::BuiltinMutation>,
 }
 
 /// SymbolicRegression.jl's `mutate_constant` for a candidate: a template with parameters mutates
@@ -204,11 +269,12 @@ pub(crate) fn mutate_constant<T: Float, Ops, const D: usize>(
     expr: &mut Expression<T, Ops, D>,
     temperature: f64,
     options: &Options<T, Ops, D>,
+    mutation: crate::options::ConstantMutation,
 ) {
     let mutate_tree = expr.params.is_empty() || (expr.trees.iter().any(|t| !t.consts.is_empty()) && rng.bool());
     if mutate_tree {
         let k = tree_to_mutate(rng, expr.trees.len());
-        let _ = mutation_functions::mutate_constant_in_place(rng, &mut expr.trees[k], temperature, options);
+        let _ = mutation_functions::mutate_constant_in_place(rng, &mut expr.trees[k], temperature, mutation);
     } else {
         let lengths: Vec<usize> = options
             .template
@@ -218,7 +284,7 @@ pub(crate) fn mutate_constant<T: Float, Ops, const D: usize>(
             .iter()
             .map(|(_, n)| *n)
             .collect();
-        mutation_functions::mutate_parameters_in_place(rng, &mut expr.params, &lengths, temperature, options);
+        mutation_functions::mutate_parameters_in_place(rng, &mut expr.params, &lengths, temperature, mutation);
     }
 }
 
@@ -242,6 +308,7 @@ impl MutationChoice {
             evaluator,
             trace,
             population,
+            selected_mutation,
         } = ctx;
         let n_features = dataset.n_features;
         let edits_one_tree = !matches!(
@@ -263,7 +330,13 @@ impl MutationChoice {
         match self {
             MutationChoice::MutateConstant => {
                 trace.kind = "mutate_constant";
-                mutate_constant(rng, &mut expr, temperature, options);
+                mutate_constant(
+                    rng,
+                    &mut expr,
+                    temperature,
+                    options,
+                    match selected_mutation { Some(crate::options::BuiltinMutation::Constant(c)) => c, _ => options.constant_mutation() },
+                );
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::MutateOperator => {
@@ -386,7 +459,7 @@ impl MutationChoice {
             }
             MutationChoice::Backsolve => {
                 trace.kind = "backsolve";
-                match backsolve::backsolve_mutation(rng, member, dataset, curmaxsize, options, evaluator, population) {
+                match backsolve::backsolve_mutation(rng, member, dataset, curmaxsize, options, evaluator, population, match selected_mutation { Some(crate::options::BuiltinMutation::Backsolve(params)) => params, _ => options.backsolve }) {
                     (Ok(member), evals) => MutationResult::ProposedMember { member, evals },
                     (Err(reason), evals) => {
                         trace.outcome = Some(("reject", reason));
@@ -409,7 +482,7 @@ pub(crate) fn next_generation_weights<T: Float + AddAssign, Ops, const D: usize>
 where
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    let mut weights = options.mutation_weights.clone();
+    let mut weights = configured_weights(options);
     condition_mutation_weights(
         &mut weights,
         member,
@@ -465,7 +538,42 @@ where
     if let Some(config) = &options.adaptive_mutation_weights {
         weights_state.condition_weights(config, &mut weights);
     }
-    let choice = sample_mutation(rng, &weights);
+    let (choice, selected_mutation) = if options.mutations.is_empty() && options.default_mutations.is_none() {
+        (sample_mutation(rng, &weights), None)
+    } else {
+        let raw = configured_weights(options);
+        let conditioned = |(mutation, weight): (crate::options::BuiltinMutation, f64)| {
+            let choice = MutationChoice::from_builtin(mutation);
+            let base = choice.weight(&raw);
+            if base == 0.0 {
+                0.0
+            } else {
+                weight * (choice.weight(&weights) / base)
+            }
+        };
+        let total: f64 = options.resolved_mutations().map(conditioned).sum();
+        assert!(
+            total.is_finite() && total > 0.0,
+            "at least one conditioned mutation weight must be positive"
+        );
+        let target = (rng.f64() * total).min(total.next_down());
+        let mut cumulative = 0.0;
+        let selected = options
+            .resolved_mutations()
+            .find(|&entry| {
+                let weight = conditioned(entry);
+                if weight <= 0.0 {
+                    return false;
+                }
+                cumulative += weight;
+                target < cumulative
+            })
+            .expect("positive mutation weight");
+        (
+            MutationChoice::from_builtin(selected.0),
+            Some(selected.0),
+        )
+    };
 
     let (baby, accepted, evals, after) = mutate_and_accept(
         choice,
@@ -479,6 +587,7 @@ where
         evaluator,
         trace,
         population,
+        selected_mutation,
     );
     if let Some(config) = &options.adaptive_mutation_weights {
         let event = MutationEvent {
@@ -533,6 +642,7 @@ fn mutate_and_accept<T, Ops, const D: usize>(
     evaluator: &mut Evaluator<T, D>,
     trace: &mut StepTrace,
     population: &[PopMember<T, Ops, D>],
+    selected_mutation: Option<crate::options::BuiltinMutation>,
 ) -> MutationOutcome<T, Ops, D>
 where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
@@ -566,6 +676,7 @@ where
             evaluator,
             trace: &mut *trace,
             population,
+            selected_mutation,
         });
         match outcome {
             MutationResult::ProposedExpr { expr, evals: e } => {
@@ -674,6 +785,9 @@ where
         ..
     } = ctx;
 
+    if !options.resolved_crossovers().any(|(_, weight)| weight > 0.0) {
+        panic!("at least one crossover weight must be positive");
+    }
     let max_tries = 10;
     let mut tries = 0;
     loop {

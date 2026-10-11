@@ -148,7 +148,7 @@ fn search_recovers_migration_guide_parameters() {
         }
     });
     let y = Array1::from_iter((0..n_rows).map(|i| x[(0, i)] * scale[i % 3] + x[(1, i)] + shift[i % 3]));
-    let options = options(
+    let mut options = options(
         template(
             "f(x1, x2, p1[category], p2[category])",
             &["f"],
@@ -161,6 +161,8 @@ fn search_recovers_migration_guide_parameters() {
         (1e-12, 7),
     );
 
+    options.crossover_probability = 0.0259;
+    options.adaptive_parsimony_scaling = 20.0;
     let result = search(&Dataset::new(x, y), &options);
     let best = simplest_below(&result, &options, 1e-12);
     assert_eq!(best.complexity, 7);

@@ -56,6 +56,7 @@ fn search_finishes_outside_a_one_thread_pool() {
         population_size: 20,
         ncycles_per_iteration: 10,
         progress: false,
+        save_to_file: false,
         operators: SquareOps::new().from_names(["square"]).unwrap(),
         ..Default::default()
     };
@@ -94,8 +95,9 @@ fn concurrent_searches_finish_outside_a_two_thread_pool() {
                     population_size: 20,
                     ncycles_per_iteration: 1,
                     progress: false,
+                    save_to_file: false,
                     should_optimize_constants: false,
-                    should_simplify: false,
+                    should_simplify: Some(false),
                     operators: SquareOps::new().from_names(["square"]).unwrap(),
                     early_stop_condition: Some(Arc::new(move |_, _| {
                         // The callback runs on the coordinator. Neither search can finish its

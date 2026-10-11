@@ -206,7 +206,7 @@ fn vectors_changed(expr: &Expr, options: &Options<T, TestOps, D>, n: usize) -> V
     let mut changed = vec![false; original.len()];
     for _ in 0..n {
         let mut mutated = expr.clone();
-        mutate_constant(&mut rng, &mut mutated, 1.0, options);
+        mutate_constant(&mut rng, &mut mutated, 1.0, options, options.constant_mutation());
         for (k, v) in vectors(&mutated, options).iter().enumerate() {
             changed[k] |= *v != original[k];
         }
@@ -314,7 +314,7 @@ fn parameter_mutation_changes_one_vector_and_conditions_weights() {
     let mut rng = Rng::with_seed(1);
     for _ in 0..20 {
         let mut mutated = expr.clone();
-        mutate_constant(&mut rng, &mut mutated, 1.0, &options);
+        mutate_constant(&mut rng, &mut mutated, 1.0, &options, options.constant_mutation());
         let now = vectors(&mutated, &options);
         assert!((now[0] != original[0]) ^ (now[1] != original[1]), "{now:?}");
     }
@@ -325,12 +325,24 @@ fn parameter_mutation_changes_one_vector_and_conditions_weights() {
         ..options.clone()
     };
     let (mut a, mut b) = (expr.clone(), expr.clone());
-    mutate_constant(&mut Rng::with_seed(1), &mut a, 1.0, &configured);
-    mutate_constant(&mut Rng::with_seed(1), &mut b, 1.0, &options);
+    mutate_constant(
+        &mut Rng::with_seed(1),
+        &mut a,
+        1.0,
+        &configured,
+        configured.constant_mutation(),
+    );
+    mutate_constant(
+        &mut Rng::with_seed(1),
+        &mut b,
+        1.0,
+        &options,
+        options.constant_mutation(),
+    );
     assert_ne!(a.params, b.params);
 
     let options = Options {
-        should_simplify: false,
+        should_simplify: Some(false),
         ..options
     };
     let member = PopMember::from_expr(expr, 3, &options);

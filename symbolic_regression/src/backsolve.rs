@@ -760,6 +760,7 @@ where
 /// first child that satisfies the constraints and costs less than its parent, or
 /// SymbolicRegression.jl's reason for the failure, with the evaluations spent. Library terms come
 /// from `population`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn backsolve_mutation<T, Ops, const D: usize>(
     rng: &mut Rng,
     member: &PopMember<T, Ops, D>,
@@ -768,6 +769,7 @@ pub(crate) fn backsolve_mutation<T, Ops, const D: usize>(
     options: &Options<T, Ops, D>,
     evaluator: &mut Evaluator<T, D>,
     population: &[PopMember<T, Ops, D>],
+    parameters: BacksolveOptions,
 ) -> (Result<PopMember<T, Ops, D>, &'static str>, f64)
 where
     T: Float,
@@ -789,14 +791,14 @@ where
         dataset: dataset.data(),
         options,
         population,
-        backsolve: options.backsolve,
+        backsolve: parameters,
         top_k: population.len(),
         curmaxsize,
         setup: None,
     };
     let n_features = dataset.n_features;
     let mut reason = "backsolve_no_viable_node";
-    for _ in 0..options.backsolve.node_attempts {
+    for _ in 0..parameters.node_attempts {
         let node = usize_range(rng, 0..tree.nodes.len() - 1);
         let candidate = match rewriter.rewrite(tree, node, &mut evals, fraction) {
             Ok(candidate) => candidate,

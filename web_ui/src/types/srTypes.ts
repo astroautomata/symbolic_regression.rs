@@ -47,6 +47,11 @@ export type WasmTemplateGuessValue = string | number[];
 /** A guess that seeds the search: an equation, or a template search's [name, value] pairs, as PySR's dict guesses. */
 export type WasmGuess = string | [string, WasmTemplateGuessValue][];
 
+export type WasmBuiltinMutation =
+  | { Constant: { perturbation_factor: number; probability_negate: number } }
+  | "Operator" | "Feature" | "SwapOperands" | "RotateTree" | "AddNode"
+  | "InsertNode" | "DeleteNode" | "Simplify" | "Randomize" | "DoNothing" | "Optimize";
+
 export type WasmSearchOptions = {
   has_headers: boolean;
   x_columns: number[] | null;
@@ -72,7 +77,7 @@ export type WasmSearchOptions = {
   population_size: number;
   ncycles_per_iteration: number;
   maxsize: number;
-  maxdepth: number;
+  maxdepth: number | null;
   warmup_maxsize_by: number;
   parsimony: number;
   adaptive_parsimony_scaling: number;
@@ -84,6 +89,14 @@ export type WasmSearchOptions = {
   alpha: number;
   optimizer_nrestarts: number;
   optimizer_probability: number;
+  optimizer_algorithm: "BFGS" | "NelderMead";
+  optimizer_g_abstol: number;
+  optimizer_x_abstol: number;
+  optimizer_f_reltol: number;
+  optimizer_g_calls_limit: number;
+  parallelism: "serial" | "multithreading";
+  batching: "auto" | "on" | "off";
+  batch_size: number | null;
   optimizer_iterations: number;
   optimizer_f_calls_limit: number;
   fraction_replaced: number;
@@ -103,9 +116,13 @@ export type WasmSearchOptions = {
   hof_migration: boolean;
   use_baseline: boolean;
   progress: boolean;
-  should_simplify: boolean;
+  should_simplify: boolean | null;
   dimensionless_constants_only: boolean;
 
+  mutations: Array<[WasmBuiltinMutation, number]>;
+  default_mutations: Array<[WasmBuiltinMutation, number]> | null;
+  crossovers: Array<["Subtree", number]>;
+  default_crossovers: Array<["Subtree", number]> | null;
   mutation_weights: WasmMutationWeights;
 };
 

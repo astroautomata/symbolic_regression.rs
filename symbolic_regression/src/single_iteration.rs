@@ -94,7 +94,7 @@ where
 {
     let mut num_evals = 0.0;
 
-    if ctx.options.should_simplify {
+    if ctx.options.effective_should_simplify() {
         for m in &mut pop.members {
             if ctx.controller.is_cancelled() {
                 return num_evals;
@@ -141,7 +141,7 @@ where
 
     // Match SymbolicRegression.jl `finalize_costs`: only re-evaluate on the full dataset when
     // batching is enabled (i.e., members were evolved on a batch and need final losses/costs).
-    if ctx.options.batching {
+    if ctx.options.batching_required(ctx.full_dataset.n_rows) {
         ctx.evaluator.ensure_n_rows(ctx.full_dataset.n_rows);
         for m in &mut pop.members {
             if ctx.controller.is_cancelled() {

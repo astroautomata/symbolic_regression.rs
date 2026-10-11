@@ -969,9 +969,9 @@ mod tests {
         assert_eq!(core.populations, 31);
         assert_eq!(core.population_size, 27);
         assert_eq!(core.maxsize, 30);
-        assert_eq!(core.maxdepth, 30);
+        assert_eq!(core.maxdepth, None);
         assert!(core.progress);
-        assert!(!core.batching);
+        assert_eq!(core.batching, symbolic_regression::Batching::Auto);
     }
 
     #[test]

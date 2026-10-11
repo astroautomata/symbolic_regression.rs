@@ -7,7 +7,7 @@ use num_traits::{Float, FromPrimitive, ToPrimitive};
 
 use crate::dataset::{Dataset, TaggedDataset};
 use crate::expression::Expression;
-use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize, newton_1d_minimize};
+use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize, nelder_mead_minimize, newton_1d_minimize};
 use crate::options::Options;
 use crate::pop_member::{Evaluator, PopMember, get_birth_order};
 use crate::random::standard_normal;
@@ -161,6 +161,7 @@ impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D:
         optim_opts: OptimOptions,
         ls: BackTracking,
     ) -> Option<crate::optim::OptimResult> {
+        let algorithm = self.options.optimizer_algorithm;
         let mut obj = ConstObjective {
             plans: &member.plans,
             expr: &mut member.expr,
@@ -170,7 +171,10 @@ impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D:
         if n_params == 1 {
             newton_1d_minimize(start[0], &mut obj, optim_opts, ls)
         } else {
-            bfgs_minimize(start, &mut obj, optim_opts, ls)
+            match algorithm {
+                crate::options::OptimizerAlgorithm::BFGS => bfgs_minimize(start, &mut obj, optim_opts, ls),
+                crate::options::OptimizerAlgorithm::NelderMead => nelder_mead_minimize(start, &mut obj, optim_opts),
+            }
         }
     }
 }
@@ -255,7 +259,10 @@ where
     let optim_opts = OptimOptions {
         iterations: options.optimizer_iterations,
         f_calls_limit: options.optimizer_f_calls_limit,
-        g_abstol: 1e-8,
+        g_abstol: options.optimizer_g_abstol,
+        g_calls_limit: options.optimizer_g_calls_limit,
+        x_abstol: options.optimizer_x_abstol,
+        f_reltol: options.optimizer_f_reltol,
     };
     let ls = BackTracking::default();
 

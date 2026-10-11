@@ -17,7 +17,10 @@ fn constant_mutation_is_bounded_with_floor_at_zero_temperature() {
     for _ in 0..256 {
         let before = expr.consts[0];
         assert!(crate::mutation_functions::mutate_constant_in_place(
-            &mut rng, &mut expr, 0.0, &options,
+            &mut rng,
+            &mut expr,
+            0.0,
+            options.constant_mutation(),
         ));
         let after = expr.consts[0];
         let ratio = after / before;
@@ -40,7 +43,10 @@ fn constant_mutation_uses_inverted_sign_flip_probability() {
     let mut saw_negative = false;
     for _ in 0..32 {
         assert!(crate::mutation_functions::mutate_constant_in_place(
-            &mut rng, &mut expr, 0.0, &options,
+            &mut rng,
+            &mut expr,
+            0.0,
+            options.constant_mutation(),
         ));
         if expr.consts[0].is_sign_negative() {
             saw_negative = true;

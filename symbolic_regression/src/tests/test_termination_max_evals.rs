@@ -19,6 +19,7 @@ fn search_engine_honors_max_evals_budget() {
         niterations: 10,
         populations: 2,
         population_size: 2,
+        tournament_selection_n: 1,
         max_evals: 4, // exactly the initial population evaluation budget
         ..Default::default()
     };

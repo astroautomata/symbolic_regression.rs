@@ -14,7 +14,10 @@ pub use crate::dataset::Dataset;
 pub use crate::guesses::{Guess, TemplateGuessValue};
 pub use crate::loss_functions::{BuiltinLoss, parse_loss};
 pub use crate::operator_selection::OperatorsSampling;
-pub use crate::options::{LossScale, MutationWeights, Options, parse_early_stop};
+pub use crate::options::{
+    Batching, BuiltinMutation, ConstantMutation, Crossover, DefaultsProfile, LossScale, MutationWeights,
+    OptimizerAlgorithm, Options, Parallelism, parse_early_stop,
+};
 pub use crate::plugins::{AdaptiveMutationWeights, MutationBurst, Reward};
 pub use crate::search_utils::{SearchEngine, SearchResult, equation_search, resume_search};
 // Re-export common `dynamic_expressions` macros so callers (and examples) don't need to depend on
