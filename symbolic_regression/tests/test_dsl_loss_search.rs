@@ -16,6 +16,7 @@ fn dataset() -> Dataset<f64> {
 
 fn options() -> Options<f64, Ops, 2> {
     Options {
+        save_to_file: false,
         operators: BuiltinOpsF64::new().from_names(["+", "sub", "*"]).unwrap(),
         seed: 0,
         deterministic: true,

@@ -50,6 +50,7 @@ fn seeded<O: OperatorSet<T = f64> + Default>(
     guesses: Vec<Guess<f64, O, D>>,
 ) -> Options<f64, O, D> {
     Options {
+        save_to_file: false,
         operators,
         guesses: vec![guesses],
         niterations: 0,
@@ -202,6 +203,7 @@ fn float32_dataset_with_float64_guess_literals() {
         "4.561253f0 - ((x1 - x2) * 0.18459733f0)",
     ] {
         let options = Options::<f32, BuiltinOpsF32, D> {
+            save_to_file: false,
             operators: BuiltinOpsF32::new().from_names(["+", "sub", "*", "/"]).unwrap(),
             guesses: vec![vec![guess.into()]],
             deterministic: true,

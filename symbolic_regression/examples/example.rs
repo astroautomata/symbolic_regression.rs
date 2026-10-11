@@ -64,6 +64,7 @@ fn main() {
     let options = Options::<f32, BuiltinOpsF32, D> {
         operators,
         niterations,
+        save_to_file: false,
         ..Default::default()
     };
 

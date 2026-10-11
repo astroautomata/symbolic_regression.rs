@@ -27,3 +27,6 @@ mod test_swap_operands_arity_gt2;
 mod test_termination_max_evals;
 mod test_tracing;
 mod test_units;
+
+#[cfg(feature = "progress")]
+mod test_output_display;

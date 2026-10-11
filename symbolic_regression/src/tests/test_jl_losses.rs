@@ -65,6 +65,7 @@ fn loss_scale_parameter_validation() {
 
     assert_eq!(Options::<T, TestOps, D>::default().loss_scale, LossScale::Log);
     let linear = Options::<T, TestOps, D> {
+        save_to_file: false,
         loss_scale: LossScale::Linear,
         ..Default::default()
     };
@@ -138,6 +139,8 @@ fn pareto_curve_header_shows_score_only_for_log_scale() {
             RenderOptions { ansi, loss_scale },
             5,
             None,
+            None,
+            "y",
         )
         .unwrap()
     };
@@ -176,7 +179,8 @@ fn pareto_curve_prefixes_equations_with_the_target() {
             ansi: false,
             loss_scale: LossScale::Linear,
         };
-        let table = format_hall_of_fame(&hall, &options, 100, usize::MAX, render, 5, units.as_ref()).unwrap();
+        let table =
+            format_hall_of_fame(&hall, &options, 100, usize::MAX, render, 5, units.as_ref(), None, "y").unwrap();
         let line = table.lines().nth(2).unwrap();
         line[line.find("y").unwrap()..].to_string()
     };
@@ -205,6 +209,8 @@ fn pareto_curve_rejects_negative_losses_under_log_scale() {
             },
             5,
             None,
+            None,
+            "y",
         )
     };
     let err = table(LossScale::Log).unwrap_err();
@@ -223,6 +229,7 @@ fn early_stop_condition() {
     let src = "early_stop(loss, c) = ((loss <= 1e-10) && (c <= 10))";
     let early_stop = parse_early_stop::<f64>(src).unwrap();
     let options = Options::<f64, BuiltinOpsF64, 2> {
+        save_to_file: false,
         operators: BuiltinOpsF64::new()
             .from_names(&["+", "*", "/", "sub", "cos", "exp"])
             .unwrap(),

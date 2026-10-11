@@ -66,6 +66,9 @@ pub struct Dataset<T: Float> {
     pub n_rows: usize,
     pub weights: Option<Array1<T>>,
     pub variable_names: Vec<String>,
+    /// Feature names used only by terminal output.
+    pub display_variable_names: Vec<String>,
+    pub y_variable_name: String,
     /// Weighted mean of `y` (or unweighted mean when no weights).
     pub avg_y: T,
     /// SymbolicRegression.jl's `X_units` and `y_units`; see [`Self::with_units`].
@@ -100,6 +103,19 @@ impl<T: Float> Dataset<T> {
             Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().map(|w| w.as_slice().unwrap()))
         });
 
+        let display_variable_names = if variable_names.is_empty() {
+            (0..n_features)
+                .map(|i| format!("x{}", crate::printing::subscriptify(i)))
+                .collect()
+        } else {
+            variable_names.clone()
+        };
+        let y_variable_name = if variable_names.iter().any(|n| n == "y") {
+            "target"
+        } else {
+            "y"
+        }
+        .into();
         Self {
             x,
             y,
@@ -107,6 +123,8 @@ impl<T: Float> Dataset<T> {
             n_rows,
             weights,
             variable_names,
+            display_variable_names,
+            y_variable_name,
             avg_y,
             units: None,
         }
@@ -123,6 +141,26 @@ impl<T: Float> Dataset<T> {
         variable_names: Vec<String>,
     ) -> Self {
         Self::build_dataset(shared(x), y, weights, variable_names, None)
+    }
+
+    /// Sets terminal feature names and an optional target name without changing serialization.
+    pub fn with_display_names(
+        mut self,
+        display_variable_names: Vec<String>,
+        y_variable_name: Option<String>,
+    ) -> Result<Self, String> {
+        if display_variable_names.len() != self.n_features {
+            return Err(format!(
+                "expected {} display variable names, got {}",
+                self.n_features,
+                display_variable_names.len()
+            ));
+        }
+        self.display_variable_names = display_variable_names;
+        if let Some(name) = y_variable_name {
+            self.y_variable_name = name;
+        }
+        Ok(self)
     }
 
     /// One dataset per row of `y`, whose shape is `(n_outputs, n_rows)`, as SymbolicRegression.jl
@@ -147,12 +185,17 @@ impl<T: Float> Dataset<T> {
             assert_eq!(w.dim(), y.dim(), "`weights` must have the shape of `y`");
         }
         let x = shared(x);
+        let multi_output = y.nrows() > 1;
         y.rows()
             .into_iter()
             .enumerate()
             .map(|(j, yj)| {
                 let wj = weights.as_ref().map(|w| w.row(j).to_owned());
-                Self::build_dataset(x.clone(), yj.to_owned(), wj, variable_names.clone(), None)
+                let mut dataset = Self::build_dataset(x.clone(), yj.to_owned(), wj, variable_names.clone(), None);
+                if multi_output {
+                    dataset.y_variable_name = format!("y{}", crate::printing::subscriptify(j + 1));
+                }
+                dataset
             })
             .collect()
     }
@@ -224,6 +267,8 @@ impl<T: Float> Dataset<T> {
         );
         Dataset {
             units: full.units.clone(),
+            display_variable_names: full.display_variable_names.clone(),
+            y_variable_name: full.y_variable_name.clone(),
             ..batch
         }
     }

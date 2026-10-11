@@ -26,9 +26,11 @@ pub(crate) mod options;
 pub(crate) mod pop_member;
 pub(crate) mod population;
 pub mod prelude;
+pub(crate) mod printing;
 pub(crate) mod progress_bars;
 pub(crate) mod random;
 pub(crate) mod regularized_evolution;
+pub(crate) mod run_output;
 pub(crate) mod search_utils;
 pub(crate) mod selection;
 pub(crate) mod single_iteration;
@@ -56,7 +58,12 @@ pub use options::{
 };
 pub use pop_member::PopMember;
 pub use population::Population;
+pub use printing::{format_hall, format_member, format_search_state, split_string, wrap_equation_string};
+pub use run_output::{
+    LogCallback, LogEquation, LogOutput, LogOutputs, LogPayload, LogPopulation, LogSummaries, SrLogger, generate_run_id,
+};
 pub use search_utils::{SearchEngine, SearchResult, equation_search, resume_search};
+pub use stop_controller::{ExternalStop, InputStream};
 #[cfg(feature = "bench")]
 pub use {
     crate::mutation_functions::{insert_random_op_in_place, random_expr, random_expr_append_ops, rotate_tree_in_place},

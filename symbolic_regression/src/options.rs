@@ -195,6 +195,10 @@ macro_rules! sr_options_spec {
                     (f64, 0.001, "fraction-replaced-guesses"),
                 topn:
                     (usize, 12, "topn"),
+                verbosity:
+                    (Option<i32>, None, "verbosity"),
+                terminal_width:
+                    (Option<usize>, None, "terminal-width"),
                 print_precision:
                     (usize, 5, "print-precision"),
                 max_evals:
@@ -207,6 +211,8 @@ macro_rules! sr_options_spec {
                     (f64, 1000.0, "dimensional-constraint-penalty"),
             }
             neg_flags {
+                save_to_file:
+                    (true, no_save_to_file, "no-save-to-file"),
                 use_frequency:
                     (true, no_use_frequency, "no-use-frequency"),
                 use_frequency_in_tournament:
@@ -322,6 +328,15 @@ macro_rules! __define_options {
             pub loss: LossObject<T>,
 
             pub output_style: OutputStyle,
+            /// The base directory for hall-of-fame files; `None` means `outputs`.
+            pub output_directory: Option<String>,
+            /// A run identifier; `None` generates a timestamp and six alphanumeric characters.
+            pub run_id: Option<String>,
+            pub logger: Option<crate::run_output::SrLogger<T>>,
+            /// Nonblocking user input. `None` disables quit-command monitoring.
+            pub input_stream: Option<crate::stop_controller::InputStream>,
+            /// A per-search graceful stop request, checked after completed population cycles.
+            pub external_stop: Option<crate::stop_controller::ExternalStop>,
 
             /// Complexity costs may be fractional; a tree's complexity is the sum of its node
             /// costs rounded to the nearest integer, as in SymbolicRegression.jl.
@@ -396,6 +411,11 @@ macro_rules! __define_options {
                     backsolve: BacksolveOptions::default(),
                     loss: BuiltinLoss::L2Dist.into_loss(),
                     output_style: OutputStyle::Auto,
+                    output_directory: None,
+                    run_id: None,
+                    logger: None,
+                    input_stream: crate::stop_controller::InputStream::default_stdin(),
+                    external_stop: None,
                     variable_complexities: None,
                     operator_complexity_overrides: std::collections::HashMap::new(),
                     op_constraints: Default::default(),

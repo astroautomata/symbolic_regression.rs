@@ -8,6 +8,7 @@ type Ops = BuiltinOpsF64;
 
 fn options(operators: &[&str], niterations: usize) -> Options<f64, Ops, 2> {
     Options {
+        save_to_file: false,
         operators: Ops::new().from_names(operators).unwrap(),
         seed: 0,
         deterministic: true,
@@ -89,6 +90,7 @@ fn warm_start_rejects_renumbered_custom_operators() {
     let options = |definitions: [&str; 2]| {
         let (custom, _) = parse_operator_tokens::<f64, _>(definitions).unwrap();
         Options::<f64, BuiltinOpsF64<CustomOps<f64>>, 2> {
+            save_to_file: false,
             operators: BuiltinOpsF64::new()
                 .with_custom(custom)
                 .from_names(["+", "f", "g"])
@@ -138,6 +140,7 @@ fn state_preservation_with_niterations_0() {
     let y = x.row(0).to_owned() + x.row(1);
     let datasets = [Dataset::new(x, y)];
     let options = Options::<f64, Ops, 2> {
+        save_to_file: false,
         operators: Ops::new().from_names(["+"]).unwrap(),
         niterations: 0,
         population_size: 5,

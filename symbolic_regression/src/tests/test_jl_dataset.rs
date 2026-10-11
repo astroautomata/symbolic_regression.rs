@@ -56,6 +56,7 @@ fn vector_output_dataset() {
 #[test]
 fn large_dataset_warning() {
     let options = Options::<f64, BuiltinOpsF64, 2> {
+        save_to_file: false,
         operators: BuiltinOpsF64::new().from_names(["+"]).unwrap(),
         niterations: 0,
         populations: 1,

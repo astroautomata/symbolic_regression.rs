@@ -14,6 +14,7 @@ fn search_recovers_target_through_string_operator() {
     let (custom, names) = parse_operator_tokens::<f64, _>(["+", "sub", "*", "f(x, y) = x*exp(-y^2)"]).unwrap();
     let operator_set = BuiltinOpsF64::new().with_custom(custom);
     let options = Options::<f64, _, 2> {
+        save_to_file: false,
         operators: operator_set.from_names(&names).unwrap(),
         seed: 0,
         deterministic: true,

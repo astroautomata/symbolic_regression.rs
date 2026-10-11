@@ -10,6 +10,8 @@ use crate::traits::{OpId, OperatorSet};
 pub struct StringTreeOptions<'a> {
     pub variable_names: Option<&'a [String]>,
     pub pretty: bool,
+    /// Serialize float constants with Julia's `.0`, exponent, and non-finite spelling.
+    pub julia_constants: bool,
     /// Number of significant digits to use when formatting numeric constants. `None` reverts to
     /// each value's `Display` impl (full precision). `Some(n)` formats via a `%.<n>g`-style
     /// emulation that matches SymbolicRegression.jl's `print_precision` behavior.
@@ -32,6 +34,30 @@ pub fn default_string_variable(feature: u16, names: Option<&[String]>) -> String
 
 pub fn default_string_constant<T: fmt::Display>(v: &T) -> String {
     v.to_string()
+}
+
+/// `x` as Julia prints a `Float64`: shortest digits, `.0` on integers, exponent notation outside
+/// `1e-4 <= |x| < 1e6`, and `Inf`, `-Inf`, `NaN`.
+pub fn julia_float(x: f64) -> String {
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "Inf" } else { "-Inf" }.to_string();
+    }
+    let sci = format!("{x:e}");
+    let Some((mantissa, exp)) = sci.split_once('e').and_then(|(m, e)| Some((m, e.parse::<i32>().ok()?))) else {
+        return format!("{x:?}");
+    };
+    if x == 0.0 || (-4..6).contains(&exp) {
+        return format!("{x:?}");
+    }
+    let mut out = mantissa.to_string();
+    if !out.contains('.') {
+        out.push_str(".0");
+    }
+    out.push_str(&format!("e{exp}"));
+    out
 }
 
 /// Format a float with `sig_digits` significant digits, mimicking C `%g` / Julia `%.<n>g`:
@@ -96,12 +122,13 @@ fn strip_zeros_scientific(s: &str) -> String {
     format!("{mantissa}e{sign}{padded}")
 }
 
-fn format_constant<T: fmt::Display + ToPrimitive>(v: &T, precision: Option<usize>) -> String {
+fn format_constant<T: fmt::Display + ToPrimitive>(v: &T, precision: Option<usize>, julia_constants: bool) -> String {
     match precision {
         Some(n) => match v.to_f64() {
             Some(f) => format_g(f, n),
             None => default_string_constant(v),
         },
+        None if julia_constants => julia_float(v.to_string().parse().expect("float constant")),
         None => default_string_constant(v),
     }
 }
@@ -168,7 +195,11 @@ where
                 default_string_variable(feature, names) + suffix.map_or("", String::as_str)
             }
             PNode::Const { idx } => {
-                format_constant(&expr.consts[usize::from(idx)], opts.print_precision) + opts.constant_suffix
+                format_constant(
+                    &expr.consts[usize::from(idx)],
+                    opts.print_precision,
+                    opts.julia_constants,
+                ) + opts.constant_suffix
             }
             _ => unreachable!("branch node in leaf mapper"),
         },

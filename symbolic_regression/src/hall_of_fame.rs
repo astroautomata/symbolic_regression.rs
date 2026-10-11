@@ -67,7 +67,7 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
     }
 
     /// The members with a lower loss than every simpler member, from simplest to most complex.
-    fn front(&self) -> impl Iterator<Item = &PopMember<T, Ops, D>> {
+    pub(crate) fn front(&self) -> impl Iterator<Item = &PopMember<T, Ops, D>> {
         let mut best_loss = T::infinity();
         self.best_by_complexity.iter().flatten().filter(move |m| {
             let improves = m.loss < best_loss;

@@ -9,6 +9,7 @@ mod imp {
     use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
     use num_traits::Float;
 
+    use crate::dataset::Dataset;
     use crate::hall_of_fame::HallOfFame;
     use crate::options::{LossScale, Options, OutputStyle};
     use crate::units::{UnitLabels, Units};
@@ -29,12 +30,14 @@ mod imp {
 
     pub(crate) struct SearchProgress {
         show: bool,
+        print: bool,
+        total_cycles: usize,
+        populations: usize,
         bar: ProgressBar,
         start_time: Instant,
         msg_min_interval: Duration,
         tracking: ProgressTracking,
         render: RenderOptions,
-        units: Option<Units>,
     }
 
     impl SearchProgress {
@@ -43,9 +46,9 @@ mod imp {
             options: &Options<T, Ops, D>,
             show: bool,
             total_cycles: usize,
-            units: Option<&Units>,
         ) -> Self {
-            let show = show && options.progress && std::io::stderr().is_terminal();
+            let show =
+                show && options.progress && options.verbosity.unwrap_or(1) > 0 && std::io::stderr().is_terminal();
 
             let ansi = match options.output_style {
                 OutputStyle::Plain => {
@@ -79,6 +82,9 @@ mod imp {
 
             Self {
                 show,
+                print: !options.progress && options.verbosity.unwrap_or(1) > 0,
+                total_cycles,
+                populations: options.populations,
                 bar,
                 start_time: Instant::now(),
                 msg_min_interval: Duration::from_millis(500),
@@ -89,7 +95,6 @@ mod imp {
                     last_msg_update: Instant::now(),
                 },
                 render,
-                units: units.cloned(),
             }
         }
 
@@ -106,7 +111,8 @@ mod imp {
 
         pub(crate) fn on_cycle_complete<T, Ops, const D: usize>(
             &mut self,
-            hall: &HallOfFame<T, Ops, D>,
+            halls: &[HallOfFame<T, Ops, D>],
+            datasets: &[Dataset<T>],
             options: &Options<T, Ops, D>,
             total_evals: u64,
             cycles_remaining: usize,
@@ -116,13 +122,37 @@ mod imp {
             T: Float + num_traits::ToPrimitive + Display,
             Ops: OperatorSet,
         {
+            if self.print
+                && (self.tracking.last_msg_update.elapsed() >= Duration::from_secs(5) || cycles_remaining == 0)
+            {
+                let state = crate::printing::format_search_state(self.total_cycles, cycles_remaining, self.populations);
+                println!("{state}");
+                for (j, (hall, dataset)) in halls.iter().zip(datasets).enumerate() {
+                    if datasets.len() > 1 {
+                        println!("Best equations for output {}", j + 1);
+                    }
+                    let hall = format_hall_of_fame(
+                        hall,
+                        options,
+                        options.terminal_width.unwrap_or(100).max(100),
+                        usize::MAX,
+                        self.render,
+                        print_precision,
+                        dataset.units.as_ref(),
+                        Some(&dataset.display_variable_names),
+                        &dataset.y_variable_name,
+                    )?;
+                    println!("{hall}");
+                }
+                self.tracking.last_msg_update = Instant::now();
+            }
             if !self.show {
                 return Ok(());
             }
             self.bar.inc(1);
             update_progress_msg(ProgressMsgCtx {
                 pb: &self.bar,
-                hall,
+                hall: &halls[0],
                 options,
                 start_time: self.start_time,
                 msg_min_interval: self.msg_min_interval,
@@ -131,7 +161,7 @@ mod imp {
                 total_evals,
                 cycles_remaining,
                 print_precision,
-                units: self.units.as_ref(),
+                dataset: &datasets[0],
             })
         }
 
@@ -153,7 +183,7 @@ mod imp {
         total_evals: u64,
         cycles_remaining: usize,
         print_precision: usize,
-        units: Option<&'a Units>,
+        dataset: &'a Dataset<T>,
     }
 
     fn update_progress_msg<T, Ops, const D: usize>(ctx: ProgressMsgCtx<'_, T, Ops, D>) -> Result<(), String>
@@ -172,7 +202,7 @@ mod imp {
             total_evals,
             cycles_remaining,
             print_precision,
-            units,
+            dataset,
         } = ctx;
 
         let now = Instant::now();
@@ -193,7 +223,7 @@ mod imp {
 
         let term_width = {
             let (_, w) = console::Term::stderr().size();
-            (w as usize).max(80)
+            options.terminal_width.unwrap_or(w as usize).max(80)
         };
 
         let avg_speed = if progress.speeds.is_empty() {
@@ -216,7 +246,17 @@ mod imp {
             ),
         };
 
-        let hof = format_hall_of_fame(hall, options, term_width, usize::MAX, render, print_precision, units)?;
+        let hof = format_hall_of_fame(
+            hall,
+            options,
+            term_width,
+            usize::MAX,
+            render,
+            print_precision,
+            dataset.units.as_ref(),
+            Some(&dataset.display_variable_names),
+            &dataset.y_variable_name,
+        )?;
         let hof_title = "Hall of Fame:".to_string();
         pb.set_message(format!(
             "{}\n{}\n{}",
@@ -241,6 +281,8 @@ mod imp {
         render: RenderOptions,
         print_precision: usize,
         units: Option<&Units>,
+        variable_names: Option<&[String]>,
+        y_variable_name: &str,
     ) -> Result<String, String>
     where
         T: Float + num_traits::ToPrimitive + Display,
@@ -276,7 +318,10 @@ mod imp {
 
         let scores = hall.pareto_scores(render.loss_scale)?;
         let labels = units.map(|u| UnitLabels::new(u, options.dimensionless_constants_only));
-        let prefix = format!("y{} = ", labels.as_ref().map_or("", |l| l.target.as_str()));
+        let prefix = format!(
+            "{y_variable_name}{} = ",
+            labels.as_ref().map_or("", |l| l.target.as_str())
+        );
         for (m, score) in hall.pareto_front().into_iter().zip(scores).take(max_entries) {
             let loss = m.loss.to_f64().unwrap_or(f64::INFINITY);
             let mut stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
@@ -290,6 +335,8 @@ mod imp {
                     options,
                     StringTreeOptions {
                         print_precision: Some(print_precision),
+                        variable_names,
+                        pretty: true,
                         variable_suffixes: labels.as_ref().map(|l| l.variables.as_slice()),
                         constant_suffix: labels.as_ref().map_or("", |l| l.constant),
                         ..Default::default()
@@ -303,7 +350,7 @@ mod imp {
                 out.push('\n');
                 for line in rest {
                     let eq = line.to_string();
-                    let padded = format!("{}{}", " ".repeat(left_cols_width), eq);
+                    let padded = eq;
                     out.push_str(&truncate_to_width(&padded, terminal_width, render));
                     out.push('\n');
                 }
@@ -318,31 +365,10 @@ mod imp {
     }
 
     fn wrap_equation(eqn: &str, terminal_width: usize, left_cols_width: usize) -> Vec<String> {
-        let dots = "...";
-        let avail = terminal_width
-            .saturating_sub(1)
-            .saturating_sub(left_cols_width)
-            .saturating_sub(dots.len())
-            .max(10);
-
-        let mut out = Vec::new();
-        let mut start = 0;
-        while start < eqn.len() {
-            let mut end = (start + avail).min(eqn.len());
-            while end > start && !eqn.is_char_boundary(end) {
-                end -= 1;
-            }
-            if end == start {
-                break;
-            }
-            let mut chunk = eqn[start..end].to_string();
-            if end < eqn.len() {
-                chunk.push_str(dots);
-            }
-            out.push(chunk);
-            start = end;
-        }
-        out
+        crate::printing::wrap_equation_string(eqn, left_cols_width, terminal_width)
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn truncate_to_width(s: &str, terminal_width: usize, render: RenderOptions) -> String {
@@ -362,6 +388,7 @@ mod imp {
 mod imp {
     use num_traits::Float;
 
+    use crate::dataset::Dataset;
     use crate::hall_of_fame::HallOfFame;
     use crate::options::Options;
 
@@ -372,7 +399,6 @@ mod imp {
             _options: &Options<T, Ops, D>,
             _show: bool,
             _total_cycles: usize,
-            _units: Option<&crate::units::Units>,
         ) -> Self {
             Self
         }
@@ -383,7 +409,8 @@ mod imp {
 
         pub(crate) fn on_cycle_complete<T: Float, Ops, const D: usize>(
             &mut self,
-            _hall: &HallOfFame<T, Ops, D>,
+            _halls: &[HallOfFame<T, Ops, D>],
+            _datasets: &[Dataset<T>],
             _options: &Options<T, Ops, D>,
             _total_evals: u64,
             _cycles_remaining: usize,

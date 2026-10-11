@@ -24,6 +24,7 @@ fn test_timeout_under_max_iterations() {
     let operators = SlowOps::new().from_names::<D, _>(["slow_id"]).unwrap();
 
     let options = Options::<f64, SlowOps, D> {
+        save_to_file: false,
         timeout_in_seconds: 0.05,
         niterations: 1_000_000_000,
         operators,

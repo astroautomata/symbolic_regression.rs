@@ -510,6 +510,7 @@ fn summary_from_member(
             StringTreeOptions {
                 variable_names: Some(engine.datasets()[0].variable_names.as_slice()),
                 pretty: false,
+                julia_constants: false,
                 print_precision,
                 variable_suffixes: labels.map(|l| l.variables.as_slice()),
                 constant_suffix: labels.map_or("", |l| l.constant),
@@ -900,6 +901,7 @@ mod tests {
     fn units_search(opts: serde_json::Value) -> Result<super::WasmSearch, String> {
         let mut opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
         opts.core.niterations = 1;
+        opts.core.save_to_file = false;
         opts.core.populations = 1;
         opts.core.population_size = 20;
         opts.core.seed = 1;
@@ -1067,6 +1069,7 @@ mod tests {
             niterations: 2,
             populations: 4,
             progress: false,
+            save_to_file: false,
             ..Default::default()
         };
         super::SearchEngine::new(vec![super::Dataset::new(x, y)], options).unwrap()
@@ -1121,6 +1124,7 @@ mod tests {
 
     fn template_options(template: serde_json::Value) -> WasmSearchOptions {
         serde_json::from_value(serde_json::json!({
+            "save_to_file": false,
             "niterations": 3,
             "populations": 2,
             "population_size": 20,
@@ -1279,7 +1283,8 @@ mod tests {
     }
 
     fn guess_search(csv: &str, opts: serde_json::Value) -> Result<super::WasmSearch, String> {
-        let opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
+        let mut opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
+        opts.core.save_to_file = false;
         super::WasmSearch::build(csv, &opts, &[], &tokens(&["+", "*"]), &[])
     }
 

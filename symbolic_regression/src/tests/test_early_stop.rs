@@ -15,6 +15,7 @@ fn search_terminates_when_early_stop_condition_satisfied() {
     );
 
     let options = Options::<T, TestOps, D> {
+        save_to_file: false,
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         use_baseline: false,
         niterations: 100,

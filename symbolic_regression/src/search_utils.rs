@@ -20,7 +20,8 @@ use crate::pop_member::{Evaluator, PopMember};
 use crate::population::Population;
 use crate::progress_bars::SearchProgress;
 use crate::random::{shuffle, standard_normal};
-use crate::stop_controller::StopController;
+use crate::run_output::{LogOutputs, LogPayload, generate_run_id, log_output, save_to_file};
+use crate::stop_controller::{StdinReader, StopController};
 use crate::tracing::IterationTrace;
 use crate::{migration, single_iteration, tracing, warmup};
 
@@ -38,6 +39,8 @@ pub struct SearchResult<T: Float, Ops, const D: usize> {
     /// Evaluations, in units of the full dataset as `max_evals` counts them, including those of
     /// every search this one continues.
     pub total_evals: f64,
+    /// The directory name beneath `Options::output_directory` that holds this run's files.
+    pub run_id: String,
     /// Each population's generator, so that a warm start continues its random stream.
     rngs: Vec<Vec<Rng>>,
     key: WarmStartKey,
@@ -51,6 +54,7 @@ impl<T: Float, Ops, const D: usize> Clone for SearchResult<T, Ops, D> {
             populations: self.populations.clone(),
             warnings: self.warnings.clone(),
             total_evals: self.total_evals,
+            run_id: self.run_id.clone(),
             rngs: self.rngs.clone(),
             key: self.key.clone(),
         }
@@ -367,6 +371,11 @@ struct SearchCore<T: Float + AddAssign, Ops, const D: usize> {
     task_order: Vec<(usize, usize)>,
     next_task: usize,
     progress_finished: bool,
+    run_id: String,
+    stdin_reader: StdinReader,
+    log_step: usize,
+    last_logged_step: Option<usize>,
+    population_complexities: Option<Vec<Vec<Vec<usize>>>>,
 }
 
 impl<T: Float + AddAssign, Ops, const D: usize> SearchCore<T, Ops, D> {
@@ -532,7 +541,7 @@ where
 
                 let res = result_rx.recv().expect("worker result channel closed early");
                 in_flight -= 1;
-                let applied = self.apply_task_result(options, res, controller);
+                let applied = self.apply_task_result(datasets, options, res, controller);
                 completed_total += 1;
                 if let Err(message) = applied {
                     error.get_or_insert(message);
@@ -560,6 +569,7 @@ where
     /// throws.
     fn apply_task_result(
         &mut self,
+        datasets: &[Dataset<T>],
         options: &Options<T, Ops, D>,
         res: SearchTaskResult<T, Ops, D>,
         controller: &StopController,
@@ -626,6 +636,12 @@ where
             options.deterministic,
         );
 
+        if let Some(complexities) = &mut self.population_complexities {
+            let snapshot = &mut complexities[output][pop_idx];
+            snapshot.clear();
+            snapshot.extend(st.pop.members.iter().map(|m| m.complexity));
+        }
+
         // Matches SymbolicRegression.jl `check_for_loss_threshold`: cancel as soon as every
         // output's hall of fame has a member that satisfies the user's early-stop callback.
         if let Some(f) = &options.early_stop_condition {
@@ -634,16 +650,65 @@ where
             }
         }
 
-        let cycles_remaining = counters.mark_completed();
+        counters.mark_completed();
+        let cycles_remaining = self.cycles_remaining();
         let hall = &self.halls[output];
         hall.check_loss_scale(options.loss_scale)?;
         self.progress.on_cycle_complete(
-            hall,
+            &self.halls,
+            datasets,
             options,
             self.total_evals as u64,
             cycles_remaining,
             options.print_precision,
-        )
+        )?;
+        if options.save_to_file {
+            save_to_file(hall, datasets.len(), output, &datasets[output], options, &self.run_id)?;
+        }
+        if let Some(logger) = &options.logger {
+            self.log_step += 1;
+            if logger.should_log() || (logger.log_interval > 0 && self.cycles_remaining() == 0) {
+                self.emit_log(datasets, options);
+            }
+        }
+        if options.external_stop.as_ref().is_some_and(|s| s.is_requested()) || self.stdin_reader.check_for_quit()? {
+            controller.cancel();
+        }
+        Ok(())
+    }
+
+    fn emit_log(&mut self, datasets: &[Dataset<T>], options: &Options<T, Ops, D>) {
+        let Some(logger) = &options.logger else {
+            return;
+        };
+        if logger.log_interval <= 0 || self.log_step == 0 || self.last_logged_step == Some(self.log_step) {
+            return;
+        }
+        let snapshots = self
+            .population_complexities
+            .as_ref()
+            .expect("logger population snapshots exist");
+        let mut data = self
+            .halls
+            .iter()
+            .zip(datasets)
+            .enumerate()
+            .map(|(j, (hall, dataset))| log_output(hall, snapshots[j].iter().flatten().copied(), dataset, options));
+        let data = if datasets.len() == 1 {
+            LogOutputs::Single(data.next().unwrap())
+        } else {
+            LogOutputs::Multiple(
+                data.enumerate()
+                    .map(|(j, output)| (format!("output{}", j + 1), output))
+                    .collect(),
+            )
+        };
+        (logger.callback)(&LogPayload {
+            data,
+            num_evals: self.total_evals,
+            cycles_remaining: self.outputs.iter().map(|o| o.counters.cycles_remaining()).collect(),
+        });
+        self.last_logged_step = Some(self.log_step);
     }
 }
 
@@ -672,9 +737,14 @@ where
         if datasets.is_empty() {
             return Err("a search needs at least one dataset".to_string());
         }
+        if options.print_precision == 0 {
+            return Err("print_precision must be positive".to_string());
+        }
         for dataset in datasets {
             check_dataset(dataset, options);
         }
+        let run_id = options.run_id.clone().unwrap_or_else(generate_run_id);
+        let stdin_reader = StdinReader::watch(options.input_stream.as_ref())?;
         let key = WarmStartKey::new(datasets, options);
         if let Some(previous) = &previous {
             previous.key.check(&key)?;
@@ -782,12 +852,28 @@ where
         }
 
         let total_cycles = outputs.iter().map(|o| o.counters.total_cycles).sum();
-        let mut progress = SearchProgress::new(options, datasets.len() == 1, total_cycles, datasets[0].units.as_ref());
+        let mut progress = SearchProgress::new(options, datasets.len() == 1, total_cycles);
         for warning in &warnings {
             progress.warn(warning);
         }
         progress.set_initial_evals(total_evals as u64);
 
+        if options.save_to_file && options.niterations == 0 {
+            for (output, (hall, dataset)) in halls.iter().zip(datasets).enumerate() {
+                save_to_file(hall, datasets.len(), output, dataset, options, &run_id)?;
+            }
+        }
+        let population_complexities = options.logger.as_ref().filter(|l| l.log_interval > 0).map(|_| {
+            outputs
+                .iter()
+                .map(|o| {
+                    o.pops
+                        .iter()
+                        .map(|p| p.as_ref().unwrap().pop.members.iter().map(|m| m.complexity).collect())
+                        .collect()
+                })
+                .collect()
+        });
         let core = SearchCore {
             outputs,
             halls,
@@ -798,6 +884,11 @@ where
             task_order: Vec::new(),
             next_task: 0,
             progress_finished: false,
+            run_id,
+            stdin_reader,
+            log_step: 0,
+            last_logged_step: None,
+            population_complexities,
         };
 
         Ok(Self {
@@ -823,8 +914,18 @@ where
         T: Send + Sync,
         Ops: Send + Sync,
     {
-        self.core
-            .step(datasets, &self.baselines, options, &self.controller, n_cycles)
+        let completed = self
+            .core
+            .step(datasets, &self.baselines, options, &self.controller, n_cycles)?;
+        if self.is_finished() {
+            if options.save_to_file {
+                for (output, (hall, dataset)) in self.core.halls.iter().zip(datasets).enumerate() {
+                    save_to_file(hall, datasets.len(), output, dataset, options, &self.core.run_id)?;
+                }
+            }
+            self.core.emit_log(datasets, options);
+        }
+        Ok(completed)
     }
 
     fn run_to_completion(
@@ -860,6 +961,7 @@ where
             populations,
             warnings: self.warnings,
             total_evals: self.prior_evals + self.core.total_evals,
+            run_id: self.core.run_id,
             rngs,
             key: self.key,
         })
@@ -907,6 +1009,10 @@ where
             options,
             search,
         })
+    }
+
+    pub fn run_id(&self) -> &str {
+        &self.search.core.run_id
     }
 
     pub fn total_cycles(&self) -> usize {
@@ -1134,6 +1240,7 @@ mod batching_search_tests {
             populations: 1,
             population_size: 6,
             progress: false,
+            save_to_file: false,
             should_optimize_constants: false,
             should_simplify: false,
             deterministic: true,
@@ -1184,6 +1291,7 @@ mod batching_search_tests {
             populations: 1,
             population_size: 6,
             progress: false,
+            save_to_file: false,
             should_optimize_constants: false,
             should_simplify: false,
             deterministic: true,

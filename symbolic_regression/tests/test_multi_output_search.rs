@@ -20,6 +20,7 @@ fn two_output_search_recovers_each_target_on_its_own_front() {
     assert_eq!(datasets[0].x.as_ptr(), datasets[1].x.as_ptr());
 
     let options = Options::<f64, BuiltinOpsF64, 2> {
+        save_to_file: false,
         operators: BuiltinOpsF64::new().from_names(["+", "*"]).unwrap(),
         seed: 0,
         deterministic: true,

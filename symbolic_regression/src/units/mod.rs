@@ -4,8 +4,7 @@
 
 mod registry;
 
-use std::fmt::Write;
-
+use dynamic_expressions::strings::julia_float;
 use registry::{ENTRIES, N_UNITS};
 
 /// DynamicQuantities stores each exponent as a `FixedRational{Int32, 25200}`: a numerator over
@@ -231,30 +230,6 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
         (a, b) = (b, a % b);
     }
     a
-}
-
-/// `x` as Julia prints a `Float64`: shortest digits, `.0` on integers, exponent notation outside
-/// `1e-4 <= |x| < 1e6`, and `Inf`, `-Inf`, `NaN`.
-fn julia_float(x: f64) -> String {
-    if x.is_nan() {
-        return "NaN".to_string();
-    }
-    if x.is_infinite() {
-        return if x > 0.0 { "Inf" } else { "-Inf" }.to_string();
-    }
-    let sci = format!("{x:e}");
-    let Some((mantissa, exp)) = sci.split_once('e').and_then(|(m, e)| Some((m, e.parse::<i32>().ok()?))) else {
-        return format!("{x:?}");
-    };
-    if x == 0.0 || (-4..6).contains(&exp) {
-        return format!("{x:?}");
-    }
-    let mut out = mantissa.to_string();
-    if !out.contains('.') {
-        out.push_str(".0");
-    }
-    let _ = write!(out, "e{exp}");
-    out
 }
 
 #[derive(Clone, Debug, PartialEq)]

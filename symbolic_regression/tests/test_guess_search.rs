@@ -20,6 +20,7 @@ fn seeded<Ops: OperatorSet<T = f64> + Default>(
     guesses: Vec<Guess<f64, Ops, 2>>,
 ) -> Options<f64, Ops, 2> {
     Options {
+        save_to_file: false,
         operators,
         guesses: vec![guesses],
         niterations: 0,

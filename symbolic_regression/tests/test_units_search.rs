@@ -14,6 +14,7 @@ type Ops = BuiltinOpsF64<CustomOps<f64>>;
 fn options(tokens: &[&str], stop: fn(f64, usize) -> bool) -> Options<f64, Ops, 2> {
     let (custom, names) = parse_operator_tokens::<f64, _>(tokens.iter().copied()).unwrap();
     Options {
+        save_to_file: false,
         operators: BuiltinOpsF64::new().with_custom(custom).from_names(&names).unwrap(),
         seed: 0,
         deterministic: true,

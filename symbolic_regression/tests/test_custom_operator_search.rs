@@ -38,6 +38,7 @@ fn custom_operator_is_used_in_end_to_end_search() {
         backsolve: 0.0,
     };
     let options = Options::<f64, CustomOps, 1> {
+        save_to_file: false,
         seed: 0,
         niterations: 1,
         populations: 1,

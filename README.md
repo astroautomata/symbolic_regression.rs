@@ -98,6 +98,25 @@ fn main() {
 }
 ```
 
+Searches write `hall_of_fame.csv` and an identical `.bak` file beneath
+`output_directory/run_id` after each population cycle and at completion. Multi-output
+searches write `hall_of_fame_output1.csv`, `hall_of_fame_output2.csv`, and so on.
+`output_directory` defaults to `outputs`; `SearchResult::run_id` and
+`SearchEngine::run_id()` expose the generated identifier. Set `save_to_file: false`
+to disable file output. File output is inactive on WebAssembly.
+
+`SrLogger::new(callback)` records population complexities, Pareto
+summaries, equations, and evaluation counts. It logs step zero, every 100 calls,
+and the terminal state. `SrLogger::with_interval` selects another interval;
+nonpositive intervals disable logging. Clones share the logger's step counter. Set `verbosity`
+to `Some(0)` to suppress printing, or leave it `None` for normal output.
+`Dataset::with_display_names` sets terminal feature and target names while CSV files
+keep `variable_names`. `terminal_width` controls the terminal table width.
+`ExternalStop::request()` asks one search to stop gracefully at its next completed
+population cycle. Unix searches monitor stdin for `q` followed by Enter or a
+control-C byte; `input_stream: None` disables monitoring. `InputStream::channel()`
+and `InputStream::nonblocking()` accept other input sources on every platform.
+
 ## Custom operators
 
 Define custom operators with `op!`, then build an operator set with `opset!`:

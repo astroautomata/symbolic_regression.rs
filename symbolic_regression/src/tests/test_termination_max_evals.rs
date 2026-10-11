@@ -13,6 +13,7 @@ fn search_engine_honors_max_evals_budget() {
     );
 
     let options = Options::<T, TestOps, D> {
+        save_to_file: false,
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         use_baseline: false,
         niterations: 10,
