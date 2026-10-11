@@ -135,14 +135,17 @@ file = "test/integration/ext/json_tracing/test_tracing.jl"
 line = 1
 name = "Test JSON tracing"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_tracing_file.rs::tracing_file_follows_the_symbolic_regression_jl_schema", "symbolic_regression/src/tests/test_tracing.rs::step_traces_record_type_result_and_reason"]
+note = "The record appended through the internal write_trace is replaced by a unit check that non-finite losses are written as Infinity."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_mixed.jl"
 line = 1
 name = "Search with batching & weighted & serial & progress bar & warmup & BFGS"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_batched_weighted_serial_warmup_bfgs"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_mixed.jl"
@@ -156,21 +159,26 @@ file = "test/integration/ext/loopvectorization/test_mixed.jl"
 line = 11
 name = "Search with multi-threading & default settings"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_multithreading_default_configuration"]
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_mixed.jl"
 line = 16
 name = "Search with multi-threading & weighted & crossover & use_frequency_in_tournament & bumper"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_multithreading_crossover_tournament_frequency"]
+note = "Bumper is Julia-only and omitted; the upstream i=3 scenario is unweighted despite the testitem title."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_mixed.jl"
 line = 21
 name = "Search with multi-threading & crossover & skip mutation failures & both frequencies options & Float16 type"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_multithreading_crossover_skip_failures_both_frequencies"]
+note = "Float32 replaces Julia Float16; all search settings and training/test residual assertions are preserved."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_mixed.jl"
@@ -670,77 +678,90 @@ file = "test/unit/backsolve/test_backsolve.jl"
 line = 1
 name = "STLSQ algorithm basic functionality"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::stlsq_algorithm_basic_functionality"]
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve.jl"
 line = 64
 name = "Tree combination with weighted sum"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::tree_combination_with_weighted_sum"]
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve.jl"
 line = 128
 name = "Fit sparse expression full pipeline"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::fit_sparse_expression_full_pipeline"]
+note = "The check that uses a custom matrix type, which turns non-finite during the final evaluation, is not carried over because Rust datasets are plain arrays."
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve.jl"
 line = 180
 name = "build_basis_library"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::build_basis_library_terms"]
+note = "`BasisLibrary` stores each term together with its values, so a term/column mismatch cannot be constructed; the duck-typed population case uses a one-member population."
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve.jl"
 line = 273
 name = "fit_sparse_expression with population_for_backsolve"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::fit_sparse_expression_with_population_for_backsolve"]
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve.jl"
 line = 313
 name = "Integration test: backsolve rewrite with sparse fit"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::integration_backsolve_rewrite_with_sparse_fit"]
+note = "Seeded with the crate's generator (seed 2) instead of MersenneTwister(42)."
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve.jl"
 line = 356
 name = "Edge cases and error handling"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::edge_cases_and_error_handling"]
+note = "The complex-valued and integer cases are not carried over: the port supports real floating-point scalars only, and integer inputs are rejected at compile time."
 
 [[testitem]]
 file = "test/unit/backsolve/test_backsolve_mutation.jl"
 line = 1
 name = "Test backsolve mutation"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::inverse_functions", "symbolic_regression/src/tests/test_backsolve.rs::evaluate_inverse_trees", "symbolic_regression/src/tests/test_backsolve.rs::operators_without_inverses_fail_gracefully", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_rewrite_random_node_cases", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_rewrite_random_node_ternary_tree", "symbolic_regression/src/tests/test_backsolve.rs::mutation_weights_backsolve_field", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_fires_in_next_generation", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_failure_records_reject_reason", "symbolic_regression/tests/test_backsolve_search.rs::backsolve_search_fits_exactly"]
+note = "Julia-only checks are not carried over: evaluation-buffer reuse, shared-node (GraphNode) inputs, string, integer, and complex element types, and the template-wrapper error. The end-to-end search uses maxsize 20 and no constant optimization, so only backsolve can produce the exact fit."
 
 [[testitem]]
 file = "test/unit/basic/test_abstract_popmember.jl"
 line = 1
 name = "Custom AbstractPopMember implementation"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests a user-defined Julia AbstractPopMember subtype"
 
 [[testitem]]
 file = "test/unit/basic/test_deprecation.jl"
 line = 1
 name = "Test deprecated options"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia deprecation shims for keywords and property aliases Rust never had."
 
 [[testitem]]
 file = "test/unit/basic/test_deprecation.jl"
 line = 64
 name = "Test deprecated evaluation context names"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia deprecation shims for evaluation-context keywords Rust never had."
 
 [[testitem]]
 file = "test/unit/basic/test_lite_interface.jl"
@@ -824,49 +845,60 @@ file = "test/unit/basic/test_logging.jl"
 line = 1
 name = "Logger receives terminal search state"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::logger_receives_terminal_search_state"]
+note = "Rust callbacks capture remaining cycles instead of Julia logger subtype dispatch."
 
 [[testitem]]
 file = "test/unit/basic/test_logging.jl"
 line = 52
 name = "SRLogger always emits normal terminal state"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::sr_logger_always_emits_normal_terminal_state", "symbolic_regression/tests/test_monitoring.rs::sr_logger_defaults_to_an_interval_of_one_hundred", "symbolic_regression/tests/test_monitoring.rs::sr_logger_keeps_its_cadence_when_reused_across_searches", "symbolic_regression/tests/test_monitoring.rs::logger_payload_matches_scalar_fields_and_evaluations"]
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 1
 name = "Test options"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::options_optimizer_and_loss_scale"]
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 30
 name = "Test versioned default profile selection"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::versioned_default_profiles"]
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 69
 name = "Test automatic batching options"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::automatic_batching_options"]
+note = "Julia type inference and dispatch on a user-defined unbatchable dataset are not applicable; every Rust Dataset supports batching."
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 116
 name = "Test backsolve options"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::backsolve_options"]
+note = "The port checks the `BacksolveOptions` defaults and overrides, the zero default weight, and the `max_library_size >= 1 + nfeatures` check at search start."
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 147
 name = "Mutation collections mirror plugin override semantics"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::mutation_collection_overrides", "symbolic_regression/src/tests/test_jl_evolution_core.rs::constant_mutation_collection_uses_the_selected_parameters"]
+note = "Built-in collection override semantics are covered; user-defined Julia ProbeMutation dispatch is outside the supported data-level mutations."
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
@@ -916,14 +948,18 @@ file = "test/unit/basic/test_pretty_printing.jl"
 line = 1
 name = "pretty print member"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::pretty_print_member"]
+note = "Rust exposes an explicit formatting function instead of Julia MIME display dispatch."
 
 [[testitem]]
 file = "test/unit/basic/test_pretty_printing.jl"
 line = 26
 name = "pretty print hall of fame"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::pretty_print_hall_of_fame"]
+note = "Rust exposes an explicit formatting function instead of Julia MIME display dispatch."
 
 [[testitem]]
 file = "test/unit/basic/test_pretty_printing.jl"
@@ -939,7 +975,8 @@ file = "test/unit/basic/test_pretty_printing.jl"
 line = 109
 name = "printing utilities"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::printing_utilities"]
 
 [[testitem]]
 file = "test/unit/basic/test_pretty_printing.jl"
@@ -963,14 +1000,17 @@ file = "test/unit/basic/test_progress_display.jl"
 line = 1
 name = "print_search_state does not round partial iterations up"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::print_search_state_does_not_round_partial_iterations_up"]
 
 [[testitem]]
 file = "test/unit/basic/test_utils.jl"
 line = 1
 name = "Test utils"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::bottom_k_population_matches_stable_sort"]
+note = "Rust uses stable sorted population costs rather than Julia-specific findmin_fast and bottomk_fast helper names."
 
 [[testitem]]
 file = "test/unit/constraints/test_constraints.jl"
@@ -1043,7 +1083,8 @@ file = "test/unit/evaluation/test_deterministic.jl"
 line = 1
 name = "Testing whether deterministic mode works."
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::deterministic_search_repeats_best_equation"]
 
 [[testitem]]
 file = "test/unit/evaluation/test_early_stop.jl"
@@ -1077,168 +1118,189 @@ file = "test/unit/evaluation/test_fast_cycle.jl"
 line = 1
 name = "Testing fast-cycle and custom variable names"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::custom_variable_names_and_resumed_losses"]
+note = "The deprecated fast_cycle keyword is omitted; constrained search, custom names, zero-iteration resumption, and changed-loss rescaling are covered."
 
 [[testitem]]
 file = "test/unit/evaluation/test_migration.jl"
 line = 1
 name = "Test migration"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::migration_inserts_candidate"]
 
 [[testitem]]
 file = "test/unit/evaluation/test_stdin_monitoring.jl"
 line = 1
 name = "stdin monitoring avoids blocking and parses quit commands"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::stdin_monitoring_is_nonblocking_and_parses_quit_commands", "symbolic_regression/tests/test_monitoring.rs::quit_monitor_ignores_non_quit_lines_and_stale_input"]
+note = "Julia stream dispatch is represented by nonblocking byte callbacks and channels; built-in stdin monitoring is available on Unix."
 
 [[testitem]]
 file = "test/unit/evaluation/test_stop_on_clock.jl"
 line = 1
 name = "Testing whether we can stop based on clock time."
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::stop_on_clock_time"]
+note = "Uses seeded Float32 normal data with five features and 100 samples, a cosine target, a warmup search, and the same 100-second upper bound."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_constants_for_optimization.jl"
 line = 1
 name = "Generic optimizable hooks aggregate constants and template parameters"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::optimizable_constants_include_template_parameters"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_constants_for_optimization.jl"
 line = 36
 name = "Template optimizable selection delegates through its combiner"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia dispatch on a user-defined combiner outside the supported Rust expression model."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_constants_for_optimization.jl"
 line = 68
 name = "Generic optimizable hooks are options- and refs-aware"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia dispatch on user-defined value and reference types outside the supported Rust expression model."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_constants_for_optimization.jl"
 line = 107
 name = "Default optimize_constants handles custom optimizable expression state"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia dispatch on user-defined expression and gradient types outside the supported Rust expression model."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_crossover.jl"
 line = 1
 name = "Test crossover mutation"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::crossover_conserves_nodes_and_swaps_both_operators"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_crossover.jl"
 line = 1
 name = "Custom crossover dispatch"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "User-defined Julia crossover types are outside the supported built-in crossover interface."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_crossover.jl"
 line = 41
 name = "Crossover retries and giving up"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "User-defined Julia crossover types are outside the supported built-in crossover interface."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_crossover.jl"
 line = 120
 name = "Crossover weighted sampling and Options merge"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::mutation_collection_overrides"]
+note = "The built-in SubtreeCrossover default and replacement assertions are covered; user-defined TracingCrossover is outside the supported crossover interface."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_crossover.jl"
 line = 171
 name = "Default crossover matches crossover_trees"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::default_crossover_matches_direct_trees"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_mutation.jl"
 line = 1
 name = "Custom mutation dispatch"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::subnormal_mutation_weights_select_the_only_positive_entry"]
+note = "The built-in DoNothingMutation sampling assertions are covered; user-defined CustomMutation and MissingMutation dispatch is outside the supported mutation interface."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_type_constant_optimization.jl"
 line = 1
 name = "Constant optimization with custom types (Issue #568)"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia value interfaces and loss dispatch on a user-defined non-scalar Vec2 type."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_custom_type_constant_optimization.jl"
 line = 93
 name = "Constant mutation for discrete custom values"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia mutation dispatch on a user-defined discrete value type."
 
 [[testitem]]
 file = "test/unit/evolution-core/test_feature_mutation.jl"
 line = 1
 name = "Test feature mutation"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::feature_mutation_ranges_and_template_features"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_optimizer_mutation.jl"
 line = 1
 name = "Test optimization mutation"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::optimization_mutation_fits_sine_constants"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_plugin_signature_deprecations.jl"
 line = 1
 name = "Deprecated best_of_sample signature forwards to current method"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests a Julia deprecation shim for a best_of_sample signature Rust never had"
 
 [[testitem]]
 file = "test/unit/evolution-core/test_prob_pick_first.jl"
 line = 1
 name = "Test tournament selection"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::tournament_selection_prefers_low_cost_in_both_orders"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_rotation.jl"
 line = 1
 name = "Basic `randomly_rotate_tree!`"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::basic_tree_rotation_outputs"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_rotation.jl"
 line = 31
 name = "Complex `randomly_rotate_tree!`"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::complex_tree_rotation_outputs"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_search_statistics.jl"
 line = 1
 name = "Test RunningSearchStatistics"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::search_statistics_window_and_normalization"]
 
 [[testitem]]
 file = "test/unit/evolution-core/test_simplify_mutation_cost.jl"
 line = 1
 name = "SimplifyMutation updates cost with complexity"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::simplify_mutation_refreshes_cost"]
 
 [[testitem]]
 file = "test/unit/expressions/test_composable_expression.jl"
@@ -1351,35 +1413,40 @@ file = "test/unit/misc/test_external_stop.jl"
 line = 1
 name = "ExternalStop drains and filters trigger bytes"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::external_stop_latches_direct_requests"]
+note = "Direct atomic requests are ported; descriptor polling and byte-trigger filtering are replaced by per-search atomic handles."
 
 [[testitem]]
 file = "test/unit/misc/test_external_stop.jl"
 line = 85
 name = "Teardown drains notifications queued for a finished search"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "File-descriptor notification draining (Rust uses per-search atomic stop handles)."
 
 [[testitem]]
 file = "test/unit/misc/test_external_stop.jl"
 line = 142
 name = "Custom AbstractRuntimeOptions default to no external stop"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "tests Julia dispatch on user-defined AbstractRuntimeOptions subtypes."
 
 [[testitem]]
 file = "test/unit/misc/test_external_stop.jl"
 line = 154
 name = "ExternalStop preserves requests queued before search entry"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::external_stop_preserves_requests_before_search_entry", "symbolic_regression/tests/test_monitoring.rs::logger_can_request_stop_after_its_completed_cycle"]
+note = "Queued descriptor notifications become latched atomic requests; requests present at entry stop after the first completed cycle."
 
 [[testitem]]
 file = "test/unit/misc/test_external_stop.jl"
 line = 216
 name = "overlapping serial searches stop independently"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::overlapping_searches_stop_independently"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
@@ -1508,16 +1575,16 @@ file = "test/unit/misc/test_guesses.jl"
 line = 491
 name = "File saving with niterations=0"
 pr = 6
-status = "todo"
-note = "Needs hall-of-fame files (PR 6)."
+status = "done"
+rust = ["symbolic_regression/tests/test_output_files.rs::file_saving_with_zero_iterations"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
 line = 556
 name = "Hall of fame CSV escapes equation quotes"
 pr = 6
-status = "todo"
-note = "Needs hall-of-fame files (PR 6)."
+status = "done"
+rust = ["symbolic_regression/tests/test_output_files.rs::hall_of_fame_csv_escapes_equation_quotes"]
 
 [[testitem]]
 file = "test/unit/misc/test_guesses.jl"
@@ -1616,99 +1683,105 @@ note = "Julia's single `customloss` with 2- and 3-argument methods becomes two D
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 1
 name = "Plugin interface: types and defaults"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 103
 name = "Plugin interface: operation defaults"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests plugin-contributed user-defined mutations and crossovers (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 162
 name = "Plugin interface: lifecycle hooks called for each plugin"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 242
 name = "Plugin interface: multiple plugins all fire"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 285
 name = "Plugin interface: init_member hook"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 323
 name = "Plugin interface: init_member that returns a tree is consumed"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 365
 name = "Plugin interface: two init_member providers is an error"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 391
 name = "Plugin interface: on_mutation_end! fires with correct args"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_plugin_interface.jl"
 line = 466
 name = "Plugin interface: condition_mutation_weights! plugin-dispatched"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
 
 [[testitem]]
 file = "test/unit/misc/test_tracing.jl"
 line = 1
 name = "trace_optimization! seeds missing old ref"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_tracing.rs::trace_optimization_seeds_missing_old_ref"]
 
 [[testitem]]
 file = "test/unit/misc/test_tracing.jl"
 line = 32
 name = "trace_optimization! tolerates a reference held by several slots"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_tracing.rs::trace_optimization_tolerates_a_reference_held_by_several_slots"]
 
 [[testitem]]
 file = "test/unit/misc/test_tracing.jl"
 line = 60
 name = "Tracing worker pipeline smoke test"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_tracing.rs::tracing_search_pipeline_smoke_test"]
+note = "Runs a small traced search, because the Rust port has no separate worker pipeline entry point."
 
 [[testitem]]
 file = "test/unit/misc/test_tracing.jl"
 line = 75
 name = "Tracing requires JSON.jl"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests the Julia package extension that loads JSON.jl (the Rust trace writer is built in)"
 
 [[testitem]]
 file = "test/unit/misc/test_tracing.jl"
 line = 90
 name = "Disabled tracing is allocation-free"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_tracing_file.rs::tracing_changes_no_result_and_disabled_tracing_writes_nothing", "symbolic_regression/src/tests/test_tracing.rs::step_traces_record_type_result_and_reason"]
+note = "Julia's allocation counting is not ported. The tests check that a search with tracing off writes no file and gives bit-identical results, and that an enabled step trace records type, result, and reason."
 
 [[testitem]]
 file = "test/unit/operators-core/test_abstract_numbers.jl"
@@ -1796,231 +1869,270 @@ file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 1
 name = "AdaptiveMutationWeightsPlugin: defaults + state"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_defaults_and_state"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 20
 name = "AdaptiveMutationWeightsPlugin updates sampled operator and normalizes"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_update_sampled_kind_and_normalize"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 48
 name = "AdaptiveMutationWeightsPlugin regularizes multipliers in log space"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_regularize_in_log_space"]
+note = "The zero-allocation check is not ported because the statistics live in fixed-size arrays."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 84
 name = "skipped mutation kinds stay out of adaptive-weights accounting"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::skipped_mutation_kinds_stay_out_of_adaptive_weights_accounting"]
+note = "Uses the built-in skipped kinds (simplify, do-nothing), since user-defined mutations are not supported."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 114
 name = "AdaptiveMutationWeightsPlugin rewards the configured objective"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_reward_the_configured_objective"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 135
 name = "Plugin constructors validate parameter domains"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::plugin_configurations_validate_parameter_domains"]
+note = "Settings are checked when a search starts. The BigFloat cases map to infinite and zero f64 values."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 157
 name = "SimulatedAnnealingPlugin uses the requested cycle count"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::annealing_temperature_follows_the_requested_cycle_count", "symbolic_regression/src/tests/test_jl_plugins.rs::annealing_temperature_scales_constant_perturbations"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 187
 name = "prepare_mutation_context / condition_mutation!"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::annealing_temperature_scales_constant_perturbations"]
+note = "The temperature passed to constant mutation plays the role of the context scale. Composing two conditioning plugins is not carried over."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 216
 name = "AdaptiveMutationWeightsPlugin attributes configured instances"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_attribute_the_sampled_kind"]
+note = "Rust has one instance per mutation kind, so attribution is by kind; allocation-free by construction."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 264
 name = "MutationBurstPlugin: retry portion retries until accepted"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_retries_until_accepted"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 282
 name = "MutationBurstPlugin: retry stops at budget when never accepted"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_retry_stops_at_budget"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 300
 name = "MutationBurstPlugin: compound portion chains on success"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_compound_chains_on_success"]
+note = "Unchanged row; now also asserts the selected attempt index (2)."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 321
 name = "MutationBurstPlugin: compound doesn't chain on rejection"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_compound_stops_on_rejection"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 339
 name = "MutationBurstPlugin traces every compound mutation"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_traces_every_compound_mutation", "symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_runs_every_compound_mutation"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 390
 name = "build_mutation_step composes type-stably"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia type inference of composed user-defined mutation middleware"
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 423
 name = "trace captures rejected retry branches"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::trace_captures_rejected_retry_branches", "symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_retries_rejected_mutations"]
+note = "Rejections come from a constraint violation (insert-node at maxsize 1), standing in for the user-defined always-reject plugin."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 490
 name = "trace captures accepted mutations"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::trace_captures_accepted_mutations", "symbolic_regression/src/tests/test_jl_plugins.rs::next_generation_accepts_valid_mutations_without_plugins"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 515
 name = "reg_evol_cycle owns middleware evaluation accounting"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::reg_evol_cycle_counts_every_burst_attempt"]
+note = "Mutation bursts are the only middleware, so the user-middleware error cases have no counterpart. The test checks that every attempt's evaluations are counted."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 647
 name = "MutationBurstPlugin preserves accepted intermediate Hall-of-Fame members"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_keeps_accepted_intermediate_members_in_hall_of_fame"]
+note = "The custom cost-sequence mutation becomes two chained add-node steps: the intermediate complexity-3 member stays in the hall of fame after the population holds the complexity-5 one."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 694
 name = "mutation-cycle entry points require plugin state"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "Tests Julia keyword-argument requirements and a user-defined plugin"
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 753
 name = "worker plugin state persists across dispatches"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::population_weights_state_persists_across_dispatches"]
+note = "Uses the per-population adaptive-mutation-weights statistics in place of the user-defined plugin."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 819
 name = "worker plugin state may differ from head state"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::population_state_differs_from_output_state"]
+note = "Uses the built-in states. Each output keeps raw parsimony counts, each dispatch reads a normalized snapshot, and populations keep separate mutation-weight statistics."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
 line = 904
 name = "Integration: all three mechanisms enabled, search runs and returns a HoF"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::search_with_every_mutation_plugin_returns_a_hall_of_fame"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_parsimony.jl"
 line = 1
 name = "AdaptiveParsimonyPlugin: legacy kwargs auto-inject"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_options_toggle_each_hook"]
+note = "The two flags configure the hooks directly; a user-supplied plugin instance overriding them has no counterpart."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_parsimony.jl"
 line = 43
 name = "Plugin collections: vectors normalize and defaults are overridable"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_stay_enabled_without_the_other_plugins"]
+note = "Only the built-in default merging carries over (adaptive mutation weights stay on when the other plugins are off); user-defined plugin collections are not supported."
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_parsimony.jl"
 line = 77
 name = "AdaptiveParsimonyPlugin: hook outputs match the legacy formula"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_hooks_match_the_legacy_formula"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_parsimony.jl"
 line = 155
 name = "AdaptiveParsimonyPlugin: end-to-end equation_search"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_search_runs_end_to_end"]
 
 [[testitem]]
 file = "test/unit/plugins/test_adaptive_parsimony.jl"
 line = 191
 name = "AdaptiveParsimonyPlugin: per-output state shape (single-output)"
 pr = 6
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_state_is_per_output"]
 
 [[testitem]]
 file = "test/unit/precompile/test_graph_nodes.jl"
 line = 1
 name = "GraphNode evaluation"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
 
 [[testitem]]
 file = "test/unit/precompile/test_graph_nodes.jl"
 line = 23
 name = "GraphNode complexity"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
 
 [[testitem]]
 file = "test/unit/precompile/test_graph_nodes.jl"
 line = 38
 name = "GraphNode population"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
 
 [[testitem]]
 file = "test/unit/precompile/test_graph_nodes.jl"
 line = 63
 name = "GraphNode break connection mutation"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
 
 [[testitem]]
 file = "test/unit/precompile/test_graph_nodes.jl"
 line = 104
 name = "GraphNode form connection mutation"
-pr = 6
-status = "todo"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
 
 [[testitem]]
 file = "test/unit/precompile/test_integer_evaluation.jl"
