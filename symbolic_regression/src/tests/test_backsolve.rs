@@ -12,6 +12,7 @@ use crate::backsolve::{
 use crate::check_constraints::check_constraints;
 use crate::dataset::TaggedDataset;
 use crate::mutate::{self, NextGenerationCtx};
+use crate::options::BuiltinMutation;
 use crate::pop_member::Evaluator;
 use crate::tracing::StepTrace;
 use crate::{Dataset, MutationWeights, Options, PopMember};
@@ -520,6 +521,22 @@ fn backsolve_options() {
     assert!(small.check_dataset(&dataset).is_err());
     small.backsolve.max_library_size = 4;
     assert!(small.check_dataset(&dataset).is_ok());
+    let explicit = BacksolveOptions {
+        max_library_size: 3,
+        ..Default::default()
+    };
+    let mut listed = Options::<f64, Ops, 2> {
+        mutations: vec![(BuiltinMutation::Backsolve(explicit), 1.0)],
+        ..Default::default()
+    };
+    assert!(listed.check_dataset(&dataset).is_err(), "explicit mutation list");
+    listed.mutations[0].1 = 0.0;
+    assert!(listed.check_dataset(&dataset).is_ok(), "zero weight");
+    let defaults = Options::<f64, Ops, 2> {
+        default_mutations: Some(vec![(BuiltinMutation::Backsolve(explicit), 1.0)]),
+        ..Default::default()
+    };
+    assert!(defaults.check_dataset(&dataset).is_err(), "replaced default mutations");
 }
 
 /// SymbolicRegression.jl's "backsolve in mutation pipeline": with only backsolve enabled,
