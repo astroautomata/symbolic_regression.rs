@@ -10,10 +10,11 @@ use fastrand::Rng;
 use ndarray::{ArcArray2, Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
+use symbolic_regression::backsolve::BacksolveOptions;
 use symbolic_regression::units::UnitLabels;
 use symbolic_regression::{
-    Dataset, Guess, Options, SearchEngine, TemplateGuessValue, WasmOptionsShim, choose_best, parse_early_stop,
-    parse_loss,
+    AdaptiveMutationWeights, Dataset, Guess, MutationBurst, Options, Reward, SearchEngine, TemplateGuessValue,
+    WasmOptionsShim, choose_best, parse_early_stop, parse_loss,
 };
 use wasm_bindgen::prelude::*;
 
@@ -105,15 +106,23 @@ pub fn builtin_operator_registry() -> Result<JsValue, JsValue> {
     to_value(&ops).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Serializes defaults as plain objects with `null` for unset values, as the web UI's option types
+/// expect. The default serializer would emit `WasmSearchOptions`, which flattens its core options,
+/// as a `Map`.
+fn defaults_to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    value
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 #[wasm_bindgen]
 pub fn default_search_options() -> Result<JsValue, JsValue> {
-    let opts = WasmSearchOptions::default();
-    to_value(&opts).map_err(|e| JsValue::from_str(&e.to_string()))
+    defaults_to_js(&WasmSearchOptions::default())
 }
 
 #[wasm_bindgen]
 pub fn default_core_options() -> Result<JsValue, JsValue> {
-    to_value(&WasmOptionsShim::default()).map_err(|e| JsValue::from_str(&e.to_string()))
+    defaults_to_js(&WasmOptionsShim::default())
 }
 
 fn shuffle<T>(rng: &mut Rng, values: &mut [T]) {
@@ -152,9 +161,93 @@ pub struct WasmSearchOptions {
     pub template: Option<WasmTemplateOptions>,
     /// SymbolicRegression.jl's `guesses`: equations that seed the search.
     pub guesses: Vec<WasmGuess>,
+    /// Parameters of the backsolve mutation, which fires with weight `mutation_weights.backsolve`.
+    pub backsolve: BacksolveOptions,
+    /// SymbolicRegression.jl's `AdaptiveMutationWeightsPlugin`, on by default; `None` samples the
+    /// configured `mutation_weights` throughout.
+    pub adaptive_mutation_weights: Option<WasmAdaptiveMutationWeights>,
+    /// SymbolicRegression.jl's `MutationBurstPlugin`, off by default.
+    pub mutation_burst: Option<WasmMutationBurst>,
 
     #[serde(flatten)]
     pub core: WasmOptionsShim,
+}
+
+/// The wire form of [`AdaptiveMutationWeights`]; missing fields take their defaults.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WasmAdaptiveMutationWeights {
+    pub smoothing: f64,
+    pub floor: f64,
+    /// `"cost"` or `"loss"`: the objective whose improvements count as successes.
+    pub reward: WasmReward,
+    pub adaptation_strength: f64,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WasmReward {
+    Cost,
+    Loss,
+}
+
+impl Default for WasmAdaptiveMutationWeights {
+    fn default() -> Self {
+        let d = AdaptiveMutationWeights::default();
+        Self {
+            smoothing: d.smoothing,
+            floor: d.floor,
+            reward: match d.reward {
+                Reward::Cost => WasmReward::Cost,
+                Reward::Loss => WasmReward::Loss,
+            },
+            adaptation_strength: d.adaptation_strength,
+        }
+    }
+}
+
+impl From<WasmAdaptiveMutationWeights> for AdaptiveMutationWeights {
+    fn from(w: WasmAdaptiveMutationWeights) -> Self {
+        Self {
+            smoothing: w.smoothing,
+            floor: w.floor,
+            reward: match w.reward {
+                WasmReward::Cost => Reward::Cost,
+                WasmReward::Loss => Reward::Loss,
+            },
+            adaptation_strength: w.adaptation_strength,
+        }
+    }
+}
+
+/// The wire form of [`MutationBurst`]; missing fields take their defaults.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WasmMutationBurst {
+    pub retry_attempts: usize,
+    pub compound_probability: f64,
+    pub compound_max_steps: usize,
+}
+
+impl Default for WasmMutationBurst {
+    fn default() -> Self {
+        let d = MutationBurst::default();
+        Self {
+            retry_attempts: d.retry_attempts,
+            compound_probability: d.compound_probability,
+            compound_max_steps: d.compound_max_steps,
+        }
+    }
+}
+
+impl From<WasmMutationBurst> for MutationBurst {
+    fn from(b: WasmMutationBurst) -> Self {
+        Self {
+            retry_attempts: b.retry_attempts,
+            compound_probability: b.compound_probability,
+            compound_max_steps: b.compound_max_steps,
+        }
+    }
 }
 
 /// A template expression: the `combine` formula calls the subexpressions `expressions` on the
@@ -227,6 +320,9 @@ impl Default for WasmSearchOptions {
             early_stop_condition: None,
             template: None,
             guesses: Vec::new(),
+            backsolve: BacksolveOptions::default(),
+            adaptive_mutation_weights: Some(WasmAdaptiveMutationWeights::default()),
+            mutation_burst: None,
             core: WasmOptionsShim::default(),
         }
     }
@@ -433,8 +529,16 @@ fn options_from_wasm(
     };
 
     opts.core.apply_to(&mut out);
-    // Keep browser output clean (and default-features disables progress anyway).
+    // The browser has no terminal, filesystem, or stdin: the UI polls step snapshots, exports
+    // results itself, and stops a search by no longer stepping it.
     out.progress = false;
+    out.verbosity = Some(0);
+    out.save_to_file = false;
+    out.use_tracing = false;
+    out.input_stream = None;
+    out.backsolve = opts.backsolve;
+    out.adaptive_mutation_weights = opts.adaptive_mutation_weights.map(Into::into);
+    out.mutation_burst = opts.mutation_burst.map(Into::into);
     out.loss = loss;
     out.early_stop_condition = early_stop_condition;
     out.template = template;
@@ -903,7 +1007,6 @@ mod tests {
     fn units_search(opts: serde_json::Value) -> Result<super::WasmSearch, String> {
         let mut opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
         opts.core.niterations = 1;
-        opts.core.save_to_file = false;
         opts.core.populations = 1;
         opts.core.population_size = 20;
         opts.core.seed = Some(1);
@@ -1022,6 +1125,104 @@ mod tests {
         assert_eq!(opt.niterations, 9);
         assert!(!opt.progress);
     }
+
+    fn browser_options(opts: serde_json::Value) -> super::Options<f64, super::WasmOps, 3> {
+        let opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
+        let operators = super::operators_from_tokens(&[], &tokens(&["+"]), &[]).unwrap();
+        super::options_from_wasm(&opts, operators, &tokens(&["x"])).unwrap()
+    }
+
+    #[test]
+    fn browser_searches_never_write_files_trace_or_read_stdin() {
+        let options = browser_options(serde_json::json!({
+            "save_to_file": true, "use_tracing": true, "progress": true, "verbosity": 2,
+        }));
+        assert!(!options.save_to_file);
+        assert!(!options.use_tracing);
+        assert!(!options.progress);
+        assert_eq!(options.verbosity, Some(0));
+        assert!(options.input_stream.is_none());
+        assert!(options.external_stop.is_none());
+        assert!(options.logger.is_none());
+    }
+
+    #[test]
+    fn backsolve_and_plugin_options_reach_the_search() {
+        use serde_json::json;
+        use symbolic_regression::{AdaptiveMutationWeights, Batching, MutationBurst, OptimizerAlgorithm, Reward};
+
+        let defaults = serde_json::to_value(WasmSearchOptions::default()).unwrap();
+        assert_eq!(defaults["mutation_weights"]["backsolve"], 0.0);
+        assert_eq!(
+            defaults["backsolve"],
+            json!({ "max_library_size": 500, "max_terms": 8, "min_improvement": 1e-3, "node_attempts": 8 })
+        );
+        assert_eq!(
+            defaults["adaptive_mutation_weights"],
+            json!({ "smoothing": 0.02, "floor": 0.05, "reward": "cost", "adaptation_strength": 0.5 })
+        );
+        assert!(defaults["mutation_burst"].is_null());
+        assert_eq!(
+            serde_json::to_value(super::WasmMutationBurst::default()).unwrap(),
+            json!({ "retry_attempts": 4, "compound_probability": 0.25, "compound_max_steps": 2 })
+        );
+        assert_eq!(defaults["batching"], "auto");
+        assert!(defaults["batch_size"].is_null());
+        assert_eq!(defaults["optimizer_algorithm"], "BFGS");
+
+        let options = browser_options(json!({}));
+        assert_eq!(
+            options.adaptive_mutation_weights,
+            Some(AdaptiveMutationWeights::default())
+        );
+        assert_eq!(options.mutation_burst, None);
+
+        let options = browser_options(json!({
+            "mutation_weights": { "backsolve": 0.5 },
+            "backsolve": { "max_terms": 3 },
+            "adaptive_mutation_weights": null,
+            "mutation_burst": { "retry_attempts": 6, "compound_probability": 0.5, "compound_max_steps": 3 },
+            "batching": "on",
+            "batch_size": 16,
+            "optimizer_algorithm": "NelderMead",
+        }));
+        assert_eq!(options.mutation_weights.backsolve, 0.5);
+        assert_eq!(options.mutation_weights.rotate_tree, 4.26);
+        assert_eq!(options.backsolve.max_terms, 3);
+        assert_eq!(options.backsolve.max_library_size, 500);
+        assert_eq!(options.adaptive_mutation_weights, None);
+        assert_eq!(
+            options.mutation_burst,
+            Some(MutationBurst {
+                retry_attempts: 6,
+                compound_probability: 0.5,
+                compound_max_steps: 3
+            })
+        );
+        assert_eq!((options.batching, options.batch_size), (Batching::On, Some(16)));
+        assert_eq!(options.optimizer_algorithm, OptimizerAlgorithm::NelderMead);
+
+        let options = browser_options(json!({ "adaptive_mutation_weights": { "reward": "loss", "smoothing": 0.1 } }));
+        assert_eq!(
+            options.adaptive_mutation_weights,
+            Some(AdaptiveMutationWeights {
+                reward: Reward::Loss,
+                smoothing: 0.1,
+                ..Default::default()
+            })
+        );
+    }
+
+    #[test]
+    fn searches_run_with_backsolve_and_mutation_bursts() {
+        let mut search = units_search(serde_json::json!({
+            "mutation_weights": { "backsolve": 1.0 },
+            "mutation_burst": {},
+        }))
+        .unwrap();
+        search.engine.step(usize::MAX).unwrap();
+        assert!(search.is_finished());
+    }
     fn tokens(v: &[&str]) -> Vec<String> {
         v.iter().map(|t| t.to_string()).collect()
     }
@@ -1126,7 +1327,6 @@ mod tests {
 
     fn template_options(template: serde_json::Value) -> WasmSearchOptions {
         serde_json::from_value(serde_json::json!({
-            "save_to_file": false,
             "niterations": 3,
             "populations": 2,
             "population_size": 20,
@@ -1285,8 +1485,7 @@ mod tests {
     }
 
     fn guess_search(csv: &str, opts: serde_json::Value) -> Result<super::WasmSearch, String> {
-        let mut opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
-        opts.core.save_to_file = false;
+        let opts: WasmSearchOptions = serde_json::from_value(opts).unwrap();
         super::WasmSearch::build(csv, &opts, &[], &tokens(&["+", "*"]), &[])
     }
 
