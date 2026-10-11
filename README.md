@@ -107,8 +107,9 @@ to disable file output. File output is inactive on WebAssembly.
 
 `SrLogger::new(callback)` records population complexities, Pareto
 summaries, equations, and evaluation counts, with each population as its cycle left it,
-before migration. It logs step zero, every 100 calls, and the terminal state.
-`SrLogger::with_interval` selects another interval; nonpositive intervals disable logging. Clones share the logger's step counter. Set `verbosity`
+before migration. It logs step zero, every 100 calls, and the final cycle of a search that
+runs to completion; a stopped search logs no extra entry. `SrLogger::with_interval` selects
+another interval; nonpositive intervals disable logging. Clones share the logger's step counter. Set `verbosity`
 to `Some(0)` to suppress printing, or leave it `None` for normal output.
 `Dataset::with_display_names` sets terminal feature and target names while CSV files
 keep `variable_names`. `terminal_width` controls the terminal table width.

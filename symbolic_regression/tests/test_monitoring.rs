@@ -337,6 +337,25 @@ fn sr_logger_defaults_to_an_interval_of_one_hundred() {
 }
 
 #[test]
+fn sr_logger_skips_the_terminal_entry_after_an_early_stop() {
+    let stop = ExternalStop::default();
+    let (log, records) = logger(100);
+    let mut opts = options(20);
+    opts.logger = Some(log);
+    opts.external_stop = Some(stop.clone());
+    let mut engine = SearchEngine::new(vec![dataset()], opts).unwrap();
+    engine.step(3).unwrap();
+    stop.request();
+    engine.step(1).unwrap();
+    assert!(engine.is_finished());
+    let records = records.lock().unwrap();
+    assert_eq!(
+        records.iter().map(|p| p.cycles_remaining.clone()).collect::<Vec<_>>(),
+        [vec![19]]
+    );
+}
+
+#[test]
 fn logger_population_precedes_migration() {
     let (log, records) = logger(1);
     let mut opts = options(1);

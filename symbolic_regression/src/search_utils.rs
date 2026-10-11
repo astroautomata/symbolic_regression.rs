@@ -21,7 +21,7 @@ use crate::pop_member::{Evaluator, PopMember};
 use crate::population::Population;
 use crate::progress_bars::SearchProgress;
 use crate::random::{shuffle, standard_normal};
-use crate::run_output::{LogOutputs, LogPayload, generate_run_id, log_output, save_to_file};
+use crate::run_output::{LogOutputs, LogPayload, SrLogger, generate_run_id, log_output, save_to_file};
 use crate::stop_controller::{StdinReader, StopController};
 use crate::tracing::IterationTrace;
 use crate::{migration, single_iteration, tracing, warmup};
@@ -377,8 +377,6 @@ struct SearchCore<T: Float + AddAssign, Ops, const D: usize> {
     progress_finished: bool,
     run_id: String,
     stdin_reader: StdinReader,
-    log_step: usize,
-    last_logged_step: Option<usize>,
     population_complexities: Option<Vec<Vec<Vec<usize>>>>,
 }
 
@@ -668,9 +666,8 @@ where
             save_to_file(hall, datasets.len(), output, &datasets[output], options, &self.run_id)?;
         }
         if let Some(logger) = &options.logger {
-            self.log_step += 1;
             if logger.should_log() || (logger.log_interval > 0 && self.cycles_remaining() == 0) {
-                self.emit_log(datasets, options);
+                self.emit_log(logger, datasets, options);
             }
         }
         if options.external_stop.as_ref().is_some_and(|s| s.is_requested()) || self.stdin_reader.check_for_quit() {
@@ -679,13 +676,7 @@ where
         Ok(())
     }
 
-    fn emit_log(&mut self, datasets: &[Dataset<T>], options: &Options<T, Ops, D>) {
-        let Some(logger) = &options.logger else {
-            return;
-        };
-        if logger.log_interval <= 0 || self.log_step == 0 || self.last_logged_step == Some(self.log_step) {
-            return;
-        }
+    fn emit_log(&self, logger: &SrLogger<T>, datasets: &[Dataset<T>], options: &Options<T, Ops, D>) {
         let snapshots = self
             .population_complexities
             .as_ref()
@@ -710,7 +701,6 @@ where
             num_evals: self.total_evals,
             cycles_remaining: self.outputs.iter().map(|o| o.counters.cycles_remaining()).collect(),
         });
-        self.last_logged_step = Some(self.log_step);
     }
 }
 
@@ -891,8 +881,6 @@ where
             progress_finished: false,
             run_id,
             stdin_reader,
-            log_step: 0,
-            last_logged_step: None,
             population_complexities,
         };
 
@@ -922,13 +910,10 @@ where
         let completed = self
             .core
             .step(datasets, &self.baselines, options, &self.controller, n_cycles)?;
-        if self.is_finished() {
-            if options.save_to_file {
-                for (output, (hall, dataset)) in self.core.halls.iter().zip(datasets).enumerate() {
-                    save_to_file(hall, datasets.len(), output, dataset, options, &self.core.run_id)?;
-                }
+        if self.is_finished() && options.save_to_file {
+            for (output, (hall, dataset)) in self.core.halls.iter().zip(datasets).enumerate() {
+                save_to_file(hall, datasets.len(), output, dataset, options, &self.core.run_id)?;
             }
-            self.core.emit_log(datasets, options);
         }
         Ok(completed)
     }
