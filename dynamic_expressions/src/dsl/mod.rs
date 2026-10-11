@@ -1,10 +1,11 @@
 //! A small Julia-compatible scalar language for custom operators, losses, early-stop conditions,
-//! and template formulas.
+//! template formulas, and equation strings.
 
 pub mod ast;
 mod custom_ops;
 #[doc(hidden)]
 pub mod diff;
+mod equation;
 #[doc(hidden)]
 pub mod ir;
 #[doc(hidden)]
@@ -22,7 +23,8 @@ use core::fmt;
 
 pub use self::ast::{BinaryOp, DefKind, Definition, Expr, ExprKind, Formula, Ident, Param, Stmt, TypeVar, UnaryOp};
 pub use self::custom_ops::{CustomOps, Defined, is_definition, parse_operator_tokens};
-pub use self::parser::{parse_definition, parse_formula};
+pub use self::equation::parse_expression;
+pub use self::parser::{parse_definition, parse_expr, parse_formula};
 pub use self::program::{DslFloat, ScalarFn};
 pub use self::template::{TemplateEvalError, TemplateStructure, TemplateWorkspace};
 

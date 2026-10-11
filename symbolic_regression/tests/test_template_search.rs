@@ -43,7 +43,7 @@ fn options(
 /// search applies their results in that order, so only a serial search repeats exactly for a seed.
 fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> SearchResult<f64, Ops, 2> {
     let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
-    pool.install(|| equation_search::<f64, Ops, 2>(dataset, options).unwrap())
+    pool.install(|| equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap())
 }
 
 /// Prints the Pareto front and returns its simplest member with a loss at most `tol`.
@@ -52,7 +52,7 @@ fn simplest_below(
     options: &Options<f64, Ops, 2>,
     tol: f64,
 ) -> PopMember<f64, Ops, 2> {
-    let front = result.hall_of_fame.pareto_front();
+    let front = result.halls_of_fame[0].pareto_front();
     println!("seed {}:", options.seed);
     for m in &front {
         println!(

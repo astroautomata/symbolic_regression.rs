@@ -25,7 +25,7 @@ fn search_terminates_when_early_stop_condition_satisfied() {
         ..Default::default()
     };
 
-    let mut engine = SearchEngine::<T, TestOps, D>::new(dataset, options).unwrap();
+    let mut engine = SearchEngine::<T, TestOps, D>::new(vec![dataset], options).unwrap();
     engine.step(usize::MAX).unwrap();
 
     // The search should bail out long before the full niterations budget.

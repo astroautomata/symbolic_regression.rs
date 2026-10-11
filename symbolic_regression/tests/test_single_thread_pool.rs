@@ -61,8 +61,8 @@ fn search_finishes_outside_a_one_thread_pool() {
     };
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = equation_search::<f64, SquareOps, 1>(&dataset, &options).unwrap();
-        tx.send(result.best.unwrap().loss).unwrap();
+        let result = equation_search::<f64, SquareOps, 1>(std::slice::from_ref(&dataset), &options).unwrap();
+        tx.send(result.best[0].as_ref().unwrap().loss).unwrap();
     });
     let loss = rx
         .recv_timeout(Duration::from_secs(60))
@@ -109,9 +109,9 @@ fn concurrent_searches_finish_outside_a_two_thread_pool() {
                 };
                 start.wait();
                 assert!(rayon::current_thread_index().is_none());
-                let result = equation_search::<f64, SquareOps, 1>(&dataset, &options).unwrap();
+                let result = equation_search::<f64, SquareOps, 1>(std::slice::from_ref(&dataset), &options).unwrap();
                 assert!(reached_first_cycle.load(Ordering::Relaxed));
-                assert!(result.best.unwrap().loss.is_finite());
+                assert!(result.best[0].as_ref().unwrap().loss.is_finite());
             })
         })
         .collect();

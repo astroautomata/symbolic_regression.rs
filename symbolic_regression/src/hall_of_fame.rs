@@ -8,6 +8,14 @@ pub struct HallOfFame<T: Float, Ops, const D: usize> {
     pub best_by_complexity: Vec<Option<PopMember<T, Ops, D>>>,
 }
 
+impl<T: Float, Ops, const D: usize> Clone for HallOfFame<T, Ops, D> {
+    fn clone(&self) -> Self {
+        Self {
+            best_by_complexity: self.best_by_complexity.clone(),
+        }
+    }
+}
+
 impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
     pub fn new(max_complexity: usize) -> Self {
         Self {

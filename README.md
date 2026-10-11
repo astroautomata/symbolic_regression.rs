@@ -72,8 +72,8 @@ fn main() {
         ..Default::default()
     };
 
-    let result = equation_search::<f32, BuiltinOpsF32, D>(&dataset, &options).unwrap();
-    let dominating = result.hall_of_fame.pareto_front();
+    let result = equation_search::<f32, BuiltinOpsF32, D>(std::slice::from_ref(&dataset), &options).unwrap();
+    let dominating = result.halls_of_fame[0].pareto_front();
 
     println!("Final Pareto front:");
     println!("Complexity\tMSE\tEquation");

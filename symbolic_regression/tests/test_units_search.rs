@@ -29,11 +29,11 @@ fn options(tokens: &[&str], stop: fn(f64, usize) -> bool) -> Options<f64, Ops, 2
 /// units as the hall of fame shows them.
 fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> Vec<PopMember<f64, Ops, 2>> {
     let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
-    let result = pool.install(|| equation_search::<f64, Ops, 2>(dataset, options).unwrap());
+    let result = pool.install(|| equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap());
     let units = dataset.units.as_ref().unwrap();
     let labels = UnitLabels::new(units, options.dimensionless_constants_only);
     println!("seed {}:", options.seed);
-    let front = result.hall_of_fame.pareto_front();
+    let front = result.halls_of_fame[0].pareto_front();
     for m in &front {
         let equation = m.expr.string(
             options,

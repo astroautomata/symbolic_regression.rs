@@ -7,6 +7,7 @@ use dynamic_expressions::dsl::{DslError, DslFloat, ScalarFn, TemplateStructure, 
 use num_traits::Float;
 
 use crate::dataset::Dataset;
+use crate::guesses::Guess;
 use crate::loss_functions::{BuiltinLoss, LossObject};
 
 /// Matches SymbolicRegression.jl `early_stop_condition`: takes `(loss, complexity)` and returns
@@ -187,6 +188,8 @@ macro_rules! sr_options_spec {
                     (f64, 0.00036, "fraction-replaced"),
                 fraction_replaced_hof:
                     (f64, 0.0614, "fraction-replaced-hof"),
+                fraction_replaced_guesses:
+                    (f64, 0.001, "fraction-replaced-guesses"),
                 topn:
                     (usize, 12, "topn"),
                 print_precision:
@@ -352,6 +355,22 @@ macro_rules! __define_options {
             /// };
             /// ```
             pub template: Option<TemplateStructure>,
+
+            /// SymbolicRegression.jl's `guesses`: one list of equations per output that seed the
+            /// search (see [`Guess`]). Each enters the hall of fame with its constants optimized,
+            /// and after every cycle a population replaces a `fraction_replaced_guesses` share of
+            /// its members with them on average.
+            ///
+            /// ```
+            /// use symbolic_regression::{Guess, Options};
+            /// use symbolic_regression::prelude::BuiltinOpsF64;
+            ///
+            /// let options = Options::<f64, BuiltinOpsF64, 2> {
+            ///     guesses: vec![vec![Guess::from("2.0*x0*x0 + 3.0*x1 + 0.5")]],
+            ///     ..Default::default()
+            /// };
+            /// ```
+            pub guesses: Vec<Vec<Guess<T, Ops, D>>>,
         }
 
         impl<T: Float, Ops: Default, const D: usize> Default for Options<T, Ops, D> {
@@ -370,6 +389,7 @@ macro_rules! __define_options {
                     nested_constraints: Default::default(),
                     early_stop_condition: None,
                     template: None,
+                    guesses: Vec::new(),
                 }
             }
         }

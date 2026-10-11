@@ -7,7 +7,7 @@ use dynamic_expressions::strings::StringTreeOptions;
 use dynamic_expressions::utils::ZipEq;
 use dynamic_expressions::{EvalOptions, OpId, OperatorSet, Operators, eval_tree_array};
 use fastrand::Rng;
-use ndarray::{Array1, Array2};
+use ndarray::{ArcArray2, Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
 use symbolic_regression::units::UnitLabels;
@@ -335,7 +335,7 @@ impl WasmSearch {
             options.check_dataset(val)?;
         }
 
-        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options)?;
+        let engine = SearchEngine::<f64, WasmOps, 3>::new(vec![train], options)?;
 
         Ok(WasmSearch {
             engine,
@@ -350,7 +350,7 @@ impl WasmSearch {
             .parse()
             .map_err(|_| "member_id must be a base-10 integer string".to_string())?;
         let dataset = match which {
-            "train" => self.engine.dataset(),
+            "train" => &self.engine.datasets()[0],
             "val" => self.val_dataset.as_ref().ok_or("no validation dataset")?,
             _ => return Err("which must be \"train\" or \"val\"".to_string()),
         };
@@ -419,8 +419,8 @@ type ScoredMember = (symbolic_regression::PopMember<f64, WasmOps, 3>, f64);
 /// under `loss_scale`.
 fn scored_front(engine: &SearchEngine<f64, WasmOps, 3>) -> Result<(Vec<ScoredMember>, Option<usize>), String> {
     let loss_scale = engine.options().loss_scale;
-    let scores = engine.hall_of_fame().pareto_scores(loss_scale)?;
-    let front = engine.hall_of_fame().pareto_front();
+    let scores = engine.halls_of_fame()[0].pareto_scores(loss_scale)?;
+    let front = engine.halls_of_fame()[0].pareto_front();
     let losses: Vec<f64> = front.iter().map(|m| m.loss).collect();
     let best = choose_best(&losses, &scores, loss_scale);
     Ok((front.into_iter().zip(scores).collect(), best))
@@ -454,8 +454,7 @@ fn summary_from_member(
     m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
     score: f64,
 ) -> EquationSummary {
-    let labels = engine
-        .dataset()
+    let labels = engine.datasets()[0]
         .units
         .as_ref()
         .map(|units| UnitLabels::new(units, engine.options().dimensionless_constants_only));
@@ -463,7 +462,7 @@ fn summary_from_member(
         m.expr.string(
             engine.options(),
             StringTreeOptions {
-                variable_names: Some(engine.dataset().variable_names.as_slice()),
+                variable_names: Some(engine.datasets()[0].variable_names.as_slice()),
                 pretty: false,
                 print_precision,
                 variable_suffixes: labels.map(|l| l.variables.as_slice()),
@@ -488,8 +487,7 @@ fn find_member_by_id(
     engine: &SearchEngine<f64, WasmOps, 3>,
     member_id: u64,
 ) -> Option<symbolic_regression::PopMember<f64, WasmOps, 3>> {
-    engine
-        .hall_of_fame()
+    engine.halls_of_fame()[0]
         .members()
         .find(|m| m.expr.hash_nodes() == member_id)
         .cloned()
@@ -811,7 +809,7 @@ fn split_train_val(
 }
 
 fn select_rows(
-    x: &Array2<f64>,
+    x: &ArcArray2<f64>,
     y: &Array1<f64>,
     w: Option<&Array1<f64>>,
     indices: &[usize],
@@ -868,7 +866,7 @@ mod tests {
             "x_units": ["m"], "y_units": "m", "validation_fraction": 0.25,
         }))
         .unwrap();
-        let units = search.engine.dataset().units.as_ref().expect("training units");
+        let units = search.engine.datasets()[0].units.as_ref().expect("training units");
         assert_eq!(units.x[0].label(), "[m]");
         assert_eq!(units.y.as_ref().unwrap().label(), "[m]");
         assert_eq!(search.val_dataset.as_ref().unwrap().units.as_ref(), Some(units));
@@ -1025,7 +1023,7 @@ mod tests {
             progress: false,
             ..Default::default()
         };
-        super::SearchEngine::new(super::Dataset::new(x, y), options).unwrap()
+        super::SearchEngine::new(vec![super::Dataset::new(x, y)], options).unwrap()
     }
 
     #[test]
@@ -1051,7 +1049,7 @@ mod tests {
             search.step(usize::MAX).unwrap();
             let snap = super::snapshot(&search, usize::MAX).unwrap();
             let scores: Vec<f64> = snap.pareto_points.iter().map(|p| p.score).collect();
-            assert_eq!(scores, search.hall_of_fame().pareto_scores(loss_scale).unwrap());
+            assert_eq!(scores, search.halls_of_fame()[0].pareto_scores(loss_scale).unwrap());
 
             let losses: Vec<f64> = snap.pareto_points.iter().map(|p| p.loss).collect();
             let pick = &snap.pareto_points[choose_best(&losses, &scores, loss_scale).unwrap()];
@@ -1209,7 +1207,7 @@ mod tests {
         search.engine.step(usize::MAX).unwrap();
         let options = search.engine.options();
         let template = options.template.as_ref().unwrap();
-        let x = search.engine.dataset().x.view();
+        let x = search.engine.datasets()[0].x.view();
         let front = super::snapshot(&search.engine, usize::MAX).unwrap().pareto_points;
         assert!(!front.is_empty());
         for point in &front {

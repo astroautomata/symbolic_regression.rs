@@ -1,7 +1,7 @@
 use dynamic_expressions::XColumns;
 use dynamic_expressions::utils::ZipEq;
 use fastrand::Rng;
-use ndarray::{Array1, Array2};
+use ndarray::{ArcArray2, Array1, Array2};
 use num_traits::Float;
 
 use crate::random::usize_range;
@@ -57,8 +57,9 @@ impl<'a, T: Float> std::ops::Deref for TaggedDataset<'a, T> {
 
 #[derive(Clone, Debug)]
 pub struct Dataset<T: Float> {
-    /// Column-major contiguous data with shape `(n_features, n_rows)` for vectorization over rows.
-    pub x: Array2<T>,
+    /// Column-major contiguous data with shape `(n_features, n_rows)` for vectorization over rows,
+    /// shared by the datasets of a multi-output search.
+    pub x: ArcArray2<T>,
     /// Target vector with length `n_rows`.
     pub y: Array1<T>,
     pub n_features: usize,
@@ -73,13 +74,12 @@ pub struct Dataset<T: Float> {
 
 impl<T: Float> Dataset<T> {
     fn build_dataset(
-        x: Array2<T>,
+        x: ArcArray2<T>,
         y: Array1<T>,
         weights: Option<Array1<T>>,
         variable_names: Vec<String>,
         avg_y: Option<T>,
     ) -> Self {
-        let x = x.as_standard_layout().to_owned();
         let y = contiguous(y);
         let weights = weights.map(contiguous);
         let (n_features, n_rows) = x.dim();
@@ -105,7 +105,7 @@ impl<T: Float> Dataset<T> {
     }
 
     pub fn new(x: Array2<T>, y: Array1<T>) -> Self {
-        Self::build_dataset(x, y, None, Vec::new(), None)
+        Self::build_dataset(shared(x), y, None, Vec::new(), None)
     }
 
     pub fn with_weights_and_names(
@@ -114,7 +114,39 @@ impl<T: Float> Dataset<T> {
         weights: Option<Array1<T>>,
         variable_names: Vec<String>,
     ) -> Self {
-        Self::build_dataset(x, y, weights, variable_names, None)
+        Self::build_dataset(shared(x), y, weights, variable_names, None)
+    }
+
+    /// One dataset per row of `y`, whose shape is `(n_outputs, n_rows)`, as SymbolicRegression.jl
+    /// splits a matrix target for a multi-output search: the datasets share `x` and
+    /// `variable_names`, and row `j` of `weights` weights output `j`.
+    ///
+    /// ```
+    /// use ndarray::{Array2, array};
+    /// use symbolic_regression::Dataset;
+    ///
+    /// let x = Array2::<f64>::zeros((1, 3));
+    /// let datasets = Dataset::multi_output(x, array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], None, Vec::new());
+    /// assert_eq!(datasets[1].avg_y, 5.0);
+    /// ```
+    pub fn multi_output(
+        x: Array2<T>,
+        y: Array2<T>,
+        weights: Option<Array2<T>>,
+        variable_names: Vec<String>,
+    ) -> Vec<Self> {
+        if let Some(w) = &weights {
+            assert_eq!(w.dim(), y.dim(), "`weights` must have the shape of `y`");
+        }
+        let x = shared(x);
+        y.rows()
+            .into_iter()
+            .enumerate()
+            .map(|(j, yj)| {
+                let wj = weights.as_ref().map(|w| w.row(j).to_owned());
+                Self::build_dataset(x.clone(), yj.to_owned(), wj, variable_names.clone(), None)
+            })
+            .collect()
     }
 
     /// Attaches units to the features and target, written as PySR and SymbolicRegression.jl take
@@ -175,7 +207,13 @@ impl<T: Float> Dataset<T> {
         let x = Array2::<T>::zeros((full.n_features, batch_size));
         let y = Array1::<T>::zeros(batch_size);
         let weights = full.weights.as_ref().map(|_| Array1::<T>::zeros(batch_size));
-        let batch = Self::build_dataset(x, y, weights, full.variable_names.clone(), Some(full.avg_y));
+        let batch = Self::build_dataset(
+            x.into_shared(),
+            y,
+            weights,
+            full.variable_names.clone(),
+            Some(full.avg_y),
+        );
         Dataset {
             units: full.units.clone(),
             ..batch
@@ -197,13 +235,23 @@ impl<T: Float> Dataset<T> {
             assert!(full.weights.is_none());
         }
 
+        let mut x = self.x.view_mut();
         for (dst_col, src_idx) in (0..self.n_rows).map(|i| (i, usize_range(rng, 0..full.n_rows))) {
-            self.x.column_mut(dst_col).assign(&full.x.column(src_idx));
+            x.column_mut(dst_col).assign(&full.x.column(src_idx));
             self.y[dst_col] = full.y[src_idx];
             if let (Some(dst), Some(src)) = (self.weights.as_mut(), full.weights.as_ref()) {
                 dst[dst_col] = src[src_idx];
             }
         }
+    }
+}
+
+/// `x`, copied into standard layout only if it is not in it already, as a shared array.
+fn shared<T: Clone>(x: Array2<T>) -> ArcArray2<T> {
+    if x.is_standard_layout() {
+        x.into_shared()
+    } else {
+        x.as_standard_layout().into_owned().into_shared()
     }
 }
 

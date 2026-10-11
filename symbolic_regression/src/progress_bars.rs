@@ -38,12 +38,14 @@ mod imp {
     }
 
     impl SearchProgress {
+        /// `show` is false for a multi-output search, which SymbolicRegression.jl shows no bar for.
         pub(crate) fn new<T: Float, Ops, const D: usize>(
             options: &Options<T, Ops, D>,
+            show: bool,
             total_cycles: usize,
             units: Option<&Units>,
         ) -> Self {
-            let show = options.progress && std::io::stderr().is_terminal();
+            let show = show && options.progress && std::io::stderr().is_terminal();
 
             let ansi = match options.output_style {
                 OutputStyle::Plain => {
@@ -88,6 +90,12 @@ mod imp {
                 },
                 render,
                 units: units.cloned(),
+            }
+        }
+
+        pub(crate) fn warn(&self, message: &str) {
+            if self.show {
+                self.bar.println(format!("Warning: {message}"));
             }
         }
 
@@ -362,11 +370,14 @@ mod imp {
     impl SearchProgress {
         pub(crate) fn new<T: Float, Ops, const D: usize>(
             _options: &Options<T, Ops, D>,
+            _show: bool,
             _total_cycles: usize,
             _units: Option<&crate::units::Units>,
         ) -> Self {
             Self
         }
+
+        pub(crate) fn warn(&self, _message: &str) {}
 
         pub(crate) fn set_initial_evals(&mut self, _total_evals: u64) {}
 

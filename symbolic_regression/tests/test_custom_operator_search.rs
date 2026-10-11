@@ -52,9 +52,10 @@ fn custom_operator_is_used_in_end_to_end_search() {
         ..Default::default()
     };
 
-    let best = equation_search::<f64, CustomOps, 1>(&dataset, &options)
+    let best = equation_search::<f64, CustomOps, 1>(std::slice::from_ref(&dataset), &options)
         .unwrap()
-        .best
+        .best[0]
+        .clone()
         .unwrap();
 
     let eqn = best.expr.string(&options, Default::default());

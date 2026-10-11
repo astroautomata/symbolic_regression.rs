@@ -24,9 +24,9 @@ fn search_recovers_target_through_string_operator() {
         ..Default::default()
     };
 
-    let result = equation_search::<f64, BuiltinOpsF64<CustomOps<f64>>, 2>(&dataset, &options).unwrap();
-    let best = result
-        .hall_of_fame
+    let result =
+        equation_search::<f64, BuiltinOpsF64<CustomOps<f64>>, 2>(std::slice::from_ref(&dataset), &options).unwrap();
+    let best = result.halls_of_fame[0]
         .pareto_front()
         .into_iter()
         .find(|m| m.loss <= 1e-10)

@@ -203,7 +203,7 @@ fn bench_search(c: &mut Criterion) {
     group.bench_function("equation_search", |b| {
         b.iter(|| {
             for (dataset, options) in datasets.iter().zip_eq(&options) {
-                let _ = equation_search::<T, Ops, D>(dataset, options);
+                let _ = equation_search::<T, Ops, D>(std::slice::from_ref(dataset), options);
             }
         })
     });

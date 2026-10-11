@@ -55,6 +55,16 @@ pub fn parse_formula(src: &str) -> Result<Formula, DslError> {
     })
 }
 
+/// Parses one expression, such as an equation string: `2.0*x1*x1 + 3.0*x2 + 0.5`.
+pub fn parse_expr(src: &str) -> Result<Expr, DslError> {
+    let mut p = Parser::new(src, false);
+    p.skip_separators();
+    let expr = p.expr()?;
+    p.skip_separators();
+    p.expect_eof()?;
+    Ok(expr)
+}
+
 fn stmt_span(stmt: &Stmt) -> Span {
     match stmt {
         Stmt::Assign { name, value, .. } => name.span.to(value.span),
