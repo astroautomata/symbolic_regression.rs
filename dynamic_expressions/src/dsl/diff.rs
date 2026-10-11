@@ -23,21 +23,29 @@ pub fn differentiate_closed(graph: &mut Graph, root: NodeId, wrt: u16) -> NodeId
 /// Differentiates a graph whose operators are `Call { expr, wrt, args }` nodes: function `expr`,
 /// differentiated with respect to each of its arguments in `wrt`, applied to `args`. The chain rule
 /// adds `Call` nodes for the functions' partials, which stay opaque, so each operator is
-/// differentiated on its own, as SymbolicRegression.jl's `D` does. `is_zero_partial(expr, wrt)`
-/// tells which partials are 0, so their terms are dropped.
+/// differentiated on its own, as SymbolicRegression.jl's `D` does. `partial_form(expr, wrt)` tells
+/// which partials are a constant or one of their arguments, which are folded.
 pub fn differentiate_calls(
     graph: &mut Graph,
     root: NodeId,
     wrt: u16,
-    is_zero_partial: &mut dyn FnMut(u16, &[u16]) -> bool,
+    partial_form: &mut dyn FnMut(u16, &[u16]) -> PartialForm,
 ) -> NodeId {
-    derivative(graph, root, wrt, Rules::Calls(is_zero_partial))
+    derivative(graph, root, wrt, Rules::Calls(partial_form))
+}
+
+/// What a function's partial derivative is.
+pub enum PartialForm {
+    Const(f64),
+    /// Argument `i` of the function.
+    Arg(u16),
+    Other,
 }
 
 enum Rules<'a> {
     Kernel,
     Closed,
-    Calls(&'a mut dyn FnMut(u16, &[u16]) -> bool),
+    Calls(&'a mut dyn FnMut(u16, &[u16]) -> PartialForm),
 }
 
 fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, mut rules: Rules<'_>) -> NodeId {
@@ -56,7 +64,7 @@ fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, mut rules: Rules<'_>) -
             (Node::Const(_), _) => zero(graph),
             (Node::Arg(k), _) => graph.constant(if k == wrt { 1.0 } else { 0.0 }),
             (Node::Op { kernel, args }, _) => op_derivative(graph, kernel, &args, &d, closed),
-            (Node::Call { expr, wrt: w, args }, Rules::Calls(is_zero_partial)) => {
+            (Node::Call { expr, wrt: w, args }, Rules::Calls(partial_form)) => {
                 let mut total = zero(graph);
                 for (j, arg) in (0u16..).zip(&args) {
                     let da = d[arg.index()];
@@ -65,14 +73,15 @@ fn derivative(graph: &mut Graph, root: NodeId, wrt: u16, mut rules: Rules<'_>) -
                     }
                     let mut partial_wrt = w.clone();
                     partial_wrt.push(j);
-                    if is_zero_partial(expr, &partial_wrt) {
-                        continue;
-                    }
-                    let partial = graph.intern(Node::Call {
-                        expr,
-                        wrt: partial_wrt,
-                        args: args.clone(),
-                    });
+                    let partial = match partial_form(expr, &partial_wrt) {
+                        PartialForm::Const(c) => graph.constant(c),
+                        PartialForm::Arg(i) => args[usize::from(i)],
+                        PartialForm::Other => graph.intern(Node::Call {
+                            expr,
+                            wrt: partial_wrt,
+                            args: args.clone(),
+                        }),
+                    };
                     let term = mul(graph, partial, da);
                     total = add(graph, total, term);
                 }

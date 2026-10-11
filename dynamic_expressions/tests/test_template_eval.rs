@@ -7,7 +7,7 @@ use dynamic_expressions::dsl::{
 };
 use dynamic_expressions::operator_enum::builtin::{Add, Mul};
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
-use dynamic_expressions::operators::{pow, sin};
+use dynamic_expressions::operators::{cos, pow, sin};
 use dynamic_expressions::{Metadata, OperatorSet, PNode, PostfixExpr, lit};
 use ndarray::Array2;
 
@@ -585,6 +585,60 @@ fn clamp_accepts_inverted_bounds() {
     assert_eq!(got, Some(vec![0.0, 0.0, 1.0]));
 }
 
+/// SymbolicRegression.jl evaluates subexpressions and `D`'s derivative trees with DynamicExpressions,
+/// which rejects a tree whose operators read a non-finite feature or constant, even where the
+/// operator's value is finite. Leaves that DynamicDiff drops from the derivative tree, including
+/// those that only a constant 0 multiplies, are not read. Expected values are SymbolicRegression.jl
+/// f97764fb's `D` (DynamicDiff 0.3.2) with `x = [v, 1.5]` and `y = [3, 1.5]` for `v` NaN or Inf.
+#[test]
+fn nonfinite_leaves_invalidate_the_trees_that_read_them() {
+    let ops = custom_ops(&["q(u) = 0"]);
+    let x = || CustomTree::new(vec![PNode::Var { feature: 0 }], vec![], Metadata::default());
+    let y = || CustomTree::new(vec![PNode::Var { feature: 1 }], vec![], Metadata::default());
+    let un = |name: &str, tree: CustomTree| apply(&ops, name, tree);
+    let zeros = Some(vec![0.0, 0.0]);
+    let nan = CustomTree::new(vec![PNode::Const { idx: 0 }], vec![f64::NAN], Metadata::default());
+    let cases = [
+        ("f(x, y)", un("relu", x()), None),
+        ("f(x, y)", un("q", x()), None),
+        ("D(f, 1)(x, y)", un("q", x()), None),
+        ("D(f, 1)(x, y)", x() * y(), Some(vec![3.0, 1.5])),
+        ("D(f, 2)(x, y)", x() * y(), None),
+        ("D(f, 1)(x, y)", x() * 0.0, zeros.clone()),
+        ("D(f, 1)(x, y)", un("cos", x() * 0.0), zeros.clone()),
+        ("D(f, 1)(x, y)", un("cos", lit(0.0) * x()), zeros),
+        ("D(f, 1)(x, y)", un("cos", x() * 2.0), None),
+        ("D(f, 1)(x, y)", un("cos", x() * 1.0), None),
+        ("D(f, 1)(x, y)", x(), Some(vec![1.0, 1.0])),
+        ("D(f, 2)(x, y)", y() + un("cos", x()), Some(vec![1.0, 1.0])),
+        ("D(f, 1)(x, y)", un("relu", x()), None),
+        ("D(f, 2)(x, y)", un("relu", x()) * y(), None),
+        ("D(f, 2)(x, y)", y() * un("q", x()), None),
+        ("f(x, y)", un("relu", nan), None),
+    ];
+    for v in [f64::NAN, f64::INFINITY] {
+        for (src, tree, want) in &cases {
+            let t = template(src, &["f"], None, &["x", "y"], &[], &ops);
+            let got = eval(&t, tree, &[], &ops, &[&[v, 1.5], &[3.0, 1.5]]).unwrap();
+            assert_eq!(&got, want, "{src} of {:?} at x = {v}", tree.nodes);
+        }
+    }
+    // DynamicExpressions skips the check on some fused evaluation paths, so SymbolicRegression.jl
+    // accepts `cos(relu(x))`, and `D(max(x, y))` with few operators; the port checks every
+    // operator, as DynamicExpressions' unfused path does (see tools/parity_tests.toml).
+    let max = dynamic_expressions::operators::max(x(), y());
+    for (src, tree) in [("f(x, y)", un("cos", un("relu", x()))), ("D(f, 1)(x, y)", max)] {
+        let t = template(src, &["f"], None, &["x", "y"], &[], &ops);
+        assert_eq!(
+            eval(&t, &tree, &[], &ops, &[&[f64::NAN, 1.5], &[3.0, 1.5]]).unwrap(),
+            None,
+            "{src}"
+        );
+    }
+    let t = template("D(f, 1)(x)", &["f"], None, &["x"], &[], &ops);
+    assert_eq!(eval(&t, &un("q", x()), &[], &ops, &[&[2.0]]).unwrap(), Some(vec![0.0]));
+}
+
 /// `min` and `max` are Julia's, so a NaN argument makes the result NaN and SymbolicRegression.jl
 /// rejects the expression, in a subexpression or in the combining formula.
 #[test]
@@ -649,6 +703,21 @@ fn cached_derivatives_follow_constants_and_operator_definitions() {
                 .unwrap()
         );
         assert_eq!(out, [6.0, 12.0, 18.0]);
+    }
+
+    // DynamicDiff folds a constant 0, so `D(cos(x * c))` reads `x` only for other `c`, and a
+    // program cached for one `c` must not decide validity for another.
+    let nan = features(&[&[f64::NAN, 1.0, 2.0]]);
+    for c in [2.0, 0.0, 2.0, 1.0, 0.0] {
+        let trees = [cos(arg(1) * c)];
+        let plans = t.compile_plans(&trees);
+        let ok = t
+            .eval_into(&mut out, &trees, &plans, &[], &ops, nan.view(), &mut ws)
+            .unwrap();
+        assert_eq!(ok, c == 0.0, "c = {c}");
+        if ok {
+            assert_eq!(out, [0.0; 3]);
+        }
     }
 
     let mut ws = TemplateWorkspace::default();

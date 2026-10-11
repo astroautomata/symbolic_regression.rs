@@ -10,6 +10,9 @@ pub struct EvalPlan<const D: usize> {
     pub n_slots: usize,
     pub root: Src,
     pub hash: u64,
+    /// The distinct features and constants the expression reads, ascending.
+    pub leaf_features: Vec<u16>,
+    pub leaf_consts: Vec<u16>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -96,10 +99,24 @@ pub fn compile_plan<const D: usize>(nodes: &[PNode], n_features: usize, n_consts
     let mut hasher = FxHasher::default();
     nodes.hash(&mut hasher);
     let hash = hasher.finish();
+    let distinct = |leaf: fn(&PNode) -> Option<u16>| {
+        let mut leaves: Vec<u16> = nodes.iter().filter_map(leaf).collect();
+        leaves.sort_unstable();
+        leaves.dedup();
+        leaves
+    };
     EvalPlan {
         instrs,
         n_slots,
         root,
         hash,
+        leaf_features: distinct(|n| match *n {
+            PNode::Var { feature } => Some(feature),
+            _ => None,
+        }),
+        leaf_consts: distinct(|n| match *n {
+            PNode::Const { idx } => Some(idx),
+            _ => None,
+        }),
     }
 }

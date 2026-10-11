@@ -1050,8 +1050,8 @@ line = 1
 name = "Test validity of expression evaluation"
 pr = 1
 status = "done"
-rust = ["dynamic_expressions/tests/test_jl_evaluation.rs::fused_evaluation_paths_match_closures"]
-note = "Inputs are uniform on [-2, 2] from a seeded RNG instead of randn."
+rust = ["dynamic_expressions/tests/test_jl_evaluation.rs::fused_evaluation_paths_match_closures", "dynamic_expressions/tests/test_template_eval.rs::nonfinite_leaves_invalidate_the_trees_that_read_them"]
+note = "Inputs are uniform on [-2, 2] from a seeded RNG instead of randn. An operator that reads a non-finite feature or constant makes the expression invalid, as on DynamicExpressions' unfused path (DynamicExpressions 2.11.0 src/Evaluate.jl:612-613, reached from SymbolicRegression.jl src/ComposableExpression.jl:236). The fused paths skip that check for some shapes, such as `cos(relu(x))` (Evaluate.jl:765) and two-leaf binary operators (Evaluate.jl:875), and which path runs depends on the operator set; the port checks every operator."
 
 [[testitem]]
 file = "test/unit/evaluation/test_fast_cycle.jl"
