@@ -95,8 +95,8 @@ impl<T> Default for TemplateWorkspace<T> {
 /// `D(...(D(tree, wrt[0]), ...), wrt[k])` compiled for one call, with the leaves it reads and what
 /// it was compiled from: the operator set type (which fixes the built-in kernels) and its DSL
 /// definitions, the call, the tree's nodes, and which of its constants are 0 or 1 (see
-/// [`const_kind`]). DynamicDiff folds those constants, which can drop leaves from the derivative
-/// tree; the other constants are program inputs, so new values of them reuse the program.
+/// [`const_kind`]). Those constants are folded, which can drop leaves from the derivative; the
+/// other constants are program inputs, so new values of them reuse the program.
 #[derive(Clone, Debug)]
 struct Derivative<T> {
     ops_type: &'static str,
@@ -607,6 +607,7 @@ where
             .iter()
             .map(|&c| (const_kind(c) < 2).then(|| c.to_f64().expect("0 and 1 convert to f64")))
             .collect();
+        let (program, leaves) = compile_derivative(tree, ops, wrt, &folded)?;
         *slot = Some(Derivative {
             ops_type,
             expr,
@@ -614,8 +615,8 @@ where
             nodes: tree.nodes.clone(),
             const_kinds: tree.consts.iter().map(|&c| const_kind(c)).collect(),
             definitions: definitions.to_vec(),
-            program: compile_derivative(tree, ops, wrt, &folded)?,
-            leaves: derivative_leaves(tree, ops, wrt, &folded),
+            program,
+            leaves,
         });
     }
     Ok(slot.as_ref().expect("the slot was just filled"))
@@ -642,7 +643,7 @@ fn compile_derivative<T, Ops, const D: usize>(
     ops: &Ops,
     wrt: &[u16],
     folded: &[Option<f64>],
-) -> Result<Program<T>, TemplateEvalError>
+) -> Result<(Program<T>, Leaves), TemplateEvalError>
 where
     T: Float,
     Ops: OperatorSet<T = T>,
@@ -679,7 +680,7 @@ where
         };
     }
     let (g, root) = functions.inline(&g, root);
-    Ok(Program::compile(&g, root))
+    Ok((Program::compile(&g, root), input_leaves(&g, root, n_consts)))
 }
 
 /// The operators of one tree as functions of their arguments (`Arg(i)`), and the partial
@@ -766,194 +767,27 @@ impl Functions {
     }
 }
 
-/// The features and constants of a tree that SymbolicRegression.jl's `D` keeps in the derivative
-/// tree, ascending. Evaluating that tree checks each operator's arguments, so the derivative is
-/// invalid where one of them is not finite, whatever its value.
+/// The features and constants a compiled derivative reads, ascending. The derivative is invalid
+/// where one of them is not finite.
 #[derive(Clone, Debug, Default)]
 struct Leaves {
     features: Vec<u16>,
     consts: Vec<u16>,
 }
 
-/// The leaves of `D(...(D(tree, wrt[0]), ...), wrt[k])` as DynamicDiff builds it; `folded` gives
-/// the tree's constants that are 0 or 1, which DynamicDiff folds.
-fn derivative_leaves<T, Ops, const D: usize>(
-    tree: &PostfixExpr<T, Ops, D>,
-    ops: &Ops,
-    wrt: &[u16],
-    folded: &[Option<f64>],
-) -> Leaves
-where
-    T: Float,
-    Ops: OperatorSet<T = T>,
-{
-    let mut stack: Vec<DNode> = Vec::with_capacity(tree.nodes.len());
-    for node in &tree.nodes {
-        let n = match *node {
-            PNode::Var { feature } => DNode::Feature(feature),
-            PNode::Const { idx } => DNode::Const(idx),
-            PNode::Op { arity, op } => {
-                let args = stack.split_off(stack.len() - usize::from(arity));
-                let op = match ops.ir(OpId { arity, id: op }) {
-                    Some(OpIr::Kernel(kernel)) => DOp::Kernel(kernel),
-                    _ => DOp::Opaque,
-                };
-                DNode::Op(op, args)
-            }
-        };
-        stack.push(n);
-    }
-    let mut d = stack.pop().expect("a tree has a value");
-    for &w in wrt {
-        d = d.derivative(w, folded);
-    }
+/// The inputs `root` of `g` depends on: constant `i` is input `i` and feature `f` is input
+/// `n_consts + f`.
+fn input_leaves(g: &Graph, root: NodeId, n_consts: usize) -> Leaves {
     let mut leaves = Leaves::default();
-    d.collect_leaves(&mut leaves);
-    for list in [&mut leaves.features, &mut leaves.consts] {
-        list.sort_unstable();
-        list.dedup();
+    for (node, live) in g.nodes().iter().zip(g.reachable(&[root])) {
+        if let (true, Node::Arg(i)) = (live, node) {
+            match usize::from(*i).checked_sub(n_consts) {
+                Some(f) => leaves.features.push(f as u16),
+                None => leaves.consts.push(*i),
+            }
+        }
     }
+    leaves.features.sort_unstable();
+    leaves.consts.sort_unstable();
     leaves
-}
-
-/// A node of a DynamicDiff derivative tree.
-#[derive(Clone)]
-enum DNode {
-    Feature(u16),
-    Const(u16),
-    Literal(f64),
-    Op(DOp, Vec<DNode>),
-}
-
-/// An operator of a derivative tree. DynamicDiff knows the partials of the built-in operators
-/// named here (operator_derivatives.jl); any other operator's partials are opaque operators of
-/// the same arguments. `Neg` is SymbolicRegression.jl's `neg`, which DynamicDiff does not know.
-#[derive(Clone, Copy)]
-enum DOp {
-    Kernel(Kernel),
-    NegSin,
-    NegCos,
-    InvMonomial,
-    /// `c * x^x_power / y^n`.
-    DivMonomial {
-        x_power: u32,
-    },
-    Opaque,
-}
-
-/// What DynamicDiff simplifies a partial of an operator to.
-enum Partial {
-    Zero,
-    One,
-    NegOne,
-    First,
-    Last,
-    Op(DOp),
-}
-
-impl DOp {
-    fn partial(self, i: usize) -> Partial {
-        use Kernel as K;
-        match self {
-            DOp::Kernel(K::Add | K::Identity) => Partial::One,
-            DOp::Kernel(K::Sub) if i == 0 => Partial::One,
-            DOp::Kernel(K::Sub) => Partial::NegOne,
-            DOp::Kernel(K::Mul) if i == 0 => Partial::Last,
-            DOp::Kernel(K::Mul) => Partial::First,
-            DOp::Kernel(K::Sign) => Partial::Zero,
-            DOp::Kernel(K::Abs) => Partial::Op(DOp::Kernel(K::Sign)),
-            DOp::Kernel(K::Sin) => Partial::Op(DOp::Kernel(K::Cos)),
-            DOp::Kernel(K::Cos) => Partial::Op(DOp::NegSin),
-            DOp::NegSin => Partial::Op(DOp::NegCos),
-            DOp::NegCos => Partial::Op(DOp::Kernel(K::Sin)),
-            DOp::Kernel(K::Exp) => Partial::Op(DOp::Kernel(K::Exp)),
-            DOp::Kernel(K::Sinh) => Partial::Op(DOp::Kernel(K::Cosh)),
-            DOp::Kernel(K::Cosh) => Partial::Op(DOp::Kernel(K::Sinh)),
-            DOp::Kernel(K::Inv) | DOp::InvMonomial => Partial::Op(DOp::InvMonomial),
-            DOp::Kernel(K::Div) => Partial::Op(DOp::DivMonomial {
-                x_power: u32::from(i == 1),
-            }),
-            DOp::DivMonomial { x_power } => match (i, x_power) {
-                (0, 0) => Partial::Zero,
-                (0, p) => Partial::Op(DOp::DivMonomial { x_power: p - 1 }),
-                _ => Partial::Op(DOp::DivMonomial { x_power }),
-            },
-            DOp::Kernel(_) | DOp::Opaque => Partial::Op(DOp::Opaque),
-        }
-    }
-}
-
-impl DNode {
-    fn depends_on(&self, w: u16) -> bool {
-        match self {
-            DNode::Feature(f) => *f == w,
-            DNode::Const(_) | DNode::Literal(_) => false,
-            DNode::Op(_, args) => args.iter().any(|a| a.depends_on(w)),
-        }
-    }
-
-    /// Whether the node is a constant equal to `v`.
-    fn is(&self, v: f64, folded: &[Option<f64>]) -> bool {
-        match self {
-            DNode::Literal(c) => *c == v,
-            DNode::Const(i) => folded[usize::from(*i)] == Some(v),
-            DNode::Feature(_) | DNode::Op(..) => false,
-        }
-    }
-
-    /// DynamicDiff's derivative with respect to feature `w` (`degn_derivative` in
-    /// expression_derivative.jl).
-    fn derivative(&self, w: u16, consts: &[Option<f64>]) -> DNode {
-        if !self.depends_on(w) {
-            return DNode::Literal(0.0);
-        }
-        let DNode::Op(op, args) = self else {
-            return DNode::Literal(1.0);
-        };
-        let mut terms: Vec<DNode> = (0..args.len())
-            .map(|i| {
-                let partial = op.partial(i);
-                if matches!(partial, Partial::Zero) {
-                    return DNode::Literal(0.0);
-                }
-                let g = args[i].derivative(w, consts);
-                if matches!(partial, Partial::One) || g.is(0.0, consts) {
-                    return g;
-                }
-                let f = match partial {
-                    Partial::NegOne => DNode::Literal(-1.0),
-                    Partial::First => args[0].clone(),
-                    Partial::Last => args[args.len() - 1].clone(),
-                    Partial::Op(o) => DNode::Op(o, args.clone()),
-                    Partial::Zero | Partial::One => unreachable!("handled above"),
-                };
-                if g.is(1.0, consts) {
-                    f
-                } else {
-                    DNode::Op(DOp::Kernel(Kernel::Mul), vec![f, g])
-                }
-            })
-            .collect();
-        if terms.len() == 2 {
-            if terms[0].is(0.0, consts) {
-                return terms.pop().expect("two terms");
-            }
-            if terms[1].is(0.0, consts) {
-                return terms.swap_remove(0);
-            }
-        }
-        terms
-            .into_iter()
-            .reduce(|l, r| DNode::Op(DOp::Kernel(Kernel::Add), vec![l, r]))
-            .expect("an operator has arguments")
-    }
-
-    fn collect_leaves(&self, leaves: &mut Leaves) {
-        match self {
-            DNode::Feature(f) => leaves.features.push(*f),
-            DNode::Const(i) => leaves.consts.push(*i),
-            DNode::Literal(_) => {}
-            DNode::Op(_, args) => args.iter().for_each(|a| a.collect_leaves(leaves)),
-        }
-    }
 }

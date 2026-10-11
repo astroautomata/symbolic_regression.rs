@@ -585,11 +585,9 @@ fn clamp_accepts_inverted_bounds() {
     assert_eq!(got, Some(vec![0.0, 0.0, 1.0]));
 }
 
-/// SymbolicRegression.jl evaluates subexpressions and `D`'s derivative trees with DynamicExpressions,
-/// which rejects a tree whose operators read a non-finite feature or constant, even where the
-/// operator's value is finite. Leaves that DynamicDiff drops from the derivative tree, including
-/// those that only a constant 0 multiplies, are not read. Expected values are SymbolicRegression.jl
-/// f97764fb's `D` (DynamicDiff 0.3.2) with `x = [v, 1.5]` and `y = [3, 1.5]` for `v` NaN or Inf.
+/// A non-finite feature or constant that a subexpression or a compiled derivative depends on makes
+/// the result invalid, even where the value is finite. A derivative that a constant fold or a DSL
+/// operator's body makes independent of a leaf does not read it.
 #[test]
 fn nonfinite_leaves_invalidate_the_trees_that_read_them() {
     let ops = custom_ops(&["q(u) = 0"]);
@@ -601,7 +599,7 @@ fn nonfinite_leaves_invalidate_the_trees_that_read_them() {
     let cases = [
         ("f(x, y)", un("relu", x()), None),
         ("f(x, y)", un("q", x()), None),
-        ("D(f, 1)(x, y)", un("q", x()), None),
+        ("D(f, 1)(x, y)", un("q", x()), Some(vec![0.0, 0.0])),
         ("D(f, 1)(x, y)", x() * y(), Some(vec![3.0, 1.5])),
         ("D(f, 2)(x, y)", x() * y(), None),
         ("D(f, 1)(x, y)", x() * 0.0, zeros.clone()),
@@ -613,7 +611,7 @@ fn nonfinite_leaves_invalidate_the_trees_that_read_them() {
         ("D(f, 2)(x, y)", y() + un("cos", x()), Some(vec![1.0, 1.0])),
         ("D(f, 1)(x, y)", un("relu", x()), None),
         ("D(f, 2)(x, y)", un("relu", x()) * y(), None),
-        ("D(f, 2)(x, y)", y() * un("q", x()), None),
+        ("D(f, 2)(x, y)", y() * un("q", x()), Some(vec![0.0, 0.0])),
         ("f(x, y)", un("relu", nan), None),
     ];
     for v in [f64::NAN, f64::INFINITY] {
