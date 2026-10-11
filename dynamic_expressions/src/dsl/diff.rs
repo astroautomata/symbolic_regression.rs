@@ -120,13 +120,14 @@ fn op_derivative(g: &mut Graph, kernel: Kernel, args: &[NodeId], d: &[NodeId], c
         }
         k if k.returns_bool() => zero(g),
         k => {
+            let dargs: Vec<NodeId> = (0..args.len()).map(da).collect();
             let mut total = zero(g);
             for (j, idx) in (0..args.len()).zip(0u8..) {
                 if is_zero(g, da(j)) {
                     continue;
                 }
                 let partial = if closed {
-                    closed_partial(g, k, idx, args)
+                    closed_partial(g, k, idx, args, &dargs)
                 } else {
                     g.partial(k, idx, args.to_vec())
                 };
@@ -140,8 +141,9 @@ fn op_derivative(g: &mut Graph, kernel: Kernel, args: &[NodeId], d: &[NodeId], c
 
 /// `kernel`'s partial derivative with respect to argument `idx` at `args`, built from other
 /// kernels, as ForwardDiff takes it of SymbolicRegression.jl's operator with the other arguments
-/// fixed: the kernel's own partial formula, with ForwardDiff's rules where they differ.
-fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> NodeId {
+/// fixed: the kernel's own partial formula, with ForwardDiff's rules where they differ. `dargs`
+/// are the arguments' derivatives, which the operator's comparisons see at ties (see [`compare`]).
+fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId], dargs: &[NodeId]) -> NodeId {
     use Kernel as K;
     let x = args[0];
     let zero = g.constant(0.0);
@@ -155,12 +157,18 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
     // `partial`, or 0 where `cond` holds. Where a safe operator returns NaN, it returns a constant,
     // whose partials are 0.
     let zero_if = |g: &mut Graph, cond: NodeId, partial: NodeId| g.op(K::IfElse, vec![cond, zero, partial]);
-    // ForwardDiff compares a dual number, seeded with partial 1, with a constant as if it were
-    // slightly larger: `x <= hi` fails at `hi`.
-    let outside = |g: &mut Graph, lo: NodeId, hi: NodeId| {
-        let below = g.op(K::Less, vec![x, lo]);
-        let above = g.op(K::GreaterEqual, vec![x, hi]);
-        g.op(K::LogicalOr, vec![below, above])
+    // `x` compared with the constant `bound` in SymbolicRegression.jl's definition of the operator.
+    let x_is = |g: &mut Graph, kernel: Kernel, bound: NodeId| compare(g, kernel, [x, bound], [dargs[0], zero]);
+    // `partial` where `x` is in the domain of a safe operator, `-1 <= x <= 1`, and 0 elsewhere.
+    let in_unit_interval = |g: &mut Graph, partial: NodeId| {
+        let above = x_is(g, K::GreaterEqual, minus_one);
+        let below = x_is(g, K::LessEqual, one);
+        let inside = g.op(K::LogicalAnd, vec![above, below]);
+        g.op(K::IfElse, vec![inside, partial, zero])
+    };
+    let where_x_is = |g: &mut Graph, kernel: Kernel, bound: NodeId, partial: NodeId| {
+        let inside = x_is(g, kernel, bound);
+        g.op(K::IfElse, vec![inside, partial, zero])
     };
     match kernel {
         K::Cos => {
@@ -178,8 +186,7 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
             let r = sub(g, one, x2);
             let s = g.op(K::Sqrt, vec![r]);
             let partial = div(g, if kernel == K::Asin { one } else { minus_one }, s);
-            let nan_region = outside(g, minus_one, one);
-            zero_if(g, nan_region, partial)
+            in_unit_interval(g, partial)
         }
         K::Atan => {
             let x2 = mul(g, x, x);
@@ -201,15 +208,13 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
             let b = g.op(K::Sqrt, vec![above]);
             let den = mul(g, a, b);
             let partial = div(g, one, den);
-            let nan_region = g.op(K::Less, vec![x, one]);
-            zero_if(g, nan_region, partial)
+            where_x_is(g, K::GreaterEqual, one, partial)
         }
         K::Atanh => {
             let x2 = mul(g, x, x);
             let den = sub(g, one, x2);
             let partial = div(g, one, den);
-            let nan_region = outside(g, minus_one, one);
-            zero_if(g, nan_region, partial)
+            in_unit_interval(g, partial)
         }
         K::Sec => {
             let s = g.op(K::Sec, vec![x]);
@@ -234,27 +239,23 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
         }
         K::Log => {
             let partial = div(g, one, x);
-            let nan_region = g.op(K::Less, vec![x, zero]);
-            zero_if(g, nan_region, partial)
+            where_x_is(g, K::Greater, zero, partial)
         }
         K::Log2 | K::Log10 => {
             let den = mul(g, x, if kernel == K::Log2 { ln2 } else { ln10 });
             let partial = div(g, one, den);
-            let nan_region = g.op(K::Less, vec![x, zero]);
-            zero_if(g, nan_region, partial)
+            where_x_is(g, K::Greater, zero, partial)
         }
         K::Log1p => {
             let den = add(g, one, x);
             let partial = div(g, one, den);
-            let nan_region = g.op(K::Less, vec![x, minus_one]);
-            zero_if(g, nan_region, partial)
+            where_x_is(g, K::Greater, minus_one, partial)
         }
         K::Sqrt => {
             let s = g.op(K::Sqrt, vec![x]);
             let den = mul(g, two, s);
             let partial = div(g, one, den);
-            let nan_region = g.op(K::Less, vec![x, zero]);
-            zero_if(g, nan_region, partial)
+            where_x_is(g, K::GreaterEqual, zero, partial)
         }
         K::Cbrt => {
             let c = g.op(K::Cbrt, vec![x]);
@@ -262,9 +263,10 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
             let den = mul(g, three, c2);
             div(g, one, den)
         }
-        // ForwardDiff's `abs` rule gives 1 at 0.
+        // ForwardDiff's `abs` rule: -1 where `signbit(x)`, which is `1/x < 0`, and 1 elsewhere.
         K::Abs => {
-            let negative = g.op(K::Less, vec![x, zero]);
+            let inv = g.op(K::Inv, vec![x]);
+            let negative = g.op(K::Less, vec![inv, zero]);
             g.op(K::IfElse, vec![negative, minus_one, one])
         }
         K::Abs2 | K::Square => mul(g, two, x),
@@ -329,28 +331,33 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
             }
         }
         K::Fma => [args[1], args[0], one][usize::from(idx)],
+        // `clamp(x, lo, hi) = ifelse(x > hi, hi, ifelse(x < lo, lo, x))`.
         K::Clamp => {
             let (lo, hi) = (args[1], args[2]);
-            let below = g.op(K::Less, vec![x, lo]);
-            let above = g.op(K::Greater, vec![x, hi]);
-            match idx {
-                0 => {
-                    let out = g.op(K::LogicalOr, vec![below, above]);
-                    g.op(K::IfElse, vec![out, zero, one])
-                }
-                1 => indicator(g, below),
-                _ => indicator(g, above),
+            let above = compare(g, K::Greater, [x, hi], [dargs[0], dargs[2]]);
+            if idx == 2 {
+                return indicator(g, above);
             }
+            let below = compare(g, K::Less, [x, lo], [dargs[0], dargs[1]]);
+            let below = if idx == 1 {
+                below
+            } else {
+                g.op(K::LogicalNot, vec![below])
+            };
+            let not_above = g.op(K::LogicalNot, vec![above]);
+            let picked = g.op(K::LogicalAnd, vec![not_above, below]);
+            indicator(g, picked)
         }
+        // `relu(x) = (x > 0) * x` and `cond(x, y) = (x > 0) * y`.
         K::Relu => {
-            let positive = g.op(K::Greater, vec![x, zero]);
+            let positive = x_is(g, K::Greater, zero);
             indicator(g, positive)
         }
         K::Cond => {
             if idx == 0 {
                 zero
             } else {
-                let positive = g.op(K::Greater, vec![x, zero]);
+                let positive = x_is(g, K::Greater, zero);
                 indicator(g, positive)
             }
         }
@@ -364,9 +371,8 @@ fn closed_partial(g: &mut Graph, kernel: Kernel, idx: u8, args: &[NodeId]) -> No
     }
 }
 
-/// `cond` as ForwardDiff evaluates it on dual numbers, whose comparisons also compare the
-/// partials (`d`) when the values are equal, so `IfElse` takes the branch that holds just past
-/// the point. NaN tests (`u != u`) compare values only, as `isnan` does.
+/// `cond` as ForwardDiff evaluates it on dual numbers (see [`compare`]). NaN tests (`u != u`)
+/// compare values only, as `isnan` does.
 fn lift_comparisons(g: &mut Graph, cond: NodeId, d: &[NodeId]) -> NodeId {
     use Kernel as K;
     let Node::Op { kernel, args } = g.node(cond).clone() else {
@@ -378,27 +384,34 @@ fn lift_comparisons(g: &mut Graph, cond: NodeId, d: &[NodeId]) -> NodeId {
             if lifted == args { cond } else { g.op(kernel, lifted) }
         }
         K::Equal | K::NotEqual | K::Less | K::LessEqual | K::Greater | K::GreaterEqual if args[0] != args[1] => {
-            let (du, dv) = (d[args[0].index()], d[args[1].index()]);
-            if du == dv {
-                return cond;
-            }
-            let on_partials = g.op(kernel, vec![du, dv]);
-            match kernel {
-                K::Equal => g.op(K::LogicalAnd, vec![cond, on_partials]),
-                K::NotEqual => g.op(K::LogicalOr, vec![cond, on_partials]),
-                _ => {
-                    let strict = match kernel {
-                        K::Less | K::LessEqual => K::Less,
-                        _ => K::Greater,
-                    };
-                    let by_value = g.op(strict, args.clone());
-                    let tie = g.op(K::Equal, args);
-                    let by_partials = g.op(K::LogicalAnd, vec![tie, on_partials]);
-                    g.op(K::LogicalOr, vec![by_value, by_partials])
-                }
-            }
+            compare(g, kernel, [args[0], args[1]], [d[args[0].index()], d[args[1].index()]])
         }
         _ => cond,
+    }
+}
+
+/// The comparison `kernel` of `u` and `v`, with derivatives `du` and `dv`, as on dual numbers:
+/// when the values are equal it also compares the derivatives, so it holds just past the point.
+fn compare(g: &mut Graph, kernel: Kernel, [u, v]: [NodeId; 2], [du, dv]: [NodeId; 2]) -> NodeId {
+    use Kernel as K;
+    let cond = g.op(kernel, vec![u, v]);
+    if du == dv {
+        return cond;
+    }
+    let on_partials = g.op(kernel, vec![du, dv]);
+    match kernel {
+        K::Equal => g.op(K::LogicalAnd, vec![cond, on_partials]),
+        K::NotEqual => g.op(K::LogicalOr, vec![cond, on_partials]),
+        _ => {
+            let strict = match kernel {
+                K::Less | K::LessEqual => K::Less,
+                _ => K::Greater,
+            };
+            let by_value = g.op(strict, vec![u, v]);
+            let tie = g.op(K::Equal, vec![u, v]);
+            let by_partials = g.op(K::LogicalAnd, vec![tie, on_partials]);
+            g.op(K::LogicalOr, vec![by_value, by_partials])
+        }
     }
 }
 

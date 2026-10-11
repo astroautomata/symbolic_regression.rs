@@ -335,8 +335,8 @@ fn safe_operators_have_zero_derivatives_outside_their_domains() {
     assert_eq!(at_minus_one("D(D(f, 1), 1)(x)", log(arg(1)) * arg(1)), Some(0.0));
 }
 
-/// DiffRules gives `min` ties to its first argument and `max` ties to its second, and `abs` a
-/// partial of 1 at 0.
+/// DiffRules gives `min` ties to its first argument and `max` ties to its second. DynamicDiff
+/// differentiates `abs` to `sign`, which is 0 at 0.
 #[test]
 fn min_max_and_abs_partials_follow_diffrules() {
     use dynamic_expressions::operators::{abs, max, min};
@@ -360,11 +360,11 @@ fn min_max_and_abs_partials_follow_diffrules() {
         d_at("D(f, 1)(x)", &["x"], &max(constant(1.0), arg(1)), &[1.0]),
         Some(1.0)
     );
-    assert_eq!(d_at("D(f, 1)(x)", &["x"], &abs(arg(1)), &[0.0]), Some(1.0));
+    assert_eq!(d_at("D(f, 1)(x)", &["x"], &abs(arg(1)), &[0.0]), Some(0.0));
 }
 
 /// `tree` with the unary operator `name` applied to it.
-fn apply(ops: &BuiltinOpsF64<CustomOps<f64>>, name: &str, mut tree: CustomTree) -> CustomTree {
+fn apply<Ops: OperatorSet>(ops: &Ops, name: &str, mut tree: PostfixExpr<f64, Ops, 3>) -> PostfixExpr<f64, Ops, 3> {
     let op = ops.lookup_with_arity(name, 1).unwrap();
     tree.nodes.push(PNode::Op { arity: 1, op: op.id });
     tree
@@ -438,6 +438,118 @@ fn operators_are_differentiated_at_their_own_boundaries() {
                 want,
                 &format!("{src} at x={x0}, p=0"),
             );
+        }
+    }
+}
+
+/// SymbolicRegression.jl's `relu`, `cond`, safe operators, and Julia's `clamp` compare their
+/// arguments, so on ForwardDiff's dual numbers a tie at a boundary resolves by the arguments'
+/// derivatives: +1 for the argument `D` differentiates an operator by, and the chain's derivative
+/// inside a custom operator. `abs` follows DynamicDiff's `sign` as an operator and ForwardDiff's
+/// `signbit` rule inside a custom operator. Expected values are SymbolicRegression.jl f97764fb's
+/// `D` (DynamicDiff 0.3.2, ForwardDiff 1.4.6).
+#[test]
+fn nonsmooth_operators_follow_forward_diff_at_their_boundaries() {
+    use dynamic_expressions::operators::{abs, clamp};
+    let builtin = BuiltinOpsF64::new();
+    let relu = |tree: Tree| apply(&builtin, "relu", tree);
+    // (tree, x, [D, D^2])
+    let unary = [
+        (relu(arg(1)), 0.0, [Some(1.0), Some(0.0)]),
+        (relu(arg(1)), -0.0, [Some(1.0), Some(0.0)]),
+        (relu(-arg(1)), 0.0, [Some(-1.0), Some(0.0)]),
+        (abs(arg(1)), 0.0, [Some(0.0), Some(0.0)]),
+        (abs(arg(1)), -0.0, [Some(0.0), Some(0.0)]),
+        (abs(arg(1)), -2.0, [Some(-1.0), Some(0.0)]),
+        (abs(-arg(1)), 0.0, [Some(0.0), Some(0.0)]),
+    ];
+    for (tree, x0, want) in unary {
+        for (order, want) in (1..=2).zip(want) {
+            let got = d_at(&nested_d(order, 1, "x"), &["x"], &tree, &[x0]);
+            assert_d(got, want, &format!("D^{order} of {:?} at {x0}", tree.nodes));
+        }
+    }
+
+    let cond_op = builtin.lookup_with_arity("cond", 2).unwrap();
+    let cond = Tree::new(
+        vec![
+            PNode::Var { feature: 0 },
+            PNode::Var { feature: 1 },
+            PNode::Op {
+                arity: 2,
+                op: cond_op.id,
+            },
+        ],
+        vec![],
+        Metadata::default(),
+    );
+    for src in [
+        "D(f, 1)(x, y)",
+        "D(f, 2)(x, y)",
+        "D(D(f, 2), 1)(x, y)",
+        "D(D(f, 2), 2)(x, y)",
+    ] {
+        for x0 in [0.0, -0.0] {
+            assert_d(
+                d_at(src, &["x", "y"], &cond, &[x0, 3.0]),
+                Some(0.0),
+                &format!("{src} of cond at {x0}"),
+            );
+        }
+    }
+
+    let tree = clamp(arg(1), arg(2), arg(3));
+    let srcs = [
+        "D(f, 1)(x, lo, hi)",
+        "D(f, 2)(x, lo, hi)",
+        "D(f, 3)(x, lo, hi)",
+        "D(D(f, 1), 1)(x, lo, hi)",
+        "D(D(f, 2), 1)(x, lo, hi)",
+        "D(D(f, 3), 3)(x, lo, hi)",
+    ];
+    let cases = [
+        ([0.0, 0.0, 1.0], [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        ([1.0, 0.0, 1.0], [0.0; 6]),
+        ([0.5, 0.0, 1.0], [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ([1.0, 1.0, 1.0], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+        ([2.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+        ([-1.0, 0.0, 1.0], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+    ];
+    for (point, want) in cases {
+        for (src, want) in srcs.iter().zip(want) {
+            let got = d_at(src, &["x", "lo", "hi"], &tree, &point);
+            assert_d(got, Some(want), &format!("{src} at {point:?}"));
+        }
+    }
+
+    let ops = custom_ops(&[
+        "qs(u) = sqrt(-u)",
+        "ql(u) = log(-u)",
+        "qa(u) = asin(-u)",
+        "qh(u) = acosh(-u)",
+        "qr(u) = relu(-u)",
+        "qc(u) = clamp(2 * u, 0, u)",
+        "qabs(u) = abs(u)",
+    ]);
+    let custom = [
+        ("qs", 0.0, [Some(0.0), Some(0.0)]),
+        ("ql", 0.0, [Some(0.0), Some(0.0)]),
+        ("qa", 1.0, [Some(0.0), Some(0.0)]),
+        ("qa", -1.0, [None, None]),
+        ("qh", -1.0, [Some(0.0), Some(0.0)]),
+        ("qr", 0.0, [Some(0.0), Some(0.0)]),
+        ("qc", 0.0, [Some(1.0), Some(0.0)]),
+        ("qabs", 0.0, [Some(1.0), Some(0.0)]),
+        ("qabs", -0.0, [Some(-1.0), Some(0.0)]),
+        ("qabs", -2.0, [Some(-1.0), Some(0.0)]),
+    ];
+    for (name, x0, want) in custom {
+        for (order, want) in (1..=2).zip(want) {
+            let t = template(&nested_d(order, 1, "x"), &["f"], None, &["x"], &[], &ops);
+            let got = eval(&t, &custom_call(&ops, name), &[], &ops, &[&[x0]])
+                .unwrap()
+                .map(|v| v[0]);
+            assert_d(got, want, &format!("D^{order} {name} at {x0}"));
         }
     }
 }

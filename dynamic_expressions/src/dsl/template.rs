@@ -10,6 +10,7 @@ use rustc_hash::FxHashMap;
 
 use super::diff::{differentiate_calls, differentiate_closed};
 use super::ir::{Graph, Node, NodeId, OpIr};
+use super::kernels::Kernel;
 use super::lower::{Lowered, TemplateScope, lower_formula};
 use super::program::Program;
 use super::{DslError, Span, parse_formula};
@@ -658,17 +659,25 @@ impl Functions {
         if let Some(f) = self.ops.iter().position(|&o| o == op) {
             return Ok(f as u16);
         }
+        let f = u16::try_from(self.ops.len()).expect("a tree has at most 65535 distinct operators");
         let function = match ops.ir(op) {
             Some(OpIr::Kernel(kernel)) => {
                 let mut g = Graph::default();
-                let args = (0..u16::from(op.arity)).map(|i| g.arg(i)).collect();
+                let args: Vec<NodeId> = (0..u16::from(op.arity)).map(|i| g.arg(i)).collect();
+                // DynamicDiff differentiates the `abs` operator to `sign`, which is 0 at 0; inside
+                // a custom operator, ForwardDiff's `abs` rule applies instead.
+                if kernel == Kernel::Abs {
+                    let mut sign = Graph::default();
+                    let x = sign.arg(0);
+                    let root = sign.op(Kernel::Sign, vec![x]);
+                    self.graphs.insert((f, vec![0]), (sign, root));
+                }
                 let root = g.op(kernel, args);
                 (g, root)
             }
             Some(OpIr::Defined(def)) => (def.graph.clone(), def.root),
             None => return Err(TemplateEvalError::UnsupportedOperator(ops.name(op).to_string())),
         };
-        let f = u16::try_from(self.ops.len()).expect("a tree has at most 65535 distinct operators");
         self.ops.push(op);
         self.graphs.insert((f, Vec::new()), function);
         Ok(f)
