@@ -103,7 +103,8 @@ Searches write `hall_of_fame.csv` and an identical `.bak` file beneath
 searches write `hall_of_fame_output1.csv`, `hall_of_fame_output2.csv`, and so on.
 `output_directory` defaults to `outputs`; `SearchResult::run_id` and
 `SearchEngine::run_id()` expose the generated identifier. Set `save_to_file: false`
-to disable file output. File output is inactive on WebAssembly.
+to disable file output. WebAssembly has no filesystem: there `save_to_file` defaults to
+false, and a search with `save_to_file` or `use_tracing` set fails at setup.
 
 `SrLogger::new(callback)` records population complexities, Pareto
 summaries, equations, and evaluation counts, with each population as its cycle left it,

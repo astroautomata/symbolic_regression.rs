@@ -313,7 +313,7 @@ macro_rules! sr_options_spec {
             }
             neg_flags {
                 save_to_file:
-                    (true, no_save_to_file, "no-save-to-file"),
+                    (cfg!(not(target_arch = "wasm32")), no_save_to_file, "no-save-to-file"),
                 use_frequency:
                     (true, no_use_frequency, "no-use-frequency"),
                 use_frequency_in_tournament:
@@ -792,6 +792,20 @@ impl<T: Float, Ops, const D: usize> Options<T, Ops, D> {
                 return Err("crossover weights must be finite and non-negative".into());
             }
         }
+        self.check_file_output(!cfg!(target_arch = "wasm32"))
+    }
+
+    /// Rejects options that write files when there is no filesystem, as on wasm32.
+    fn check_file_output(&self, has_filesystem: bool) -> Result<(), String> {
+        if has_filesystem {
+            return Ok(());
+        }
+        if self.save_to_file {
+            return Err("save_to_file writes files, which wasm32 does not support; set it to false".into());
+        }
+        if self.use_tracing {
+            return Err("use_tracing writes a file, which wasm32 does not support; set it to false".into());
+        }
         Ok(())
     }
 }
@@ -862,5 +876,31 @@ impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T,
         template
             .check_operators(&self.operators.set, &ops)
             .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
+
+    use super::Options;
+
+    #[test]
+    fn options_that_write_files_fail_without_a_filesystem() {
+        let options = |save_to_file, use_tracing| Options::<f64, BuiltinOpsF64, 2> {
+            save_to_file,
+            use_tracing,
+            ..Default::default()
+        };
+        assert_eq!(options(false, false).check_file_output(false), Ok(()));
+        assert_eq!(
+            options(true, false).check_file_output(false),
+            Err("save_to_file writes files, which wasm32 does not support; set it to false".to_string())
+        );
+        assert_eq!(
+            options(false, true).check_file_output(false),
+            Err("use_tracing writes a file, which wasm32 does not support; set it to false".to_string())
+        );
+        assert_eq!(options(true, true).check_file_output(true), Ok(()));
     }
 }
