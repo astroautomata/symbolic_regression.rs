@@ -104,6 +104,7 @@ impl Unit {
         let mut parser = Parser {
             tokens: &tokens,
             pos: 0,
+            depth: 0,
         };
         let value = parser.sum().map_err(err)?;
         if let Some(token) = parser.tokens.get(parser.pos) {
@@ -379,28 +380,38 @@ impl Value {
     }
 }
 
-fn rational(n: i64, d: i64) -> Result<Value, String> {
+const OVERFLOW: &str = "integer overflow";
+
+/// Julia's `n // d` in lowest terms with a positive denominator, failing where Julia's checked
+/// `Rational` arithmetic throws an `OverflowError`. The arguments are wide so that products of two
+/// `i64` values reach here exactly.
+fn rational(n: i128, d: i128) -> Result<Value, String> {
     if d == 0 {
         return Err("division by zero in `//`".to_string());
     }
-    let g = gcd_i64(n, d) * d.signum();
-    Ok(Value::Rational(n / g, d / g))
+    let g = gcd_u128(n.unsigned_abs(), d.unsigned_abs()) as i128;
+    let (n, d) = if d < 0 { (-n / g, -d / g) } else { (n / g, d / g) };
+    match (i64::try_from(n), i64::try_from(d)) {
+        (Ok(n), Ok(d)) => Ok(Value::Rational(n, d)),
+        _ => Err(OVERFLOW.to_string()),
+    }
 }
 
-fn gcd_i64(a: i64, b: i64) -> i64 {
-    let (mut a, mut b) = (a.unsigned_abs(), b.unsigned_abs());
+fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
     while b != 0 {
         (a, b) = (b, a % b);
     }
-    a as i64
+    a
 }
 
-fn merge_terms(a: &[(usize, i32)], b: &[(usize, i32)], sign: i32) -> Vec<(usize, i32)> {
+/// Symbolic exponents add as `FixedRational{Int32}` numerators do: wrapping, as Julia's `Int32`.
+fn merge_terms(a: &[(usize, i32)], b: &[(usize, i32)], subtract: bool) -> Vec<(usize, i32)> {
     let mut out = a.to_vec();
     for &(i, p) in b {
+        let p = if subtract { p.wrapping_neg() } else { p };
         match out.binary_search_by_key(&i, |&(j, _)| j) {
-            Ok(k) => out[k].1 = out[k].1.wrapping_add(sign * p),
-            Err(k) => out.insert(k, (i, sign * p)),
+            Ok(k) => out[k].1 = out[k].1.wrapping_add(p),
+            Err(k) => out.insert(k, (i, p)),
         }
     }
     out.retain(|&(_, p)| p != 0);
@@ -411,12 +422,11 @@ fn product(a: Value, b: Value, divide: bool) -> Result<Value, String> {
     Ok(match (a, b) {
         (a @ Value::Quantity(_), b) | (a, b @ Value::Quantity(_)) => {
             let (a, b) = (a.into_quantity(), b.into_quantity());
-            let sign = if divide { -1 } else { 1 };
             Value::Quantity(Quantity {
                 si: if divide { a.si / b.si } else { a.si * b.si },
                 dims: if divide { a.dims / b.dims } else { a.dims * b.dims },
                 sym: if divide { a.sym / b.sym } else { a.sym * b.sym },
-                terms: merge_terms(&a.terms, &b.terms, sign),
+                terms: merge_terms(&a.terms, &b.terms, divide),
             })
         }
         (a @ Value::Float(_), b) | (a, b @ Value::Float(_)) => Value::Float(if divide {
@@ -438,10 +448,10 @@ fn product(a: Value, b: Value, divide: bool) -> Result<Value, String> {
     })
 }
 
-fn as_ratio(v: &Value) -> (i64, i64) {
+fn as_ratio(v: &Value) -> (i128, i128) {
     match v {
-        Value::Int(i) => (*i, 1),
-        Value::Rational(n, d) => (*n, *d),
+        Value::Int(i) => (i128::from(*i), 1),
+        Value::Rational(n, d) => (i128::from(*n), i128::from(*d)),
         _ => unreachable!("only integers and rationals are ratios"),
     }
 }
@@ -465,21 +475,119 @@ fn sum(a: Value, b: Value, subtract: bool) -> Result<Value, String> {
         (a, b) => {
             let (an, ad) = as_ratio(&a);
             let (bn, bd) = as_ratio(&b);
-            rational(an * bd + if subtract { -bn * ad } else { bn * ad }, ad * bd)?
+            let n = if subtract {
+                (an * bd).checked_sub(bn * ad)
+            } else {
+                (an * bd).checked_add(bn * ad)
+            };
+            rational(n.ok_or(OVERFLOW)?, ad * bd)?
         }
     })
 }
 
-fn negate(v: Value) -> Value {
-    match v {
+fn negate(v: Value) -> Result<Value, String> {
+    Ok(match v {
         Value::Int(i) => Value::Int(i.wrapping_neg()),
-        Value::Rational(n, d) => Value::Rational(-n, d),
+        Value::Rational(n, d) => Value::Rational(n.checked_neg().ok_or(OVERFLOW)?, d),
         Value::Float(x) => Value::Float(-x),
         Value::Quantity(q) => Value::Quantity(Quantity {
             si: -q.si,
             sym: -q.sym,
             ..q
         }),
+    })
+}
+
+/// How DynamicQuantities raises `FixedRational{Int32}` exponents to a power (`src/math.jl`
+/// 96-133): an integer power multiplies each numerator; any other power is first converted to a
+/// `FixedRational` and multiplied with truncation. A numerator that leaves `Int32` throws an
+/// `InexactError` in Julia.
+#[derive(Copy, Clone)]
+enum Power {
+    Int(i64),
+    Fixed(i32),
+}
+
+impl Power {
+    fn of(exp: &Value) -> Result<Self, String> {
+        let fixed = |p: Option<i128>| {
+            p.and_then(|p| i32::try_from(p).ok())
+                .map(Power::Fixed)
+                .ok_or_else(|| OVERFLOW.to_string())
+        };
+        match *exp {
+            Value::Int(i) => Ok(Power::Int(i)),
+            Value::Rational(n, d) => fixed(Some(i128::from(n) * i128::from(DENOM) / i128::from(d))),
+            Value::Float(x) if x.fract() == 0.0 => fixed((x as i128).checked_mul(i128::from(DENOM))),
+            Value::Float(x) => {
+                let (n, d) = rationalize(x);
+                fixed(Some(i128::from(n) * i128::from(DENOM) / i128::from(d)))
+            }
+            Value::Quantity(_) => unreachable!("exponents are numbers"),
+        }
+    }
+
+    fn apply(self, n: i32) -> Result<i32, String> {
+        let wide = match self {
+            Power::Int(i) => i64::from(n).checked_mul(i),
+            Power::Fixed(p) => Some(i64::from(n) * i64::from(p) / i64::from(DENOM)),
+        };
+        wide.and_then(|w| i32::try_from(w).ok())
+            .ok_or_else(|| OVERFLOW.to_string())
+    }
+
+    /// The power the value is raised to: the rationalized exponent.
+    fn value(self) -> f64 {
+        match self {
+            Power::Int(i) => i as f64,
+            Power::Fixed(p) => f64::from(p) / f64::from(DENOM),
+        }
+    }
+}
+
+fn raise(q: Quantity, power: Power) -> Result<Quantity, String> {
+    let mut dims = [0; 7];
+    for (out, &n) in dims.iter_mut().zip(&q.dims.0) {
+        *out = power.apply(n)?;
+    }
+    let mut terms = Vec::with_capacity(q.terms.len());
+    for &(i, e) in &q.terms {
+        let e = power.apply(e)?;
+        if e != 0 {
+            terms.push((i, e));
+        }
+    }
+    let v = power.value();
+    Ok(Quantity {
+        si: q.si.powf(v),
+        dims: Dimensions(dims),
+        sym: q.sym.powf(v),
+        terms,
+    })
+}
+
+/// Julia's `^` on `Int`, which wraps.
+fn wrapping_ipow(mut base: i64, mut e: u64) -> i64 {
+    let mut out: i64 = 1;
+    while e > 0 {
+        if e & 1 == 1 {
+            out = out.wrapping_mul(base);
+        }
+        base = base.wrapping_mul(base);
+        e >>= 1;
+    }
+    out
+}
+
+/// `base^e` for a `Rational` numerator or denominator, which Julia checks.
+fn checked_ipow(base: i64, e: u64) -> Result<i64, String> {
+    match base {
+        0 | 1 => Ok(if e == 0 { 1 } else { base }),
+        -1 => Ok(if e.is_multiple_of(2) { 1 } else { -1 }),
+        _ => u32::try_from(e)
+            .ok()
+            .and_then(|e| base.checked_pow(e))
+            .ok_or_else(|| OVERFLOW.to_string()),
     }
 }
 
@@ -490,42 +598,20 @@ fn power(base: Value, exp: Value) -> Result<Value, String> {
         e => e,
     };
     match base {
-        Value::Quantity(q) => {
-            // DynamicQuantities rationalizes the exponent, then raises the value to the
-            // rationalized power.
-            let p = match exp {
-                Value::Int(i) => i.wrapping_mul(i64::from(DENOM)) as i32,
-                Value::Rational(n, d) => (i128::from(n) * i128::from(DENOM) / i128::from(d)) as i32,
-                Value::Float(x) if x.fract() == 0.0 => (x.round() as i64).wrapping_mul(i64::from(DENOM)) as i32,
-                Value::Float(x) => {
-                    let (n, d) = rationalize(x);
-                    (i128::from(n) * i128::from(DENOM) / i128::from(d)) as i32
-                }
-                Value::Quantity(_) => unreachable!("converted above"),
-            };
-            let value_power = match exp {
-                Value::Int(i) => i as f64,
-                _ => f64::from(p) / f64::from(DENOM),
-            };
-            let mut terms: Vec<(usize, i32)> = q.terms.iter().map(|&(i, e)| (i, fixed_mul(e, p))).collect();
-            terms.retain(|&(_, e)| e != 0);
-            Ok(Value::Quantity(Quantity {
-                si: q.si.powf(value_power),
-                dims: q.dims.pow(p),
-                sym: q.sym.powf(value_power),
-                terms,
-            }))
-        }
+        Value::Quantity(q) => Ok(Value::Quantity(raise(q, Power::of(&exp)?)?)),
         Value::Int(b) => Ok(match exp {
-            Value::Int(e) if e >= 0 => Value::Int(b.wrapping_pow(e as u32)),
+            Value::Int(e) if e >= 0 => Value::Int(wrapping_ipow(b, e.unsigned_abs())),
             e => Value::Float((b as f64).powf(e.as_f64())),
         }),
         Value::Rational(n, d) => match exp {
-            Value::Int(e) if e >= 0 => rational(n.wrapping_pow(e as u32), d.wrapping_pow(e as u32)),
-            Value::Int(e) => rational(
-                d.wrapping_pow(e.unsigned_abs() as u32),
-                n.wrapping_pow(e.unsigned_abs() as u32),
-            ),
+            Value::Int(e) => {
+                let (n, d) = (checked_ipow(n, e.unsigned_abs())?, checked_ipow(d, e.unsigned_abs())?);
+                if e >= 0 {
+                    rational(n.into(), d.into())
+                } else {
+                    rational(d.into(), n.into())
+                }
+            }
             e => Ok(Value::Float((n as f64 / d as f64).powf(e.as_f64()))),
         },
         Value::Float(b) => Ok(Value::Float(b.powf(exp.as_f64()))),
@@ -571,11 +657,16 @@ fn rationalize(x: f64) -> (i64, i64) {
     }
 }
 
+/// Bounds the parser's recursion: every nested level passes through `Parser::unary` or a `^`
+/// exponent. Running out of stack aborts the process, and WASM stacks are small.
+const MAX_NESTING: u32 = 64;
+
 /// Precedence follows Julia: `+ -` < `* /` < unary `- +` < `//` < numeric juxtaposition (`2m`) <
 /// `^`, with `^` right-associative.
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
+    depth: u32,
 }
 
 impl Parser<'_> {
@@ -590,6 +681,16 @@ impl Parser<'_> {
         } else {
             false
         }
+    }
+
+    fn nested(&mut self, parse: fn(&mut Self) -> Result<Value, String>) -> Result<Value, String> {
+        if self.depth == MAX_NESTING {
+            return Err("the expression is nested too deeply".to_string());
+        }
+        self.depth += 1;
+        let value = parse(self);
+        self.depth -= 1;
+        value
     }
 
     fn sum(&mut self) -> Result<Value, String> {
@@ -619,8 +720,12 @@ impl Parser<'_> {
     }
 
     fn unary(&mut self) -> Result<Value, String> {
+        self.nested(Self::prefixed)
+    }
+
+    fn prefixed(&mut self) -> Result<Value, String> {
         if self.eat("-") {
-            Ok(negate(self.unary()?))
+            negate(self.unary()?)
         } else if self.eat("+") {
             self.unary()
         } else {
@@ -659,10 +764,10 @@ impl Parser<'_> {
             return Ok(base);
         }
         let exp = if self.eat("-") {
-            negate(self.power()?)
+            negate(self.nested(Self::power)?)?
         } else {
             self.eat("+");
-            self.power()?
+            self.nested(Self::power)?
         };
         power(base, exp)
     }

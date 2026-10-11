@@ -210,3 +210,34 @@ fn operator_propagation_matches_symbolic_regression_jl() {
     }
     assert_eq!((checked, skipped), (1645, 15));
 }
+
+/// Julia checks `Rational` arithmetic and the conversion of exponents to `FixedRational{Int32}`,
+/// so an overflow throws; here it is an error naming the string, never a panic or abort.
+#[test]
+fn overflowing_unit_strings_are_errors() {
+    let deep = format!("{}m{}", "(".repeat(100_000), ")".repeat(100_000));
+    let negations = format!("{}m", "-".repeat(100_000));
+    let exponents = format!("m{}", "^m".repeat(100_000));
+    for src in [
+        "1//(9223372036854775807+1)*m",
+        "(9223372036854775807//2)*(9223372036854775807//3)*m",
+        "((9223372036854775807//2)+(9223372036854775807//3))*m",
+        "-(-9223372036854775807//1-1//1)*m",
+        "(2//3)^100*m",
+        "m^(9223372036854775807//2)",
+        "m^100000",
+        "m^9223372036854775807",
+        "(m^20000)^20000",
+        "m^1e9",
+        &deep,
+        &negations,
+        &exponents,
+    ] {
+        let err = Unit::parse(src).expect_err(&src[..src.len().min(40)]);
+        assert!(
+            err.starts_with(&format!("cannot parse unit `{src}`: ")),
+            "{}",
+            &err[..err.len().min(200)]
+        );
+    }
+}
