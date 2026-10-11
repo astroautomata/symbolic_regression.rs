@@ -100,7 +100,7 @@ impl Unit {
             return Ok(Self::dimensionless());
         }
         let err = |message: String| format!("cannot parse unit `{src}`: {message}");
-        let tokens = lex(src).map_err(err)?;
+        let tokens = lex(&julia_normalize(src)).map_err(err)?;
         let mut parser = Parser {
             tokens: &tokens,
             pos: 0,
@@ -265,6 +265,34 @@ impl std::fmt::Display for Token {
             Token::Sym(s) => f.write_str(s),
         }
     }
+}
+
+/// Julia's normalization of source identifiers: NFC, then `Base.Unicode.julia_chartransform`
+/// (`_julia_charmap` in base/strings/unicode.jl). Of NFC, only the mappings that can produce a
+/// registered name are applied: U+2126 OHM SIGN to `Ω`, U+212B ANGSTROM SIGN and `A` followed by
+/// U+030A to `Å`, and U+212A KELVIN SIGN to `K`. Every other NFC change produces characters no
+/// registered name contains, so those strings are unknown units either way.
+fn julia_normalize(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for c in src.chars() {
+        let c = match c {
+            '\u{2126}' => '\u{03A9}',
+            '\u{212B}' => '\u{00C5}',
+            '\u{030A}' if out.ends_with('A') => {
+                out.pop();
+                '\u{00C5}'
+            }
+            '\u{212A}' => 'K',
+            '\u{025B}' => '\u{03B5}',
+            '\u{00B5}' => '\u{03BC}',
+            '\u{00B7}' | '\u{0387}' => '\u{22C5}',
+            '\u{2212}' => '-',
+            '\u{210F}' => '\u{0127}',
+            c => c,
+        };
+        out.push(c);
+    }
+    out
 }
 
 fn lex(src: &str) -> Result<Vec<Token>, String> {

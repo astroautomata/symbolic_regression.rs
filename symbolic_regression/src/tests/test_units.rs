@@ -252,3 +252,23 @@ fn float_exponents_round_to_the_fixed_denominator() {
         assert!(Unit::parse(src).unwrap_err().ends_with("is not finite"), "`{src}`");
     }
 }
+
+/// Julia normalizes identifiers to NFC and then applies `Base.Unicode.julia_chartransform`.
+#[test]
+fn unit_names_normalize_as_julia_identifiers() {
+    for (written, canonical) in [
+        ("\u{2126}", "Ω"),
+        ("m\u{2126}", "mΩ"),
+        ("\u{00B5}m", "μm"),
+        ("\u{212B}", "Å"),
+        ("A\u{030A}", "Å"),
+        ("\u{212A}", "K"),
+        ("m^\u{2212}1", "m^-1"),
+    ] {
+        assert_eq!(
+            Unit::parse(written).unwrap(),
+            Unit::parse(canonical).unwrap(),
+            "`{written}`"
+        );
+    }
+}
