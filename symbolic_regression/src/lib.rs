@@ -52,6 +52,7 @@ pub use options::{
     EarlyStop, EarlyStopCondition, LossScale, MutationWeights, Options, OutputStyle, WasmOptionsShim, parse_early_stop,
 };
 pub use pop_member::PopMember;
+pub use population::Population;
 pub use search_utils::{SearchEngine, SearchResult, equation_search, resume_search};
 #[cfg(feature = "bench")]
 pub use {
@@ -61,7 +62,6 @@ pub use {
     constant_optimization::{OptimizeConstantsCtx, optimize_constants},
     mutate::{NextGenerationCtx, next_generation},
     pop_member::Evaluator,
-    population::Population,
     selection::best_of_sample,
 };
 
