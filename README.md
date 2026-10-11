@@ -203,7 +203,7 @@ let options = Options::<f64, BuiltinOpsF64, 2> {
 
 ## Units
 
-`Dataset::with_units` attaches units to the features and the target, written as PySR takes them: `"kg"`, `"m/s^2"`, `"km"`, `"Constants.G"`, or `""` for dimensionless. The parser follows DynamicQuantities' `uparse`, with its units, prefixes, and constants; a bad string fails with the offending token. Target units alone make every feature dimensionless.
+`Dataset::with_units` attaches units to the features and the target, written as PySR takes them: `"kg"`, `"m/s^2"`, `"km"`, `"Constants.G"`, or `""` for dimensionless. The parser follows DynamicQuantities' `uparse`, with its units, prefixes, constants, and the functions it defines on quantities (`"sqrt(mΩ)"`); a bad string fails with the offending token. Target units alone make every feature dimensionless.
 
 ```rust
 use ndarray::{Array1, Array2};

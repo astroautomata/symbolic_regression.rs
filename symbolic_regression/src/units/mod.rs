@@ -93,8 +93,10 @@ impl Unit {
     }
 
     /// Parses a unit string as DynamicQuantities' `uparse` and `sym_uparse` do: registered units
-    /// and prefixes (`km/s^2`), `Constants.G`, numbers, `*`, `/`, `^`, `//`, `+`, `-`, and
-    /// parentheses. An empty string is dimensionless, as in SymbolicRegression.jl.
+    /// and prefixes (`km/s^2`), `Constants.G`, numbers, `*`, `/`, `^`, `//`, `+`, `-`,
+    /// parentheses, and calls of the functions DynamicQuantities defines on quantities
+    /// (`sqrt(mΩ)`). Names normalize as Julia identifiers. An empty string is dimensionless, as in
+    /// SymbolicRegression.jl.
     pub fn parse(src: &str) -> Result<Self, String> {
         if src.trim().is_empty() {
             return Ok(Self::dimensionless());
@@ -333,7 +335,7 @@ fn lex(src: &str) -> Result<Vec<Token>, String> {
             }
             tokens.push(Token::Name(src[start..end].to_string()));
         } else {
-            let sym = ["//", "*", "/", "^", "+", "-", "(", ")", "."]
+            let sym = ["//", "*", "/", "^", "+", "-", "(", ")", ".", ","]
                 .into_iter()
                 .find(|s| src[start..].starts_with(s))
                 .ok_or_else(|| format!("unexpected `{c}`"))?;
@@ -570,7 +572,8 @@ impl Power {
     }
 }
 
-fn raise(q: Quantity, power: Power) -> Result<Quantity, String> {
+/// `q` with its exponents multiplied by `power` and its values mapped by `value`.
+fn raise(q: Quantity, power: Power, value: impl Fn(f64) -> f64) -> Result<Quantity, String> {
     let mut dims = [0; 7];
     for (out, &n) in dims.iter_mut().zip(&q.dims.0) {
         *out = power.apply(n)?;
@@ -582,11 +585,10 @@ fn raise(q: Quantity, power: Power) -> Result<Quantity, String> {
             terms.push((i, e));
         }
     }
-    let v = power.value();
     Ok(Quantity {
-        si: q.si.powf(v),
+        si: value(q.si),
         dims: Dimensions(dims),
-        sym: q.sym.powf(v),
+        sym: value(q.sym),
         terms,
     })
 }
@@ -623,7 +625,11 @@ fn power(base: Value, exp: Value) -> Result<Value, String> {
         e => e,
     };
     match base {
-        Value::Quantity(q) => Ok(Value::Quantity(raise(q, Power::of(&exp)?)?)),
+        Value::Quantity(q) => {
+            let power = Power::of(&exp)?;
+            let v = power.value();
+            Ok(Value::Quantity(raise(q, power, |x| x.powf(v))?))
+        }
         Value::Int(b) => Ok(match exp {
             Value::Int(e) if e >= 0 => Value::Int(wrapping_ipow(b, e.unsigned_abs())),
             e => Value::Float((b as f64).powf(e.as_f64())),
@@ -641,6 +647,418 @@ fn power(base: Value, exp: Value) -> Result<Value, String> {
         },
         Value::Float(b) => Ok(Value::Float(b.powf(exp.as_f64()))),
     }
+}
+
+/// A value as an error message shows it.
+fn show(v: &Value) -> String {
+    match v {
+        Value::Int(i) => i.to_string(),
+        Value::Rational(n, d) => format!("{n}//{d}"),
+        Value::Float(x) => julia_float(*x),
+        Value::Quantity(q) => julia_float(q.si),
+    }
+}
+
+/// The functions `src/math.jl` defines on quantities, evaluated as DynamicQuantities' parsers
+/// evaluate a call (uparse.jl:67-73, symbolic_dimensions.jl:515-521): a quantity argument follows
+/// `math.jl`, and a plain number follows Julia's `Base`. Those parsers hand every call to Julia,
+/// so on plain numbers any Julia function works there; this port takes the functions `math.jl`
+/// extends to quantities and rejects every other name. Of those, `frexp` and `modf` return tuples,
+/// which the parsers reject, and `unsigned` and `angle` have no method for a real `Float64`
+/// quantity.
+fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
+    if matches!(name, "atan" | "atand") && args.len() == 2 {
+        let (y, x) = two(name, args)?;
+        let (y, x) = same_units(name, y, x)?;
+        let angle = y.atan2(x);
+        return Ok(Value::Float(if name == "atand" { angle.to_degrees() } else { angle }));
+    }
+    if let Some(f) = dimensionless_function(name) {
+        let a = one(name, args)?;
+        let x = dimensionless(name, &a)?;
+        return defined(name, &a, f(x)).map(Value::Float);
+    }
+    match name {
+        "exponent" => {
+            let a = one(name, args)?;
+            let x = dimensionless(name, &a)?;
+            if x == 0.0 || !x.is_finite() {
+                return Err(format!("`{name}` is not defined at {}", show(&a)));
+            }
+            Ok(Value::Int(exponent(x)))
+        }
+        "sqrt" => root(name, one(name, args)?, DENOM / 2, f64::sqrt),
+        "cbrt" => root(name, one(name, args)?, DENOM / 3, f64::cbrt),
+        "inv" => inv(one(name, args)?),
+        "abs2" => abs2(one(name, args)?),
+        "abs" | "float" | "real" | "imag" | "conj" | "adjoint" | "transpose" | "nextfloat" | "prevfloat"
+        | "significand" | "round" | "floor" | "ceil" | "trunc" => keep_units(name, one(name, args)?),
+        "copysign" | "flipsign" => {
+            let (x, y) = two(name, args)?;
+            Ok(with_sign(name, x, &y)?)
+        }
+        "mod" | "rem" => {
+            let (x, y) = two(name, args)?;
+            modulo(name, x, y)
+        }
+        "div" => {
+            let (x, y) = two(name, args)?;
+            div(x, y)
+        }
+        "ldexp" => {
+            let (x, n) = two(name, args)?;
+            let Value::Int(n) = n else {
+                return Err("`ldexp` needs an integer exponent".to_string());
+            };
+            let scale = 2f64.powi(n.clamp(-2200, 2200) as i32);
+            Ok(match x {
+                Value::Quantity(q) => Value::Quantity(Quantity {
+                    si: q.si * scale,
+                    sym: q.sym * scale,
+                    ..q
+                }),
+                x => Value::Float(x.as_f64() * scale),
+            })
+        }
+        "factorial" => match one(name, args)? {
+            Value::Int(n) if n < 0 => Err(format!("`factorial` is not defined at {n}")),
+            Value::Int(n) => (2..=n)
+                .try_fold(1i64, |acc, i| acc.checked_mul(i))
+                .map(Value::Int)
+                .ok_or_else(|| OVERFLOW.to_string()),
+            _ => Err("`factorial` needs an integer".to_string()),
+        },
+        "binomial" => match two(name, args)? {
+            (Value::Int(n), Value::Int(k)) => binomial(n.into(), k.into()).map(Value::Int),
+            _ => Err("`binomial` needs integers".to_string()),
+        },
+        _ => Err(format!(
+            "`{name}` is not a function DynamicQuantities defines on quantities"
+        )),
+    }
+}
+
+fn one(name: &str, args: Vec<Value>) -> Result<Value, String> {
+    let n = args.len();
+    <[Value; 1]>::try_from(args)
+        .map(|[a]| a)
+        .map_err(|_| format!("`{name}` takes 1 argument, got {n}"))
+}
+
+fn two(name: &str, args: Vec<Value>) -> Result<(Value, Value), String> {
+    let n = args.len();
+    <[Value; 2]>::try_from(args)
+        .map(|[a, b]| (a, b))
+        .map_err(|_| format!("`{name}` takes 2 arguments, got {n}"))
+}
+
+/// `y`, failing where Julia throws a `DomainError`: a NaN from an argument that is not NaN.
+fn defined(name: &str, arg: &Value, y: f64) -> Result<f64, String> {
+    if y.is_nan() && !arg.as_f64().is_nan() {
+        return Err(format!("`{name}` is not defined at {}", show(arg)));
+    }
+    Ok(y)
+}
+
+fn dimensionless(name: &str, a: &Value) -> Result<f64, String> {
+    match a {
+        Value::Quantity(q) if !q.is_dimensionless() => Err(format!("`{name}` needs a dimensionless argument")),
+        a => Ok(a.as_f64()),
+    }
+}
+
+fn same_units(name: &str, a: Value, b: Value) -> Result<(f64, f64), String> {
+    if !matches!(a, Value::Quantity(_)) && !matches!(b, Value::Quantity(_)) {
+        return Ok((a.as_f64(), b.as_f64()));
+    }
+    let (a, b) = (a.into_quantity(), b.into_quantity());
+    if a.dims != b.dims || a.terms != b.terms {
+        return Err(format!("`{name}` needs arguments with the same units"));
+    }
+    Ok((a.si, b.si))
+}
+
+/// The functions `src/math.jl` 154-187 define on dimensionless quantities, returning a number.
+fn dimensionless_function(name: &str) -> Option<fn(f64) -> f64> {
+    use std::f64::consts::PI;
+    let f: fn(f64) -> f64 = match name {
+        "sin" => f64::sin,
+        "cos" => f64::cos,
+        "tan" => f64::tan,
+        "sinh" => f64::sinh,
+        "cosh" => f64::cosh,
+        "tanh" => f64::tanh,
+        "asin" => f64::asin,
+        "acos" => f64::acos,
+        "asinh" => f64::asinh,
+        "acosh" => f64::acosh,
+        "atanh" => f64::atanh,
+        "sec" => |x| 1.0 / x.cos(),
+        "csc" => |x| 1.0 / x.sin(),
+        "cot" => |x| 1.0 / x.tan(),
+        "asec" => |x| (1.0 / x).acos(),
+        "acsc" => |x| (1.0 / x).asin(),
+        "acot" => |x| (1.0 / x).atan(),
+        "sech" => |x| 1.0 / x.cosh(),
+        "csch" => |x| 1.0 / x.sinh(),
+        "coth" => |x| 1.0 / x.tanh(),
+        "asech" => |x| (1.0 / x).acosh(),
+        "acsch" => |x| (1.0 / x).asinh(),
+        "acoth" => |x| (1.0 / x).atanh(),
+        "sinc" => |x| if x == 0.0 { 1.0 } else { (PI * x).sin() / (PI * x) },
+        "cosc" => |x| {
+            if x == 0.0 {
+                0.0
+            } else {
+                ((PI * x).cos() - (PI * x).sin() / (PI * x)) / x
+            }
+        },
+        "sinpi" => |x| (PI * x).sin(),
+        "cospi" => |x| (PI * x).cos(),
+        "sind" => |x| x.to_radians().sin(),
+        "cosd" => |x| x.to_radians().cos(),
+        "tand" => |x| x.to_radians().tan(),
+        "cotd" => |x| 1.0 / x.to_radians().tan(),
+        "cscd" => |x| 1.0 / x.to_radians().sin(),
+        "secd" => |x| 1.0 / x.to_radians().cos(),
+        "asind" => |x| x.asin().to_degrees(),
+        "acosd" => |x| x.acos().to_degrees(),
+        "acotd" => |x| (1.0 / x).atan().to_degrees(),
+        "acscd" => |x| (1.0 / x).asin().to_degrees(),
+        "asecd" => |x| (1.0 / x).acos().to_degrees(),
+        "log" => f64::ln,
+        "log2" => f64::log2,
+        "log10" => f64::log10,
+        "log1p" => f64::ln_1p,
+        "exp" => f64::exp,
+        "exp2" => f64::exp2,
+        "exp10" => |x| 10f64.powf(x),
+        "expm1" => f64::exp_m1,
+        "atan" => f64::atan,
+        "atand" => |x| x.atan().to_degrees(),
+        _ => return None,
+    };
+    Some(f)
+}
+
+/// Julia's `exponent` for a finite, nonzero `x`: `floor(log2(abs(x)))`.
+fn exponent(x: f64) -> i64 {
+    let bits = x.abs().to_bits();
+    match (bits >> 52) as i64 {
+        0 => 63 - i64::from(bits.leading_zeros()) - 1074,
+        e => e - 1023,
+    }
+}
+
+fn significand(x: f64) -> f64 {
+    if x == 0.0 || !x.is_finite() {
+        x
+    } else {
+        x / 2f64.powi(exponent(x) as i32)
+    }
+}
+
+/// `sqrt` and `cbrt`: the exponents times `inv(convert(FixedRational, 2 or 3))` (`math.jl` 145-148).
+fn root(name: &str, a: Value, p: i32, f: fn(f64) -> f64) -> Result<Value, String> {
+    let y = defined(name, &a, f(a.as_f64()))?;
+    Ok(match a {
+        Value::Quantity(q) => Value::Quantity(raise(q, Power::Fixed(p), f)?),
+        _ => Value::Float(y),
+    })
+}
+
+fn inv(a: Value) -> Result<Value, String> {
+    Ok(match a {
+        Value::Int(i) => Value::Float(1.0 / i as f64),
+        Value::Rational(n, d) => rational(d.into(), n.into())?,
+        Value::Float(x) => Value::Float(1.0 / x),
+        Value::Quantity(q) => Value::Quantity(Quantity {
+            si: 1.0 / q.si,
+            dims: q.dims.inv(),
+            sym: 1.0 / q.sym,
+            terms: q.terms.iter().map(|&(i, e)| (i, e.wrapping_neg())).collect(),
+        }),
+    })
+}
+
+fn abs2(a: Value) -> Result<Value, String> {
+    Ok(match a {
+        Value::Int(i) => Value::Int(i.wrapping_mul(i)),
+        Value::Rational(n, d) => rational(i128::from(n) * i128::from(n), i128::from(d) * i128::from(d))?,
+        Value::Float(x) => Value::Float(x * x),
+        Value::Quantity(q) => Value::Quantity(raise(q, Power::Int(2), |x| x * x)?),
+    })
+}
+
+/// The functions `math.jl` 194-283 apply to the value of a quantity, keeping its units.
+fn keep_units(name: &str, a: Value) -> Result<Value, String> {
+    let f: fn(f64) -> f64 = match name {
+        "abs" => f64::abs,
+        "imag" => |_| 0.0,
+        "nextfloat" => f64::next_up,
+        "prevfloat" => f64::next_down,
+        "significand" => significand,
+        "round" => f64::round_ties_even,
+        "floor" => f64::floor,
+        "ceil" => f64::ceil,
+        "trunc" => f64::trunc,
+        _ => |x| x,
+    };
+    let needs_float = || Err(format!("`{name}` needs a float"));
+    Ok(match a {
+        Value::Quantity(q) => Value::Quantity(Quantity {
+            si: f(q.si),
+            sym: f(q.sym),
+            ..q
+        }),
+        Value::Float(x) => Value::Float(f(x)),
+        Value::Int(i) => match name {
+            "abs" => Value::Int(i.wrapping_abs()),
+            "imag" => Value::Int(0),
+            "nextfloat" | "prevfloat" => return needs_float(),
+            "float" | "significand" => Value::Float(f(i as f64)),
+            _ => Value::Int(i),
+        },
+        Value::Rational(n, d) => match name {
+            "abs" => Value::Rational(n.checked_abs().ok_or(OVERFLOW)?, d),
+            "imag" => Value::Rational(0, 1),
+            "nextfloat" | "prevfloat" => return needs_float(),
+            "float" | "significand" => Value::Float(f(n as f64 / d as f64)),
+            "round" | "floor" | "ceil" | "trunc" => Value::Rational(round_ratio(name, n, d), 1),
+            _ => Value::Rational(n, d),
+        },
+    })
+}
+
+/// `n // d` (with `d > 0`) rounded to an integer as Julia's `round`, `floor`, `ceil`, `trunc`.
+fn round_ratio(name: &str, n: i64, d: i64) -> i64 {
+    let (n, d) = (i128::from(n), i128::from(d));
+    let floor = n.div_euclid(d);
+    let rem = n - floor * d;
+    let rounded = match name {
+        "floor" => floor,
+        "ceil" => floor + i128::from(rem != 0),
+        "trunc" => n / d,
+        _ if 2 * rem > d || (2 * rem == d && floor % 2 != 0) => floor + 1,
+        _ => floor,
+    };
+    i64::try_from(rounded).expect("an integer part of an i64 ratio is an i64")
+}
+
+fn with_sign(name: &str, x: Value, y: &Value) -> Result<Value, String> {
+    let negative = y.as_f64().is_sign_negative();
+    let flip = |is_negative: bool| {
+        if name == "copysign" {
+            is_negative != negative
+        } else {
+            negative
+        }
+    };
+    let f = |v: f64| if flip(v.is_sign_negative()) { -v } else { v };
+    Ok(match x {
+        Value::Quantity(q) => Value::Quantity(Quantity {
+            si: f(q.si),
+            sym: f(q.sym),
+            ..q
+        }),
+        Value::Float(v) => Value::Float(f(v)),
+        Value::Int(i) => Value::Int(if flip(i < 0) { i.wrapping_neg() } else { i }),
+        Value::Rational(n, d) if flip(n < 0) => Value::Rational(n.checked_neg().ok_or(OVERFLOW)?, d),
+        r @ Value::Rational(..) => r,
+    })
+}
+
+fn modulo(name: &str, x: Value, y: Value) -> Result<Value, String> {
+    let is_mod = name == "mod";
+    let fmod = |a: f64, b: f64| {
+        let r = a % b;
+        if is_mod && r != 0.0 && (r < 0.0) != (b < 0.0) {
+            r + b
+        } else {
+            r
+        }
+    };
+    let by_zero = || Err(format!("`{name}` divides by zero"));
+    Ok(match (x, y) {
+        (x @ Value::Quantity(_), y) | (x, y @ Value::Quantity(_)) => {
+            let (x, y) = (x.into_quantity(), y.into_quantity());
+            if x.dims != y.dims || x.terms != y.terms {
+                return Err(format!("`{name}` needs arguments with the same units"));
+            }
+            Value::Quantity(Quantity {
+                si: fmod(x.si, y.si),
+                sym: fmod(x.sym, y.sym),
+                ..x
+            })
+        }
+        (x @ Value::Float(_), y) | (x, y @ Value::Float(_)) => Value::Float(fmod(x.as_f64(), y.as_f64())),
+        (x, y) => {
+            let (xn, xd) = as_ratio(&x);
+            let (yn, yd) = as_ratio(&y);
+            let (p, q) = (xn * yd, yn * xd);
+            if q == 0 {
+                return by_zero();
+            }
+            let r = p % q;
+            let r = if is_mod && r != 0 && (r < 0) != (q < 0) {
+                r + q
+            } else {
+                r
+            };
+            match (x, y) {
+                (Value::Int(_), Value::Int(_)) => Value::Int(i64::try_from(r).expect("a remainder of i64 values")),
+                _ => rational(r, xd * yd)?,
+            }
+        }
+    })
+}
+
+fn div(x: Value, y: Value) -> Result<Value, String> {
+    let truncated = |a: f64, b: f64| ((a - a % b) / b).round();
+    Ok(match (x, y) {
+        (x @ Value::Quantity(_), y) | (x, y @ Value::Quantity(_)) => {
+            let (x, y) = (x.into_quantity(), y.into_quantity());
+            Value::Quantity(Quantity {
+                si: truncated(x.si, y.si),
+                dims: x.dims / y.dims,
+                sym: truncated(x.sym, y.sym),
+                terms: merge_terms(&x.terms, &y.terms, true),
+            })
+        }
+        (x @ Value::Float(_), y) | (x, y @ Value::Float(_)) => Value::Float(truncated(x.as_f64(), y.as_f64())),
+        (x, y) => {
+            let (xn, xd) = as_ratio(&x);
+            let (yn, yd) = as_ratio(&y);
+            let (p, q) = (xn * yd, yn * xd);
+            if q == 0 {
+                return Err("`div` divides by zero".to_string());
+            }
+            Value::Int(i64::try_from(p / q).map_err(|_| OVERFLOW.to_string())?)
+        }
+    })
+}
+
+/// Julia's `binomial`, which throws on overflow; for `n < 0` it is `(-1)^k binomial(k - n - 1, k)`.
+fn binomial(n: i128, k: i128) -> Result<i64, String> {
+    if k < 0 {
+        return Ok(0);
+    }
+    if n < 0 {
+        let b = binomial(k - n - 1, k)?;
+        return Ok(if k % 2 == 0 { b } else { -b });
+    }
+    if k > n {
+        return Ok(0);
+    }
+    let k = k.min(n - k);
+    let mut out: i128 = 1;
+    for i in 1..=k {
+        out = out * (n - k + i) / i;
+        if out > i128::from(i64::MAX) {
+            return Err(OVERFLOW.to_string());
+        }
+    }
+    Ok(out as i64)
 }
 
 /// Bounds the parser's recursion: every nested level passes through `Parser::unary` or a `^`
@@ -787,6 +1205,22 @@ impl Parser<'_> {
                     }
                     _ => Err("expected a constant name after `Constants.`".to_string()),
                 }
+            }
+            Token::Name(name) if self.peek() == Some(&Token::Sym("(")) => {
+                self.pos += 1;
+                let mut args = Vec::new();
+                if !self.eat(")") {
+                    loop {
+                        args.push(self.sum()?);
+                        if self.eat(")") {
+                            break;
+                        }
+                        if !self.eat(",") {
+                            return Err("missing `)`".to_string());
+                        }
+                    }
+                }
+                call(&name, args)
             }
             Token::Name(name) => match ENTRIES[..N_UNITS].iter().position(|e| e.name == name) {
                 Some(i) => Ok(Value::Quantity(Quantity::entry(i))),

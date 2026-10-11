@@ -272,3 +272,55 @@ fn unit_names_normalize_as_julia_identifiers() {
         );
     }
 }
+
+/// The functions DynamicQuantities defines on quantities (`src/math.jl`), evaluated as its
+/// parsers evaluate a call; any other function is an error naming it.
+#[test]
+fn unit_strings_call_dynamic_quantities_functions() {
+    let sqrt_milliohm = Unit::parse("sqrt(mΩ)").unwrap();
+    assert!((0.9 * sqrt_milliohm.scale - 0.02846049894151541).abs() < 1e-15);
+    assert_eq!(sqrt_milliohm.dims, Dimensions([25200, 12600, -37800, -25200, 0, 0, 0]));
+    assert_eq!(sqrt_milliohm.label(), "[mΩ¹ᐟ²]");
+    for (src, scale, numerators, label) in [
+        ("cbrt(m^3)", 1.0, [25200, 0, 0, 0, 0, 0, 0], "[m]"),
+        ("inv(s)", 1.0, [0, 0, -25200, 0, 0, 0, 0], "[s⁻¹]"),
+        ("abs2(km)", 1.0e6, [50400, 0, 0, 0, 0, 0, 0], "[km²]"),
+        ("abs(-2)*m", 2.0, [25200, 0, 0, 0, 0, 0, 0], "[2.0 m]"),
+        (
+            "exp(m/m)*m",
+            std::f64::consts::E,
+            [25200, 0, 0, 0, 0, 0, 0],
+            "[2.718281828459045 m]",
+        ),
+        (
+            "atan(1, 1)*m",
+            std::f64::consts::FRAC_PI_4,
+            [25200, 0, 0, 0, 0, 0, 0],
+            "[0.7853981633974483 m]",
+        ),
+        ("m^sqrt(4)", 1.0, [50400, 0, 0, 0, 0, 0, 0], "[m²]"),
+        ("round(2.5)*m", 2.0, [25200, 0, 0, 0, 0, 0, 0], "[2.0 m]"),
+        ("mod(7, 3)*m", 1.0, [25200, 0, 0, 0, 0, 0, 0], "[m]"),
+        ("div(km, s)", 1000.0, [25200, 0, -25200, 0, 0, 0, 0], "[s⁻¹ km]"),
+        ("factorial(4)*m", 24.0, [25200, 0, 0, 0, 0, 0, 0], "[24.0 m]"),
+    ] {
+        assert_unit(src, scale, Dimensions(numerators), label, "math.jl");
+    }
+    for (src, message) in [
+        ("exp(m)", "`exp` needs a dimensionless argument"),
+        ("sqrt(-1)", "`sqrt` is not defined at -1"),
+        ("sqrt(m, s)", "`sqrt` takes 1 argument, got 2"),
+        ("atan(m, s)", "`atan` needs arguments with the same units"),
+        ("factorial(21)", "integer overflow"),
+        (
+            "gcd(4, 6)",
+            "`gcd` is not a function DynamicQuantities defines on quantities",
+        ),
+        ("m(2)", "`m` is not a function DynamicQuantities defines on quantities"),
+    ] {
+        assert_eq!(
+            Unit::parse(src).unwrap_err(),
+            format!("cannot parse unit `{src}`: {message}")
+        );
+    }
+}
