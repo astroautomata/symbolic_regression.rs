@@ -268,6 +268,23 @@ fn non_finite_function_arguments_are_errors() {
     }
 }
 
+/// Julia's `ldexp` rounds `x * 2^n` once, even where `2^n` alone is not a finite `Float64`.
+#[test]
+fn ldexp_scales_beyond_the_range_of_its_power_of_two() {
+    for (src, scale) in [
+        ("ldexp(1e-300m, 1024)", 1e-300 * 2f64.powi(1023) * 2.0),
+        ("ldexp(1e300m, -2000)", 1e300 * 2f64.powi(-1000) * 2f64.powi(-1000)),
+        ("ldexp(1.5, -1074)*m", f64::from_bits(2)),
+    ] {
+        let unit = Unit::parse(src).unwrap();
+        assert!(
+            (unit.scale - scale).abs() <= 1e-12 * scale.abs(),
+            "`{src}` scale {:e} != {scale:e}",
+            unit.scale
+        );
+    }
+}
+
 /// Julia normalizes identifiers to NFC and then applies `Base.Unicode.julia_chartransform`.
 #[test]
 fn unit_names_normalize_as_julia_identifiers() {

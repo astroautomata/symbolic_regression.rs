@@ -717,14 +717,13 @@ fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
             let Value::Int(n) = n else {
                 return Err("`ldexp` needs an integer exponent".to_string());
             };
-            let scale = 2f64.powi(n.clamp(-2200, 2200) as i32);
             Ok(match x {
                 Value::Quantity(q) => Value::Quantity(Quantity {
-                    si: q.si * scale,
-                    sym: q.sym * scale,
+                    si: ldexp(q.si, n),
+                    sym: ldexp(q.sym, n),
                     ..q
                 }),
-                x => Value::Float(x.as_f64() * scale),
+                x => Value::Float(ldexp(x.as_f64(), n)),
             })
         }
         "factorial" => match one(name, args)? {
@@ -855,6 +854,22 @@ fn exponent(x: f64) -> i64 {
         0 => 63 - i64::from(bits.leading_zeros()) - 1074,
         e => e - 1023,
     }
+}
+
+/// Julia's `ldexp`: `x * 2^n` rounded once, though `2^n` may not be a finite `Float64`. Each
+/// factor is finite, and the steps below the normal range leave the last factor at most `2^-54`,
+/// so that only the last multiplication can round (musl's `scalbn`).
+fn ldexp(mut x: f64, n: i64) -> f64 {
+    let mut n = n.clamp(-2200, 2200) as i32;
+    while n > 1023 {
+        x *= 2f64.powi(1023);
+        n -= 1023;
+    }
+    while n < -1022 {
+        x *= 2f64.powi(-969);
+        n += 969;
+    }
+    x * 2f64.powi(n)
 }
 
 fn significand(x: f64) -> f64 {
