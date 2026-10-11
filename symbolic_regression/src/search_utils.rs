@@ -737,7 +737,7 @@ pub(crate) fn new_expression<T: Float, Ops, const D: usize>(
         return tree.into();
     };
     Expression {
-        trees: vec![tree; template.expressions().len()],
+        trees: std::iter::repeat_n(tree, template.expressions().len()).collect(),
         params: (0..template.n_parameters())
             .map(|_| T::from(standard_normal(rng)).expect("a float converts to T"))
             .collect(),

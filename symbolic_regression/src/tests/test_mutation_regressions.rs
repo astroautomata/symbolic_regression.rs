@@ -345,7 +345,7 @@ fn template_feature_mutation_sees_subexpression_arity() {
         ..Default::default()
     };
     let expr = crate::expression::Expression {
-        trees: vec![leaf_expr(0), leaf_expr(0)],
+        trees: vec![leaf_expr(0), leaf_expr(0)].into(),
         params: Vec::new(),
     };
     let member = PopMember::from_expr(expr, 2, &options);

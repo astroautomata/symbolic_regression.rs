@@ -11,7 +11,7 @@ use num_traits::Float;
 use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::dataset::TaggedDataset;
-use crate::expression::Expression;
+use crate::expression::{Expression, OneOrMany};
 use crate::loss_functions::loss_to_cost;
 use crate::options::Options;
 
@@ -19,8 +19,8 @@ use crate::options::Options;
 pub struct PopMember<T: Float, Ops, const D: usize> {
     pub birth: u64,
     pub expr: Expression<T, Ops, D>,
-    /// One evaluation plan per tree of `expr`.
-    pub plans: Vec<EvalPlan<D>>,
+    /// One evaluation plan per tree of `expr`, with a single plan stored inline.
+    pub plans: OneOrMany<EvalPlan<D>>,
     pub complexity: usize,
     pub loss: T,
     pub cost: T,

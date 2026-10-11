@@ -89,11 +89,20 @@ pub(crate) fn leaves_finite<T: Float, const D: usize>(
     n_rows: usize,
     consts: &[T],
 ) -> bool {
-    plan.leaf_features.iter().all(|&f| {
-        x_data[f as usize * n_rows..(f as usize + 1) * n_rows]
+    let finite = |src: Src| match src {
+        Src::Var(f) => x_data[f as usize * n_rows..(f as usize + 1) * n_rows]
             .iter()
-            .all(|v| v.is_finite())
-    }) && plan.leaf_consts.iter().all(|&c| consts[c as usize].is_finite())
+            .all(|v| v.is_finite()),
+        Src::Const(c) => consts[c as usize].is_finite(),
+        Src::Slot(_) => true,
+    };
+    plan.instrs.iter().all(|instr| {
+        instr
+            .args
+            .iter()
+            .zip(&instr.leaf_args)
+            .all(|(&src, &first)| !first || finite(src))
+    }) && finite(plan.root)
 }
 
 pub(crate) fn resolve_val_src<'a, T: Float>(

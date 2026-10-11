@@ -78,7 +78,7 @@ fn eval(expr: &Expr, options: &Options<T, TestOps, D>, rows: &[&[T]]) -> Vec<T> 
 #[test]
 fn parameters_are_scalar_constants_after_tree_constants() {
     let mut expr = Expr {
-        trees: vec![arg(1)],
+        trees: vec![arg(1)].into(),
         params: vec![1.0, 2.0],
     };
     let mut constants = expr.constants();
@@ -143,7 +143,7 @@ fn template_loss_on_the_dataset_and_a_batch() {
     };
     let x1 = PostfixExpr::new(vec![PNode::Var { feature: 0 }], vec![], Metadata::default());
     let expr = Expression {
-        trees: vec![x1],
+        trees: vec![x1].into(),
         params: vec![1.0, 2.0],
     };
     let full = loss_dataset();
@@ -219,7 +219,7 @@ fn vectors_changed(expr: &Expr, options: &Options<T, TestOps, D>, n: usize) -> V
 fn constant_mutation_changes_parameters() {
     let options = options("f(x) + p[1] + p[2]", &["f"], &["x"], &[("p", 2)]);
     let expr = Expr {
-        trees: vec![arg(1)],
+        trees: vec![arg(1)].into(),
         params: vec![1.0, 2.0],
     };
     assert_eq!(vectors_changed(&expr, &options, 50), [true]);
@@ -230,7 +230,7 @@ fn constant_mutation_changes_parameters() {
 fn copying_carries_current_parameters() {
     let options = options("f(x) + p[1] + p[2]", &["f"], &["x"], &[("p", 2)]);
     let mut expr = Expr {
-        trees: vec![arg(1)],
+        trees: vec![arg(1)].into(),
         params: vec![10.0, 20.0],
     };
     let mut copy = expr.clone();
@@ -251,7 +251,7 @@ fn multi_parameter_constants_mutation_and_copying() {
         &[("p1", 3), ("p2", 2)],
     );
     let mut expr = Expr {
-        trees: vec![arg(1), arg(1) + 0.0],
+        trees: vec![arg(1), arg(1) + 0.0].into(),
         params: vec![1.0, 2.0, 3.0, -1.0, -2.0],
     };
     assert_eq!(expr.constants(), [0.0, 1.0, 2.0, 3.0, -1.0, -2.0]);
@@ -305,7 +305,7 @@ fn parameter_mutation_changes_one_vector_and_conditions_weights() {
         &[("p1", 2), ("p2", 3)],
     );
     let expr = Expr {
-        trees: vec![arg(1), arg(1)],
+        trees: vec![arg(1), arg(1)].into(),
         params: vec![1.0, 2.0, 3.0, 4.0, 5.0],
     };
     assert_eq!(vectors_changed(&expr, &options, 50), [true, true]);
@@ -347,7 +347,7 @@ fn parameter_mutation_changes_one_vector_and_conditions_weights() {
 fn crossover_children_own_their_state() {
     let options = options("f(x) + g(x) * p[1]", &["f", "g"], &["x"], &[("p", 2)]);
     let parent = |f, g, p: [T; 2]| Expr {
-        trees: vec![constant(f), constant(g)],
+        trees: vec![constant(f), constant(g)].into(),
         params: p.to_vec(),
     };
     let (parent1, parent2) = (parent(1.0, 2.0, [3.0, 4.0]), parent(5.0, 6.0, [7.0, 8.0]));

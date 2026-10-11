@@ -39,7 +39,7 @@ pub use complexity::compute_complexity;
 pub use dataset::{Dataset, TaggedDataset};
 pub use dynamic_expressions::dsl::TemplateStructure;
 pub use dynamic_expressions::{OperatorSelectError, Operators, op, opset};
-pub use expression::Expression;
+pub use expression::{Expression, OneOrMany};
 pub use hall_of_fame::{HallOfFame, choose_best, pareto_volume};
 pub use loss_functions::{BuiltinLoss, LossFn, LossObject, parse_loss};
 pub use operator_library::OperatorLibrary;

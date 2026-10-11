@@ -171,8 +171,7 @@ pub(crate) fn mutate_constant<T: Float, Ops, const D: usize>(
     temperature: f64,
     options: &Options<T, Ops, D>,
 ) {
-    let has_constants = expr.trees.iter().any(|t| !t.consts.is_empty());
-    let mutate_tree = expr.params.is_empty() || (has_constants && rng.bool());
+    let mutate_tree = expr.params.is_empty() || (expr.trees.iter().any(|t| !t.consts.is_empty()) && rng.bool());
     if mutate_tree {
         let k = tree_to_mutate(rng, expr.trees.len());
         let _ = mutation_functions::mutate_constant_in_place(rng, &mut expr.trees[k], temperature, options);
@@ -258,7 +257,7 @@ impl MutationChoice {
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::Simplify => {
-                for tree in &mut expr.trees {
+                for tree in expr.trees.iter_mut() {
                     let _ = dynamic_expressions::simplify_in_place(tree, &options.operators.set, &evaluator.eval_opts);
                 }
                 let mut out = PopMember::from_expr(expr, n_features, options);

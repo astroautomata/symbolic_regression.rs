@@ -86,7 +86,7 @@ where
                 return num_evals;
             }
             let mut changed = false;
-            for tree in &mut m.expr.trees {
+            for tree in m.expr.trees.iter_mut() {
                 changed |=
                     dynamic_expressions::simplify_in_place(tree, &ctx.options.operators.set, &ctx.evaluator.eval_opts);
             }
