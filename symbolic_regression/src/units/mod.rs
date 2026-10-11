@@ -518,11 +518,8 @@ impl Power {
         match *exp {
             Value::Int(i) => Ok(Power::Int(i)),
             Value::Rational(n, d) => fixed(Some(i128::from(n) * i128::from(DENOM) / i128::from(d))),
-            Value::Float(x) if x.fract() == 0.0 => fixed((x as i128).checked_mul(i128::from(DENOM))),
-            Value::Float(x) => {
-                let (n, d) = rationalize(x);
-                fixed(Some(i128::from(n) * i128::from(DENOM) / i128::from(d)))
-            }
+            Value::Float(x) if !x.is_finite() => Err(format!("the exponent `{x}` is not finite")),
+            Value::Float(x) => fixed(Some((x * f64::from(DENOM)).round_ties_even() as i128)),
             Value::Quantity(_) => unreachable!("exponents are numbers"),
         }
     }
@@ -615,45 +612,6 @@ fn power(base: Value, exp: Value) -> Result<Value, String> {
             e => Ok(Value::Float((n as f64 / d as f64).powf(e.as_f64()))),
         },
         Value::Float(b) => Ok(Value::Float(b.powf(exp.as_f64()))),
-    }
-}
-
-/// Julia's `rationalize(Int, x)`: the simplest fraction within `eps(x)` of `x`.
-fn rationalize(x: f64) -> (i64, i64) {
-    let tol = {
-        let exponent = ((x.abs().to_bits() >> 52) & 0x7ff) as i32 - 1023;
-        2f64.powi(exponent - 52)
-    };
-    let (mut p, mut q) = (if x < 0.0 { -1i64 } else { 1 }, 0i64);
-    let (mut pp, mut qq) = (0i64, 1i64);
-    let mut x = x.abs();
-    let mut a = x.trunc();
-    let mut r = x - a;
-    let mut y = 1.0;
-    let (mut nt, mut t, mut tt) = (tol, 0.0, tol);
-    while r > nt {
-        let ia = a as i64;
-        let (Some(np), Some(nq)) = (
-            ia.checked_mul(p).and_then(|v| v.checked_add(pp)),
-            ia.checked_mul(q).and_then(|v| v.checked_add(qq)),
-        ) else {
-            return (p, q);
-        };
-        (p, pp) = (np, p);
-        (q, qq) = (nq, q);
-        (x, y) = (y, r);
-        r = x % y;
-        a = ((x - r) / y).round();
-        (t, tt) = (nt, t);
-        nt = a * t + tt;
-    }
-    let a = ((x - tt) / (y + t)).ceil() as i64;
-    match (
-        a.checked_mul(p).and_then(|v| v.checked_add(pp)),
-        a.checked_mul(q).and_then(|v| v.checked_add(qq)),
-    ) {
-        (Some(np), Some(nq)) => (np, nq),
-        _ => (p, q),
     }
 }
 

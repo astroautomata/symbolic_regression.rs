@@ -241,3 +241,14 @@ fn overflowing_unit_strings_are_errors() {
         );
     }
 }
+
+/// DynamicQuantities rounds `x * 25200` to the nearest `Int32` (fixed_rational.jl:118).
+#[test]
+fn float_exponents_round_to_the_fixed_denominator() {
+    for (src, numerator) in [("m^0.33333", 8400), ("m^0.12345", 3111), ("m^(1/7)", 3600)] {
+        assert_eq!(Unit::parse(src).unwrap().dims.0[0], numerator, "`{src}`");
+    }
+    for src in ["m^1e309", "m^(1e309-1e309)"] {
+        assert!(Unit::parse(src).unwrap_err().ends_with("is not finite"), "`{src}`");
+    }
+}
