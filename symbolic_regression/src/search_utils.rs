@@ -1343,6 +1343,7 @@ mod batching_search_tests {
                 should_optimize_constants: false,
                 should_simplify: Some(false),
                 deterministic: true,
+                save_to_file: false,
                 ..Default::default()
             };
             let mut engine = SearchEngine::new(vec![dataset], options).unwrap();
