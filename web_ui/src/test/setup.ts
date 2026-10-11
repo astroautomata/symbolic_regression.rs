@@ -86,6 +86,7 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
       validation_fraction: 0,
       loss: "L2DistLoss()",
       early_stop_condition: null,
+      template: null,
 
       ...coreDefaults
     }))

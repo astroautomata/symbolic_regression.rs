@@ -49,6 +49,7 @@ function setCommonState(args: { xColumns: number[] }) {
       validation_fraction: 0,
       loss: "L2DistLoss()",
       early_stop_condition: null,
+      template: null,
 
       seed: 0,
       niterations: 100,

@@ -27,6 +27,20 @@ export type WasmMutationWeights = {
 
 export type LossScale = "log" | "linear";
 
+/** A template expression, as PySR's `TemplateExpressionSpec`. */
+export type WasmTemplateOptions = {
+  /** The formula combining the subexpressions, such as "f(x1, x2) + p[x3]". */
+  combine: string;
+  /** Subexpression names, such as ["f", "g"]. */
+  expressions: string[];
+  /** Each subexpression's number of arguments; null infers them from `combine`. */
+  num_features: number[] | null;
+  /** The names `combine` uses for the features; null uses the selected columns' CSV headers. */
+  variable_names: string[] | null;
+  /** Parameter vectors as [name, length], in declaration order. */
+  parameters: [string, number][];
+};
+
 export type WasmSearchOptions = {
   has_headers: boolean;
   x_columns: number[] | null;
@@ -37,6 +51,8 @@ export type WasmSearchOptions = {
   loss: string;
   /** PySR `early_stop_condition`: a loss threshold such as "1e-6", or a definition of (loss, complexity). */
   early_stop_condition: string | null;
+  /** A template expression; null searches plain expressions. */
+  template: WasmTemplateOptions | null;
 
   seed: number;
   niterations: number;

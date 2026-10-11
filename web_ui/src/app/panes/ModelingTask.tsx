@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useSessionStore } from "../../state/sessionStore";
-import type { LossScale, WasmOpInfo } from "../../types/srTypes";
+import type { LossScale, WasmOpInfo, WasmTemplateOptions } from "../../types/srTypes";
 
 /** Built-in losses, written as PySR's `elementwise_loss` takes them. Any definition such as
  * `f(x, y) = abs(x - y)^1.5` also works. */
@@ -85,6 +85,127 @@ function OperatorsGroup(props: {
           <summary>More {props.title.toLowerCase()} operators</summary>
           {renderList(more)}
         </details>
+      )}
+    </div>
+  );
+}
+
+function splitList(text: string): string[] {
+  return text
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+}
+
+/** Comma-separated subexpression arities; blank infers them. A non-integer entry stays NaN, so the
+ * search setup reports it. */
+function parseArities(text: string): number[] | null {
+  const parts = splitList(text);
+  return parts.length === 0 ? null : parts.map((s) => (/^\d+$/.test(s) ? Number(s) : NaN));
+}
+
+function TemplateCard(props: {
+  template: WasmTemplateOptions | null;
+  setTemplate: (template: WasmTemplateOptions | null) => void;
+}): React.ReactElement {
+  const { template, setTemplate } = props;
+  // The list fields keep their raw text, so typing "f, " does not drop the trailing comma.
+  const [expressionsText, setExpressionsText] = useState(template?.expressions.join(", ") ?? "");
+  const [aritiesText, setAritiesText] = useState(template?.num_features?.join(", ") ?? "");
+  const patch = (p: Partial<WasmTemplateOptions>) => template && setTemplate({ ...template, ...p });
+  const parameters = template?.parameters ?? [];
+  const aritiesValid = (parseArities(aritiesText) ?? []).every(Number.isInteger);
+
+  return (
+    <div className="card">
+      <div className="cardTitle">Template expression</div>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={template !== null}
+          onChange={(e) =>
+            setTemplate(
+              e.target.checked
+                ? {
+                    combine: "",
+                    expressions: splitList(expressionsText),
+                    num_features: parseArities(aritiesText),
+                    variable_names: null,
+                    parameters: []
+                  }
+                : null
+            )
+          }
+        />
+        search a template expression
+      </label>
+      {template && (
+        <>
+          <div className="row">
+            <label className="field">
+              <div className="label">combine</div>
+              <input
+                type="text"
+                placeholder="f(x1, x2) + g(x3) * p[x4]"
+                value={template.combine}
+                onChange={(e) => patch({ combine: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <div className="label">expressions</div>
+              <input
+                type="text"
+                placeholder="f, g"
+                value={expressionsText}
+                onChange={(e) => {
+                  setExpressionsText(e.target.value);
+                  patch({ expressions: splitList(e.target.value) });
+                }}
+              />
+            </label>
+            <label className="field">
+              <div className="label">arities</div>
+              <input
+                type="text"
+                placeholder="blank infers them, or 2, 1"
+                value={aritiesText}
+                onChange={(e) => {
+                  setAritiesText(e.target.value);
+                  patch({ num_features: parseArities(e.target.value) });
+                }}
+              />
+            </label>
+          </div>
+          {!aritiesValid && <div className="errorText">arities must be comma-separated whole numbers</div>}
+          <div className="subTitle">Parameters</div>
+          {parameters.map(([name, size], i) => (
+            <div className="row" key={i}>
+              <label className="field">
+                <div className="label">parameter name</div>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => patch({ parameters: parameters.map<[string, number]>((p, j) => (j === i ? [e.target.value, size] : p)) })}
+                />
+              </label>
+              <label className="field">
+                <div className="label">parameter size</div>
+                <input
+                  type="number"
+                  min={1}
+                  value={size}
+                  onChange={(e) => patch({ parameters: parameters.map<[string, number]>((p, j) => (j === i ? [name, Number(e.target.value)] : p)) })}
+                />
+              </label>
+              <button type="button" onClick={() => patch({ parameters: parameters.filter((_, j) => j !== i) })}>
+                remove
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => patch({ parameters: [...parameters, ["p", 1]] })}>
+            add parameter
+          </button>
+        </>
       )}
     </div>
   );
@@ -175,6 +296,8 @@ export function ModelingTask(): React.ReactElement {
           </label>
         </div>
       </div>
+
+      <TemplateCard template={options.template ?? null} setTemplate={(template) => setOptionsPatch({ template })} />
 
       <div className="card">
         <div className="cardTitle">Hyperparameters</div>
