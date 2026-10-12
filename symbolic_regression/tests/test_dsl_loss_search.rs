@@ -20,6 +20,7 @@ fn options() -> Options<f64, Ops, 2> {
         operators: BuiltinOpsF64::new().from_names(["+", "sub", "*"]).unwrap(),
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         niterations: 40,
         populations: 8,
         maxsize: 12,

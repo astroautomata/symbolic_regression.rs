@@ -27,6 +27,7 @@ fn seeded<Ops: OperatorSet<T = f64> + Default>(
         populations: 2,
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         progress: false,
         ..Default::default()
     }

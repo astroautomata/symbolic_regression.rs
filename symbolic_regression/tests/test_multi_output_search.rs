@@ -24,6 +24,7 @@ fn two_output_search_recovers_each_target_on_its_own_front() {
         operators: BuiltinOpsF64::new().from_names(["+", "*"]).unwrap(),
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         niterations: 40,
         populations: 4,
         maxsize: 10,
@@ -31,8 +32,7 @@ fn two_output_search_recovers_each_target_on_its_own_front() {
         early_stop_condition: Some(Arc::new(|l, c| l <= 1e-12 && c <= 5)),
         ..Default::default()
     };
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
-    let result = pool.install(|| equation_search(&datasets, &options).unwrap());
+    let result = equation_search(&datasets, &options).unwrap();
 
     assert_eq!(result.halls_of_fame.len(), 2);
     assert_eq!(result.populations.len(), 2);

@@ -6,7 +6,7 @@ use ndarray::{Array1, Array2};
 
 use super::common::{D, T, TestOps};
 use crate::operator_library::OperatorLibrary;
-use crate::{BuiltinMutation, Options, Parallelism, SearchEngine, equation_search};
+use crate::{BuiltinMutation, Options, Parallelism, SearchEngine, equation_search, resume_search};
 
 fn quadratic_dataset() -> crate::Dataset<T> {
     let x: Vec<T> = (0..64).map(|i| i as T / 64.0).collect();
@@ -43,6 +43,43 @@ fn searches_reject_mutation_lists_without_a_positive_weight() {
         let engine = SearchEngine::new(vec![dataset.clone()], options);
         assert_eq!(engine.err().as_deref(), Some(message));
     }
+}
+
+#[test]
+fn deterministic_searches_require_serial_parallelism() {
+    let dataset = quadratic_dataset();
+    let mut options = Options {
+        deterministic: true,
+        parallelism: Parallelism::Serial,
+        ..small_options()
+    };
+    let previous = equation_search(std::slice::from_ref(&dataset), &options).unwrap();
+    assert!(options.validate().is_ok());
+    options.parallelism = Parallelism::Multithreading;
+    let message = "Determinism is only guaranteed for serial mode.";
+    assert_eq!(options.validate().err().as_deref(), Some(message));
+    assert_eq!(
+        equation_search(std::slice::from_ref(&dataset), &options)
+            .err()
+            .as_deref(),
+        Some(message)
+    );
+    assert_eq!(
+        resume_search(previous.clone(), std::slice::from_ref(&dataset), &options)
+            .err()
+            .as_deref(),
+        Some(message)
+    );
+    assert_eq!(
+        SearchEngine::new(vec![dataset.clone()], options.clone())
+            .err()
+            .as_deref(),
+        Some(message)
+    );
+    assert_eq!(
+        SearchEngine::resume(previous, vec![dataset], options).err().as_deref(),
+        Some(message)
+    );
 }
 
 /// Only constant mutations, which have no weight on a tree without constants: the first such

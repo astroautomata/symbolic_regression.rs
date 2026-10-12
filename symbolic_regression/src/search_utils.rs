@@ -1267,6 +1267,7 @@ mod batching_search_tests {
             should_optimize_constants: false,
             should_simplify: Some(false),
             deterministic: true,
+            parallelism: crate::Parallelism::Serial,
             ..Default::default()
         };
 
@@ -1319,6 +1320,7 @@ mod batching_search_tests {
             should_optimize_constants: false,
             should_simplify: Some(false),
             deterministic: true,
+            parallelism: crate::Parallelism::Serial,
             ..Default::default()
         };
 
@@ -1344,6 +1346,7 @@ mod batching_search_tests {
                 should_optimize_constants: false,
                 should_simplify: Some(false),
                 deterministic: true,
+                parallelism: crate::Parallelism::Serial,
                 save_to_file: false,
                 ..Default::default()
             };

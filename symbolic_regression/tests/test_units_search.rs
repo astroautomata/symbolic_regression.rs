@@ -18,6 +18,7 @@ fn options(tokens: &[&str], stop: fn(f64, usize) -> bool) -> Options<f64, Ops, 2
         operators: BuiltinOpsF64::new().with_custom(custom).from_names(&names).unwrap(),
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         niterations: 100,
         populations: 8,
         progress: false,
@@ -26,11 +27,9 @@ fn options(tokens: &[&str], stop: fn(f64, usize) -> bool) -> Options<f64, Ops, 2
     }
 }
 
-/// Runs the search on one thread, so the seed fixes the result, and prints the Pareto front with
-/// units as the hall of fame shows them.
+/// Runs the serial search and prints the Pareto front with units as the hall of fame shows them.
 fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> Vec<PopMember<f64, Ops, 2>> {
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
-    let result = pool.install(|| equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap());
+    let result = equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap();
     let units = dataset.units.as_ref().unwrap();
     let labels = UnitLabels::new(units, options.dimensionless_constants_only);
     println!("seed {:?}:", options.seed);

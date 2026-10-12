@@ -55,6 +55,7 @@ fn plain_options(mutation_weights: MutationWeights) -> Opts {
         progress: false,
         save_to_file: false,
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         ..Default::default()
     }
 }
@@ -141,6 +142,7 @@ fn engine_options(populations: usize) -> Opts {
         progress: false,
         save_to_file: false,
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         ..Default::default()
     }
 }
@@ -689,6 +691,7 @@ fn search_with_every_mutation_plugin_returns_a_hall_of_fame() {
         progress: false,
         save_to_file: false,
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         adaptive_mutation_weights: Some(AdaptiveMutationWeights {
             smoothing: 0.02,
             floor: 0.05,

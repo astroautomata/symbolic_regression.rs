@@ -19,6 +19,7 @@ fn options(niterations: usize) -> Options<f64, BuiltinOpsF64, 2> {
         ncycles_per_iteration: 1,
         maxsize: 5,
         deterministic: true,
+        parallelism: Parallelism::Serial,
         seed: Some(0),
         should_optimize_constants: false,
         progress: false,

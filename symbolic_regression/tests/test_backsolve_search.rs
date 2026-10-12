@@ -39,6 +39,7 @@ fn search(backsolve: f64, do_nothing: f64, collection: bool) -> SearchResult<f64
         should_optimize_constants: false,
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         progress: false,
         ..Default::default()
     };

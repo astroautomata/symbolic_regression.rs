@@ -58,6 +58,7 @@ fn seeded<O: OperatorSet<T = f64> + Default>(
         progress: false,
         seed: Some(0),
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         ..Default::default()
     }
 }
@@ -207,6 +208,7 @@ fn float32_dataset_with_float64_guess_literals() {
             operators: BuiltinOpsF32::new().from_names(["+", "sub", "*", "/"]).unwrap(),
             guesses: vec![vec![guess.into()]],
             deterministic: true,
+            parallelism: crate::Parallelism::Serial,
             progress: false,
             ..Default::default()
         };

@@ -16,6 +16,7 @@ fn fixture() -> (
         tournament_selection_n: 2,
         maxsize: 7,
         deterministic: true,
+        parallelism: Parallelism::Serial,
         should_optimize_constants: false,
         progress: false,
         save_to_file: false,

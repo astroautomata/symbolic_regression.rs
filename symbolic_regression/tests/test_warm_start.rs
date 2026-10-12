@@ -12,6 +12,7 @@ fn options(operators: &[&str], niterations: usize) -> Options<f64, Ops, 2> {
         operators: Ops::new().from_names(operators).unwrap(),
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         niterations,
         populations: 4,
         maxsize: 12,
@@ -27,11 +28,10 @@ fn resumed_search_keeps_its_hall_of_fame_and_counters() {
     let x = Array2::from_shape_fn((2, n_rows), |_| rng.f64() * 4.0 - 2.0);
     let y = Array1::from_iter((0..n_rows).map(|i| x[(0, i)] * x[(0, i)] * x[(1, i)] + (x[(1, i)]).cos()));
     let datasets = [Dataset::new(x, y)];
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
     let first_options = options(&["+", "sub", "*", "cos"], 3);
-    let first = pool.install(|| equation_search(&datasets, &first_options).unwrap());
+    let first = equation_search(&datasets, &first_options).unwrap();
     let resume_options = options(&["+", "sub", "*", "cos"], 4);
-    let resumed = pool.install(|| resume_search(first.clone(), &datasets, &resume_options).unwrap());
+    let resumed = resume_search(first.clone(), &datasets, &resume_options).unwrap();
 
     assert!(
         resumed.total_evals > first.total_evals,

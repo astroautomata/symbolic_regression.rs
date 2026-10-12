@@ -35,6 +35,7 @@ fn optimize_constants_resets_birth_on_improvement() {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         should_optimize_constants: true,
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         optimizer_iterations: 200,
         optimizer_nrestarts: 1,
         ..Default::default()

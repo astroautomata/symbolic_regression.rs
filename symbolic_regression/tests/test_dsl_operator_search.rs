@@ -18,6 +18,7 @@ fn search_recovers_target_through_string_operator() {
         operators: operator_set.from_names(&names).unwrap(),
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         niterations: 40,
         populations: 8,
         maxsize: 10,

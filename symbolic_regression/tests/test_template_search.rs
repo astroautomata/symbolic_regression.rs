@@ -30,6 +30,7 @@ fn options(
         operators: BuiltinOpsF64::new().from_names(operators).unwrap(),
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         niterations,
         populations: 8,
         maxsize,
@@ -40,11 +41,9 @@ fn options(
     }
 }
 
-/// Runs the search on a one-thread pool. Populations finish in a thread-dependent order, and the
-/// search applies their results in that order, so only a serial search repeats exactly for a seed.
+/// Runs the serial search for the seeded options.
 fn search(dataset: &Dataset<f64>, options: &Options<f64, Ops, 2>) -> SearchResult<f64, Ops, 2> {
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
-    pool.install(|| equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap())
+    equation_search::<f64, Ops, 2>(std::slice::from_ref(dataset), options).unwrap()
 }
 
 /// Prints the Pareto front and returns its simplest member with a loss at most `tol`.

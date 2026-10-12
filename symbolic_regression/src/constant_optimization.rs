@@ -350,6 +350,7 @@ mod tests {
         let options = Options::<T, TestOps, D> {
             operators: OperatorLibrary::sr_default::<TestOps, D>(),
             deterministic: true,
+            parallelism: crate::Parallelism::Serial,
             use_baseline: false,
             ..Default::default()
         };

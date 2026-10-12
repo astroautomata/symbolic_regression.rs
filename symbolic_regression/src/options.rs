@@ -763,7 +763,11 @@ impl<T: Float, Ops, const D: usize> Options<T, Ops, D> {
         }
     }
 
+    /// Deterministic searches require serial parallelism, as in SymbolicRegression.jl and PySR.
     pub fn validate(&self) -> Result<(), String> {
+        if self.deterministic && self.parallelism != Parallelism::Serial {
+            return Err("Determinism is only guaranteed for serial mode.".into());
+        }
         if self.maxsize <= 3 {
             return Err("maxsize must be greater than 3".into());
         }

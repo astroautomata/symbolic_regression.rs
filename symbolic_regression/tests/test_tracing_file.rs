@@ -51,6 +51,7 @@ fn options(tracing_file: &Path, use_tracing: bool) -> Options<f32, BuiltinOpsF32
         niterations: NITERATIONS,
         seed: Some(0),
         deterministic: true,
+        parallelism: Parallelism::Serial,
         progress: false,
         ..Default::default()
     };

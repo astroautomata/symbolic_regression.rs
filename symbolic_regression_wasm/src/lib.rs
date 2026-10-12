@@ -1133,6 +1133,22 @@ mod tests {
     }
 
     #[test]
+    fn browser_deterministic_searches_require_serial_parallelism() {
+        let mut opts: WasmSearchOptions = serde_json::from_value(serde_json::json!({
+            "deterministic": true, "parallelism": "multithreading", "niterations": 0,
+        }))
+        .unwrap();
+        let build =
+            |opts: &WasmSearchOptions| super::WasmSearch::build("x,y\n1,2\n2,3", opts, &[], &tokens(&["+"]), &[]);
+        assert_eq!(
+            build(&opts).err().as_deref(),
+            Some("Determinism is only guaranteed for serial mode.")
+        );
+        opts.core.parallelism = symbolic_regression::Parallelism::Serial;
+        assert!(build(&opts).is_ok());
+    }
+
+    #[test]
     fn browser_searches_never_write_files_trace_or_read_stdin() {
         let options = browser_options(serde_json::json!({
             "save_to_file": true, "use_tracing": true, "progress": true, "verbosity": 2,

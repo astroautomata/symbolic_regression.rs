@@ -237,6 +237,7 @@ fn early_stop_condition() {
         niterations: 100,
         seed: Some(0),
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         progress: false,
         early_stop_condition: Some(early_stop.clone()),
         ..Default::default()
