@@ -55,11 +55,6 @@ pub(crate) fn get_birth_order(deterministic: bool) -> u64 {
     secs.saturating_mul(10_000_000).saturating_add(ticks_1e7)
 }
 
-#[cfg(test)]
-pub(crate) fn reset_pseudo_time_for_tests() {
-    pseudo_time().store(0, Ordering::Relaxed);
-}
-
 /// SymbolicRegression.jl's `generate_reference`. It draws from a per-thread stream, apart from
 /// the search's random streams, so that references never change a search's results.
 pub(crate) fn generate_reference() -> i64 {
