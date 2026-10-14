@@ -906,7 +906,7 @@ line = 173
 name = "Test operators parameter conflicts"
 pr = 7
 status = "done"
-rust = ["symbolic_regression_py/src/keywords.rs::operators_parameter_conflicts", "symbolic_regression/src/tests/test_jl_options.rs::explicit_operators_are_valid_alone"]
+rust = ["symbolic_regression_py/src/keywords.rs::tests::operators_parameter_conflicts", "symbolic_regression/src/tests/test_jl_options.rs::explicit_operators_are_valid_alone"]
 note = "The Python keyword converter rejects operators with binary_operators or unary_operators and rejects the Julia-only operator_enum_constructor; core Rust Options has a single explicit operator set field."
 
 [[testitem]]

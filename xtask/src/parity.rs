@@ -8,6 +8,24 @@ use toml_edit::DocumentMut;
 
 use crate::mapping::{self, EXPECTED_FILES, EXPECTED_TESTITEMS, Entry, JULIA_COMMIT, Key, Mapping};
 
+#[path = "../../symbolic_regression_py/src/keyword_table.rs"]
+mod keyword_table;
+
+macro_rules! keyword_origins {
+    ([]
+        regular { $($origin:ident $mode:ident $convert:ident: $($field:ident),+;)* }
+        special { $($special_origin:ident $special:ident;)* }
+        rejected { $($rejected_origin:ident $rejected:ident: $reason:literal;)* }
+    ) => {
+        const KEYWORD_ORIGINS: &[(&str, &str)] = &[
+            $($((stringify!($field), stringify!($origin)),)+)*
+            $((stringify!($special), stringify!($special_origin)),)*
+            $((stringify!($rejected), stringify!($rejected_origin)),)*
+        ];
+    };
+}
+keyword_table::keyword_table!(keyword_origins);
+
 const STATUSES: [&str; 3] = ["todo", "done", "excluded"];
 
 pub fn check(julia_repo: Option<&Path>, require_done_through: i64, run: bool) -> Result<ExitCode, String> {
@@ -22,6 +40,36 @@ pub fn check(julia_repo: Option<&Path>, require_done_through: i64, run: bool) ->
         None => None,
     };
     let mut errors = structural_errors(&mapping, julia.as_ref());
+    if let Some(repo) = julia_repo {
+        let object = format!("{JULIA_COMMIT}:src/Options.jl");
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["show", &object])
+            .output()
+            .map_err(|e| format!("git show {object}: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("git show {object}: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+        let source = String::from_utf8(out.stdout).map_err(|e| format!("src/Options.jl: {e}"))?;
+        errors.extend(keyword_coverage_errors(
+            &constructor_keywords(&source)?,
+            KEYWORD_ORIGINS,
+        ));
+        errors.extend(
+            keyword_table::JULIA_ONLY
+                .iter()
+                .filter(|(_, reason)| reason.is_empty())
+                .map(|(name, _)| format!("Julia-only keyword has no reason: {name}")),
+        );
+        let supported: BTreeSet<&str> = keyword_table::SUPPORTED_OPTIONS.iter().copied().collect();
+        errors.extend(
+            keyword_table::JULIA_ONLY
+                .iter()
+                .filter(|(name, _)| supported.contains(name))
+                .map(|(name, _)| format!("keyword is both supported and Julia-only: {name}")),
+        );
+    }
     if errors.is_empty() {
         println!("{}", summary(&mapping.entries));
         errors.extend(todo_errors(&mapping.entries, require_done_through));
@@ -129,7 +177,9 @@ impl<'a> RustRef<'a> {
             && !stem.is_empty()
             && stem.chars().all(|c| is_word(c) || c == '/')
             && !func.is_empty()
-            && func.chars().all(is_word);
+            && func
+                .split("::")
+                .all(|part| !part.is_empty() && part.chars().all(is_word));
         valid.then_some(RustRef { krate, path, func })
     }
 
@@ -193,22 +243,123 @@ fn rust_ref_error(r: &str) -> Option<String> {
     }
 }
 
-/// Whether `source` has `#[test]`, then any other attributes, then `fn <name>(`, optionally `pub`.
+/// Check declarations only; exact module selection is checked when the tests run.
 fn has_test_fn(source: &str, name: &str) -> bool {
-    source.match_indices("#[test]").any(|(i, attr)| {
-        let mut rest = source[i + attr.len()..].trim_start();
-        while let Some((_, after)) = rest.strip_prefix("#[").and_then(|r| r.split_once(']')) {
-            rest = after.trim_start();
-        }
-        let rest = match rest.strip_prefix("pub") {
-            Some(after) if after.starts_with(char::is_whitespace) => after.trim_start(),
-            _ => rest,
+    let (modules, function) = name.rsplit_once("::").unwrap_or(("", name));
+    if !modules.is_empty()
+        && modules
+            .split("::")
+            .any(|module| !source.contains(&format!("mod {module} {{")))
+    {
+        return false;
+    }
+    let declaration = format!("fn {function}(");
+    let mut test = false;
+    for line in source.lines().map(str::trim) {
+        let line = if let Some(rest) = line.strip_prefix("#[test]") {
+            test = true;
+            rest.trim_start()
+        } else {
+            line
         };
-        rest.strip_prefix("fn")
-            .filter(|r| r.starts_with(char::is_whitespace))
-            .and_then(|r| r.trim_start().strip_prefix(name))
-            .is_some_and(|r| r.trim_start().starts_with('('))
-    })
+        if line.is_empty() || line.starts_with("#[") || line.starts_with("//") {
+            continue;
+        }
+        if test && line.strip_prefix("pub ").unwrap_or(line).starts_with(&declaration) {
+            return true;
+        }
+        test = false;
+    }
+    false
+}
+
+fn constructor_keywords(source: &str) -> Result<BTreeSet<String>, String> {
+    let mut lines = source.lines();
+    let header = lines
+        .find(|line| line.contains("function Options(;"))
+        .ok_or("Options constructor not found")?;
+    let indent = header.len() - header.trim_start().len() + 4;
+    let mut names = BTreeSet::new();
+    let mut wrapped = false;
+    let mut closed = false;
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed == ")" {
+            closed = true;
+            break;
+        }
+        let declaration = wrapped || line.len() - line.trim_start().len() == indent;
+        wrapped = trimmed == "@nospecialize(";
+        if !declaration {
+            continue;
+        }
+        let argument = trimmed.strip_prefix("@nospecialize(").unwrap_or(trimmed);
+        let name = argument
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .next()
+            .unwrap();
+        let suffix = argument[name.len()..].trim_start();
+        if !name.is_empty() && name != "kws" && (suffix.starts_with("::") || suffix.starts_with('=')) {
+            names.insert(name.to_owned());
+        }
+    }
+    if !closed {
+        return Err("unterminated Julia keyword signature".into());
+    }
+    let mut aliases = source.lines();
+    if aliases.any(|line| line.contains("const deprecated_options_mapping = Base.ImmutableDict(")) {
+        closed = false;
+        for line in aliases
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            if line == ")" {
+                closed = true;
+                break;
+            }
+            let (name, _) = line
+                .split_once("=>")
+                .ok_or("invalid deprecated options mapping entry")?;
+            let name = name
+                .trim()
+                .strip_prefix(':')
+                .ok_or("invalid deprecated options mapping entry")?;
+            names.insert(name.to_owned());
+        }
+        if !closed {
+            return Err("unterminated deprecated options mapping".into());
+        }
+    }
+    Ok(names)
+}
+
+fn keyword_coverage_errors(julia: &BTreeSet<String>, entries: &[(&str, &str)]) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut classified = BTreeSet::new();
+    let mut errors = Vec::new();
+    for &(name, origin) in entries {
+        if !seen.insert(name) {
+            errors.push(format!("duplicate keyword metadata: {name}"));
+        }
+        match origin {
+            "constructor" | "alias" => {
+                classified.insert(name.to_owned());
+            }
+            "search" | "rust" => {}
+            _ => errors.push(format!("unclassified keyword metadata: {name}")),
+        }
+    }
+    errors.extend(
+        julia
+            .difference(&classified)
+            .map(|name| format!("missing Options keyword classification: {name}")),
+    );
+    errors.extend(
+        classified
+            .difference(julia)
+            .map(|name| format!("stale Options keyword metadata: {name}")),
+    );
+    errors
 }
 
 /// Runs every mapped Rust test, one `cargo test` per test target.
@@ -301,6 +452,80 @@ mod tests {
 
     fn first_done(mapping: &mut Mapping) -> &mut Entry {
         mapping.entries.iter_mut().find(|e| e.status == "done").unwrap()
+    }
+
+    #[test]
+    fn parses_line_oriented_options_constructor_and_deprecated_aliases() {
+        let source = r#"
+            const deprecated_options_mapping = Base.ImmutableDict(
+                :old => :maxsize,
+            )
+            function Options(;
+                # ignored::Int=0,
+                @nospecialize(maxsize::Union{Nothing,Integer} = nothing),
+                @nospecialize(
+                    operator_enum_constructor::Union{Nothing,Function} =
+                        nothing
+                ),
+                operators=Enum(1 => [sin], 2 => [+, *]),
+                optimizer_algorithm=Optim.BFGS(;
+                    linesearch=LineSearches.BackTracking()
+                ),
+                text="a,b)#",
+                kws...,
+            )
+            end
+        "#;
+        let names = constructor_keywords(source).unwrap();
+        assert_eq!(
+            names,
+            BTreeSet::from([
+                "maxsize".into(),
+                "operator_enum_constructor".into(),
+                "operators".into(),
+                "optimizer_algorithm".into(),
+                "text".into(),
+                "old".into(),
+            ])
+        );
+        assert!(constructor_keywords("function Options(; maxsize=(1, 2)").is_err());
+    }
+
+    #[test]
+    fn keyword_coverage_rejects_missing_duplicate_and_stale_entries() {
+        let julia = BTreeSet::from(["present".to_owned(), "missing".to_owned()]);
+        let entries = [
+            ("present", "constructor"),
+            ("present", "constructor"),
+            ("stale", "constructor"),
+            ("extension", "rust"),
+        ];
+        let errors = keyword_coverage_errors(&julia, &entries);
+        for name in ["missing", "duplicate", "stale"] {
+            assert!(errors.iter().any(|error| error.contains(name)), "{errors:?}");
+        }
+        assert!(!errors.iter().any(|error| error.contains("extension")));
+        assert!(
+            keyword_coverage_errors(&julia, &[("present", "unknown")])
+                .iter()
+                .any(|error| error.contains("unclassified"))
+        );
+    }
+
+    #[test]
+    fn module_qualified_test_references_preserve_exact_selection() {
+        let r = RustRef::parse("symbolic_regression_py/src/keywords.rs::tests::operators_parameter_conflicts").unwrap();
+        assert_eq!(
+            r.cargo_invocation().unwrap().1,
+            "keywords::tests::operators_parameter_conflicts"
+        );
+        let source =
+            "mod tests {\n    #[test]\n    fn conflict() {}\n}\nmod wrong {\n    #[test]\n    fn conflict() {}\n}";
+        assert!(has_test_fn(source, "tests::conflict"));
+        assert!(!has_test_fn(source, "missing::conflict"));
+        for invalid in ["tests:::conflict", "::conflict", "tests::"] {
+            assert!(RustRef::parse(&format!("symbolic_regression_py/src/keywords.rs::{invalid}")).is_none());
+        }
     }
 
     #[test]

@@ -20,6 +20,9 @@ use crate::options::Options;
 use crate::pop_member::PopMember;
 use crate::population::Population;
 
+pub const OPEN_TRACING_FILE_ERROR_PREFIX: &str = "cannot open the tracing file ";
+pub const WRITE_TRACING_FILE_ERROR_PREFIX: &str = "cannot write the tracing file ";
+
 /// SymbolicRegression.jl's `TRACE_SCHEMA_VERSION`.
 const TRACE_SCHEMA_VERSION: u32 = 1;
 
@@ -402,8 +405,8 @@ pub(crate) fn write_record(path: &Path, record: &str, append: bool) -> Result<()
         .append(append)
         .truncate(!append)
         .open(path)
-        .map_err(|e| format!("cannot open the tracing file {}: {e}", path.display()))?;
-    writeln!(file, "{record}").map_err(|e| format!("cannot write the tracing file {}: {e}", path.display()))
+        .map_err(|e| format!("{OPEN_TRACING_FILE_ERROR_PREFIX}{}: {e}", path.display()))?;
+    writeln!(file, "{record}").map_err(|e| format!("{WRITE_TRACING_FILE_ERROR_PREFIX}{}: {e}", path.display()))
 }
 
 fn write_json_str(out: &mut String, s: &str) {

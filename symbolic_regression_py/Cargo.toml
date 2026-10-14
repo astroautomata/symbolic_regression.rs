@@ -10,9 +10,10 @@ publish = false
 
 [lib]
 name = "symbolic_regression_rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
+crc32fast = "1"
 symbolic_regression = { path = "../symbolic_regression", features = ["serde"] }
 dynamic_expressions = { path = "../dynamic_expressions", default-features = false }
 ndarray = "0.17"

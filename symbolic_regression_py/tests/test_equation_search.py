@@ -142,17 +142,60 @@ def test_dimensionally_invalid_equations_are_penalized():
     assert min(row[1] for row in penalized.pareto_fronts[0]) >= 1000.0
 
 
-def test_multi_output_guesses_names_and_weights():
+def test_multi_output_guesses_names_and_weights(tmp_path, capfd):
     X, y = data()
     Y = np.column_stack((y, X[:, 0] * X[:, 1]))
     state = search(
         X, Y, weights=np.ones_like(Y), variable_names=["a", "b"],
         display_variable_names=["A", "B"], y_variable_names=["u", "v"],
-        guesses=[["a*a+b"], ["a*b"]], niterations=0,
+        guesses=[["a*a+b"], ["a*b"]], niterations=1, verbosity=1,
+        save_to_file=True, output_directory=str(tmp_path),
     )
     assert len(state.pareto_fronts) == 2
     assert [min(row[1] for row in front) for front in state.pareto_fronts] == [0.0, 0.0]
     assert all("a" in front[-1][2] for front in state.pareto_fronts)
+    terminal = capfd.readouterr().out
+    first_output, second_output = terminal.split("Best equations for output 2")
+    assert "Best equations for output 1" in first_output
+    assert any("u = " in line and "A" in line and "B" in line for line in first_output.splitlines())
+    assert any("v = " in line and "A" in line and "B" in line for line in second_output.splitlines())
+    for output, front in enumerate(state.pareto_fronts, start=1):
+        path = tmp_path / state.run_id / f"hall_of_fame_output{output}.csv"
+        with path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        assert [(int(r["Complexity"]), float(r["Loss"]), r["Equation"]) for r in rows] == front
+        assert "a" in rows[-1]["Equation"] and "b" in rows[-1]["Equation"]
+        assert all("A" not in r["Equation"] and "B" not in r["Equation"] for r in rows)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("layout", ["fortran", "strided"])
+def test_X_layout_preserves_exact_search(dtype, layout):
+    X, y = data(dtype)
+    expected = search(X, y)
+    if layout == "fortran":
+        other = np.asfortranarray(X)
+        assert other.flags.f_contiguous and not other.flags.c_contiguous
+    else:
+        storage = np.empty((X.shape[0] * 2, X.shape[1] * 2), dtype=dtype)
+        other = storage[::2, ::2]
+        other[:] = X
+        assert not other.flags.c_contiguous and not other.flags.f_contiguous
+    actual = search(other, y)
+    assert exact_fronts(actual) == exact_fronts(expected)
+    assert actual.total_evals == expected.total_evals
+
+
+
+def test_saved_state_incompatible_resume_preserves_engine_error():
+    X, y = data()
+    state = search(X, y, niterations=1)
+    with pytest.raises(ValueError) as error:
+        search(X, y, saved_state=state, population_size=25)
+    assert str(error.value) == (
+        "Warm start incompatible due to changed field(s): population_size. "
+        "Start a new search instead."
+    )
 
 
 def test_pickle_preserves_exact_state_and_deterministic_resume():
@@ -329,7 +372,9 @@ def test_another_python_thread_progresses_during_search():
 
 def test_interrupt_returns_partial_search_state(tmp_path):
     code = """
-import pickle, sys
+import pickle, signal, sys
+if sys.platform == "win32":
+    signal.signal(signal.SIGBREAK, signal.default_int_handler)
 import numpy as np
 from symbolic_regression_rs import equation_search
 X = np.arange(128, dtype=np.float64).reshape(64, 2) / 32
@@ -346,13 +391,14 @@ with open(sys.argv[1], 'wb') as stream:
     process = subprocess.Popen(
         [sys.executable, "-c", code, str(path)], stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
     )
     watchdog = threading.Timer(30, process.kill)
     watchdog.start()
     try:
         assert process.stdout.readline().strip() == "ready"
         time.sleep(0.5)
-        process.send_signal(signal.SIGINT)
+        process.send_signal(signal.CTRL_BREAK_EVENT if sys.platform == "win32" else signal.SIGINT)
         stdout, stderr = process.communicate(timeout=20)
     finally:
         watchdog.cancel()

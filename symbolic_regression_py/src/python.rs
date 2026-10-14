@@ -2,20 +2,43 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use ndarray::{Array1, Array2, ArrayView2, Axis};
-use numpy::{PyArray2, PyArrayDyn, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyKeyboardInterrupt, PyValueError};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayDyn, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
+use pyo3::exceptions::{PyKeyboardInterrupt, PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 use serde::{Deserialize, Serialize};
-use symbolic_regression::{Dataset, ExternalStop, SearchResult, equation_search, hall_of_fame_rows, resume_search};
+use symbolic_regression::{
+    CREATE_OUTPUT_DIRECTORY_ERROR_PREFIX, Dataset, Evaluator, ExternalStop, OPEN_TRACING_FILE_ERROR_PREFIX,
+    SearchResult, WRITE_HALL_OF_FAME_ERROR_PREFIX, WRITE_TRACING_FILE_ERROR_PREFIX, equation_search, hall_of_fame_rows,
+    resume_search,
+};
 
 use crate::keywords::{self, D, Keywords, Precision, SearchOptions, Value};
 
 /// How often a running search checks for signals such as Ctrl-C.
 const SIGNAL_POLL: Duration = Duration::from_millis(100);
 
+// Bump when the serialized layout of Saved, StateData, or any transitive field type changes.
+const STATE_FORMAT: u32 = 2;
+
 fn value_error(message: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(message.to_string())
+}
+
+fn search_error(message: String) -> PyErr {
+    if [
+        CREATE_OUTPUT_DIRECTORY_ERROR_PREFIX,
+        WRITE_HALL_OF_FAME_ERROR_PREFIX,
+        OPEN_TRACING_FILE_ERROR_PREFIX,
+        WRITE_TRACING_FILE_ERROR_PREFIX,
+    ]
+    .iter()
+    .any(|prefix| message.starts_with(prefix))
+    {
+        PyOSError::new_err(message)
+    } else {
+        value_error(message)
+    }
 }
 
 /// A search state for one float type: what the search left, and each output's hall-of-fame rows.
@@ -25,6 +48,8 @@ struct Saved<T: Precision> {
     result: SearchResult<T, T::Ops, D>,
     fronts: Vec<Vec<(usize, f64, String)>>,
     interrupted: bool,
+    n_features: usize,
+    keywords: Vec<(String, Value)>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -125,8 +150,32 @@ impl SearchState {
         with_saved!(&self.data, s => s.interrupted)
     }
 
+    /// Evaluates the selected Pareto expression on (n_samples, n_features) inputs.
+    #[pyo3(signature = (X, *, output=0, complexity=None))]
+    #[allow(non_snake_case)]
+    fn evaluate<'py>(
+        &self,
+        py: Python<'py>,
+        X: &Bound<'py, PyAny>,
+        output: i64,
+        complexity: Option<i64>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let output = usize::try_from(output).map_err(|_| value_error("output must be nonnegative"))?;
+        let complexity = complexity
+            .map(|c| usize::try_from(c).map_err(|_| value_error("complexity must be nonnegative")))
+            .transpose()?;
+        match &self.data {
+            StateData::F32(saved) => evaluate_saved(py, saved, X, output, complexity).map(Bound::into_any),
+            StateData::F64(saved) => evaluate_saved(py, saved, X, output, complexity).map(Bound::into_any),
+        }
+    }
+
     fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
-        let bytes = postcard::to_stdvec(&(env!("CARGO_PKG_VERSION"), &self.data)).map_err(value_error)?;
+        let mut bytes =
+            postcard::to_extend(&(env!("CARGO_PKG_VERSION"), &self.data), vec![0; 8]).map_err(value_error)?;
+        let checksum = crc32fast::hash(&bytes[8..]);
+        bytes[..4].copy_from_slice(&STATE_FORMAT.to_le_bytes());
+        bytes[4..8].copy_from_slice(&checksum.to_le_bytes());
         let load = py.import("symbolic_regression_rs")?.getattr("_load_state")?;
         Ok((load, (PyBytes::new(py, &bytes),)))
     }
@@ -135,15 +184,95 @@ impl SearchState {
 /// Unpickles a [`SearchState`].
 #[pyfunction]
 fn _load_state(bytes: &[u8]) -> PyResult<SearchState> {
-    let (version, rest) = postcard::take_from_bytes::<String>(bytes).map_err(value_error)?;
+    let header = bytes
+        .get(..8)
+        .ok_or_else(|| value_error("search state header is truncated"))?;
+    let format = u32::from_le_bytes(header[..4].try_into().expect("four header bytes"));
+    if format != STATE_FORMAT {
+        return Err(value_error(format!(
+            "unsupported search state format {format}; expected {STATE_FORMAT}"
+        )));
+    }
+    let checksum = u32::from_le_bytes(header[4..8].try_into().expect("four checksum bytes"));
+    if crc32fast::hash(&bytes[8..]) != checksum {
+        return Err(value_error("search state checksum does not match"));
+    }
+    let (version, rest) = postcard::take_from_bytes::<String>(&bytes[8..]).map_err(value_error)?;
     if version != env!("CARGO_PKG_VERSION") {
         return Err(value_error(format!(
             "this search state was saved by symbolic-regression-rs {version}, which this version ({}) cannot load",
             env!("CARGO_PKG_VERSION")
         )));
     }
-    let data = postcard::from_bytes(rest).map_err(value_error)?;
+    let (data, rest) = postcard::take_from_bytes::<StateData>(rest).map_err(value_error)?;
+    if !rest.is_empty() {
+        return Err(value_error("search state has trailing bytes"));
+    }
     Ok(SearchState { data })
+}
+
+fn evaluate_saved<'py, T: Stored>(
+    py: Python<'py>,
+    saved: &Saved<T>,
+    x: &Bound<'py, PyAny>,
+    output: usize,
+    complexity: Option<usize>,
+) -> PyResult<Bound<'py, PyArray1<T>>> {
+    let front = saved
+        .fronts
+        .get(output)
+        .ok_or_else(|| value_error(format!("output {output} does not exist")))?;
+    let complexity = match complexity {
+        Some(c) if front.iter().any(|row| row.0 == c) => c,
+        Some(c) => return Err(value_error(format!("complexity {c} is not a returned Pareto row"))),
+        None => {
+            front
+                .last()
+                .ok_or_else(|| value_error("output has no Pareto expressions"))?
+                .0
+        }
+    };
+    let member = saved
+        .result
+        .halls_of_fame
+        .get(output)
+        .and_then(|hall| hall.best_by_complexity.get(complexity))
+        .and_then(Option::as_ref)
+        .ok_or_else(|| value_error("Pareto expression is missing from the hall of fame"))?;
+    let x = x.cast::<PyArray2<T>>().map_err(|_| {
+        value_error(format!(
+            "X must be a 2-D {} NumPy array, as the state is; got {}",
+            T::DTYPE,
+            describe(x).unwrap_or_default()
+        ))
+    })?;
+    let x = x.readonly();
+    let x = x.as_array();
+    if x.ncols() != saved.n_features {
+        return Err(value_error(format!(
+            "X has {} features; the state requires {}",
+            x.ncols(),
+            saved.n_features
+        )));
+    }
+    let x = x.t().as_standard_layout().into_owned();
+    let predictions = py
+        .detach(move || -> Result<Vec<T>, String> {
+            let options = keywords::evaluation_options::<T>(saved.keywords.clone())?;
+            if let Some(template) = &options.template {
+                template.check_indices(x.view())?;
+            }
+            let mut evaluator = Evaluator::<T, D>::new(x.ncols());
+            let valid = evaluator
+                .eval_checked(&member.expr, &member.plans, &options, x.view())
+                .map_err(|err| err.to_string())?;
+            if !valid || evaluator.yhat.iter().any(|value| !value.is_finite()) {
+                return Err("expression evaluation produced invalid or nonfinite predictions".into());
+            }
+            Ok(evaluator.yhat)
+        })
+        .map_err(value_error)?;
+    Ok(predictions.into_pyarray(py))
 }
 
 /// A Python keyword value as [`Value`]: lists and tuples become lists, and NumPy arrays and
@@ -154,10 +283,13 @@ fn value(key: &str, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     } else if let Ok(b) = obj.cast::<PyBool>() {
         Value::Bool(b.is_true())
     } else if obj.is_instance_of::<PyInt>() {
-        Value::Int(
-            obj.extract()
-                .map_err(|_| value_error(format!("`{key}` has an integer too large for 64 bits")))?,
-        )
+        match obj.extract::<i64>() {
+            Ok(integer) => Value::Int(integer),
+            Err(_) => Value::UInt(
+                obj.extract::<u64>()
+                    .map_err(|_| value_error(format!("`{key}` has an integer too large for 64 bits")))?,
+            ),
+        }
     } else if obj.is_instance_of::<PyFloat>() {
         Value::Float(obj.extract()?)
     } else if obj.is_instance_of::<PyString>() {
@@ -290,8 +422,8 @@ fn search<T: Stored>(py: Python<'_>, x: ArrayView2<'_, T>, args: SearchArgs<'_, 
     }
     let weights = match args.weights {
         Some(w) => {
-            let (w, _) = per_output::<T>("weights", w, n_samples)?;
-            if w.dim() != y.dim() {
+            let (w, weights_multi_output) = per_output::<T>("weights", w, n_samples)?;
+            if weights_multi_output != multi_output || w.dim() != y.dim() {
                 return Err(value_error("weights must have the shape of y"));
             }
             Some(w)
@@ -313,16 +445,28 @@ fn search<T: Stored>(py: Python<'_>, x: ArrayView2<'_, T>, args: SearchArgs<'_, 
         let w = weights.map(|w| w.index_axis_move(Axis(0), 0));
         vec![Dataset::with_weights_and_names(x, y, w, args.variable_names)]
     };
-    let y_names: Option<Vec<String>> = match args.y_variable_names {
-        None => None,
-        Some(names) if multi_output => Some(names.extract()?),
-        Some(name) => Some(vec![name.extract()?]),
+    let output_strings = |name: &str, obj: Option<&Bound<'_, PyAny>>| -> PyResult<Option<Vec<String>>> {
+        obj.map(|obj| {
+            if multi_output {
+                obj.extract::<Vec<String>>()
+            } else {
+                obj.extract::<String>().map(|value| vec![value])
+            }
+            .map_err(|err| {
+                value_error(format!(
+                    "{name} needs {}: {err}",
+                    if multi_output {
+                        "one string per output"
+                    } else {
+                        "a string"
+                    }
+                ))
+            })
+        })
+        .transpose()
     };
-    let y_units: Option<Vec<String>> = match args.y_units {
-        None => None,
-        Some(units) if multi_output && !units.is_instance_of::<PyString>() => Some(units.extract()?),
-        Some(unit) => Some(vec![unit.extract()?; nout]),
-    };
+    let y_names = output_strings("y_variable_names", args.y_variable_names)?;
+    let y_units = output_strings("y_units", args.y_units)?;
     for (name, list) in [("y_variable_names", &y_names), ("y_units", &y_units)] {
         if list.as_ref().is_some_and(|l| l.len() != nout) {
             return Err(value_error(format!("{name} needs one entry per output ({nout})")));
@@ -363,7 +507,7 @@ fn search<T: Stored>(py: Python<'_>, x: ArrayView2<'_, T>, args: SearchArgs<'_, 
             .collect::<PyResult<Vec<_>>>()?,
         None => Vec::new(),
     };
-    let mut options: SearchOptions<T> = keywords::options::<T>(Keywords::new(keywords)).map_err(value_error)?;
+    let mut options: SearchOptions<T> = keywords::options::<T>(Keywords::new(keywords.clone())).map_err(value_error)?;
     if options
         .variable_complexities
         .as_ref()
@@ -395,7 +539,7 @@ fn search<T: Stored>(py: Python<'_>, x: ArrayView2<'_, T>, args: SearchArgs<'_, 
     options.external_stop = Some(stop.clone());
 
     let (result, interrupted) = run(py, &datasets, &options, previous, &stop)?;
-    let result = result.map_err(value_error)?;
+    let result = result.map_err(search_error)?;
     let fronts = result
         .halls_of_fame
         .iter()
@@ -407,6 +551,8 @@ fn search<T: Stored>(py: Python<'_>, x: ArrayView2<'_, T>, args: SearchArgs<'_, 
             result,
             fronts,
             interrupted,
+            n_features,
+            keywords: keywords::evaluation_keywords(keywords),
         }),
     })
 }
@@ -440,14 +586,12 @@ fn run<T: Stored>(
                 (receiver, received)
             });
             receiver = back;
-            if !interrupted && raised.is_none() {
-                if let Err(err) = py.check_signals() {
-                    stop.request();
-                    if err.is_instance_of::<PyKeyboardInterrupt>(py) {
-                        interrupted = true;
-                    } else {
-                        raised = Some(err);
-                    }
+            if let Err(err) = py.check_signals() {
+                stop.request();
+                if err.is_instance_of::<PyKeyboardInterrupt>(py) {
+                    interrupted = true;
+                } else {
+                    raised.get_or_insert(err);
                 }
             }
             match received {
@@ -471,5 +615,14 @@ fn symbolic_regression_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SearchState>()?;
     m.add_function(wrap_pyfunction!(equation_search_py, m)?)?;
     m.add_function(wrap_pyfunction!(_load_state, m)?)?;
+    m.add(
+        "SUPPORTED_OPTIONS",
+        PyTuple::new(m.py(), keywords::SUPPORTED_OPTIONS.iter().copied())?,
+    )?;
+    let julia_only = PyDict::new(m.py());
+    for &(name, reason) in keywords::JULIA_ONLY {
+        julia_only.set_item(name, reason)?;
+    }
+    m.add("JULIA_ONLY_OPTIONS", julia_only)?;
     Ok(())
 }

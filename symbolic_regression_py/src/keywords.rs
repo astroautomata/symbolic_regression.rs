@@ -8,13 +8,19 @@ use dynamic_expressions::dsl::{CustomOps, DslFloat, TemplateStructure, parse_ope
 use dynamic_expressions::operator_enum::presets::{BuiltinOpsF32, BuiltinOpsF64};
 use dynamic_expressions::{OpId, OperatorSelectError, OperatorSet, Operators};
 use num_traits::{FromPrimitive, ToPrimitive};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use symbolic_regression::InputStream;
 use symbolic_regression::{
     AdaptiveMutationWeights, Batching, BuiltinMutation, ConstantMutation, Crossover, DefaultsProfile, EarlyStop, Guess,
-    InputStream, LossScale, MutationBurst, OptimizerAlgorithm, Options, Parallelism, Reward, TemplateGuessValue,
-    parse_early_stop, parse_loss,
+    LossScale, MutationBurst, OptimizerAlgorithm, Options, Parallelism, Reward, TemplateGuessValue, parse_early_stop,
+    parse_loss,
 };
+
+#[path = "keyword_table.rs"]
+mod keyword_table;
+pub(crate) use keyword_table::{JULIA_ONLY, SUPPORTED_OPTIONS};
 
 /// The largest operator arity the search supports: that of the built-in ternary operators.
 pub(crate) const D: usize = 3;
@@ -46,11 +52,12 @@ pub(crate) type SearchOptions<T> = Options<T, <T as Precision>::Ops, D>;
 type SearchGuesses<T> = Vec<Vec<Guess<T, <T as Precision>::Ops, D>>>;
 
 /// A keyword argument's value, as Python passes it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Value {
     None,
     Bool(bool),
     Int(i64),
+    UInt(u64),
     Float(f64),
     Str(String),
     List(Vec<Value>),
@@ -63,6 +70,7 @@ impl Value {
             Value::None => "None".into(),
             Value::Bool(b) => if *b { "True" } else { "False" }.into(),
             Value::Int(i) => i.to_string(),
+            Value::UInt(i) => i.to_string(),
             Value::Float(f) => f.to_string(),
             Value::Str(s) => format!("{s:?}"),
             Value::List(_) => "a list".into(),
@@ -85,13 +93,18 @@ fn to_bool(key: &str, value: Value) -> Result<bool, String> {
 fn to_int(key: &str, value: Value) -> Result<i64, String> {
     match value {
         Value::Int(i) => Ok(i),
+        Value::UInt(i) => i64::try_from(i).map_err(|_| format!("`{key}` is out of range, got {i}")),
         other => Err(expected(key, "an integer", &other)),
     }
 }
 
-fn to_unsigned<N: TryFrom<i64>>(key: &str, value: Value) -> Result<N, String> {
-    let i = to_int(key, value)?;
-    N::try_from(i).map_err(|_| format!("`{key}` must be a non-negative integer, got {i}"))
+fn to_unsigned<N: TryFrom<u64>>(key: &str, value: Value) -> Result<N, String> {
+    let i = match value {
+        Value::UInt(i) => i,
+        Value::Int(i) => u64::try_from(i).map_err(|_| format!("`{key}` must be a non-negative integer, got {i}"))?,
+        other => return Err(expected(key, "an integer", &other)),
+    };
+    N::try_from(i).map_err(|_| format!("`{key}` is out of range, got {i}"))
 }
 
 fn to_usize(key: &str, value: Value) -> Result<usize, String> {
@@ -110,6 +123,7 @@ fn to_i32(key: &str, value: Value) -> Result<i32, String> {
 fn to_f64(key: &str, value: Value) -> Result<f64, String> {
     let f = match value {
         Value::Int(i) => i as f64,
+        Value::UInt(i) => i as f64,
         Value::Float(f) => f,
         other => return Err(expected(key, "a number", &other)),
     };
@@ -234,51 +248,6 @@ impl Keywords {
     }
 }
 
-/// SymbolicRegression.jl keywords that the Rust engine cannot honor, and why.
-pub(crate) const JULIA_ONLY: &[(&str, &str)] = &[
-    (
-        "loss_function",
-        "it takes a Julia function of the whole expression; use `elementwise_loss`",
-    ),
-    (
-        "loss_function_expression",
-        "it takes a Julia function of the whole expression; use `elementwise_loss`",
-    ),
-    (
-        "complexity_mapping",
-        "it takes a Julia function; use the `complexity_of_*` options",
-    ),
-    ("operator_enum_constructor", "it takes a Julia type"),
-    ("popmember_type", "it takes a Julia type"),
-    ("loss_type", "it takes a Julia type"),
-    ("turbo", "it selects LoopVectorization.jl"),
-    ("bumper", "it selects Bumper.jl"),
-    (
-        "autodiff_backend",
-        "it selects a Julia automatic differentiation package",
-    ),
-    ("define_helper_functions", "it defines Julia functions"),
-    ("logger", "it takes a Julia logger"),
-    ("external_stop", "the Python binding handles cancellation and Ctrl-C"),
-    ("numprocs", "multiprocessing runs Julia worker processes"),
-    ("procs", "multiprocessing runs Julia worker processes"),
-    ("addprocs_function", "multiprocessing runs Julia worker processes"),
-    ("heap_size_hint_in_bytes", "multiprocessing runs Julia worker processes"),
-    ("worker_timeout", "multiprocessing runs Julia worker processes"),
-    ("worker_imports", "multiprocessing runs Julia worker processes"),
-    ("runtests", "it tests Julia worker processes"),
-    ("return_state", "the search always returns its state"),
-    ("npopulations", "it is a deprecated alias; use `populations`"),
-    ("npop", "it is a deprecated alias; use `population_size`"),
-    ("expression_type", "it is deprecated; use `expression_spec`"),
-    ("expression_options", "it is deprecated; use `expression_spec`"),
-    ("node_type", "it is deprecated; use `expression_spec`"),
-    ("output_file", "it is deprecated; use `output_directory`"),
-    ("fast_cycle", "it is deprecated"),
-    ("bin_constraints", "it is deprecated; use `constraints`"),
-    ("una_constraints", "it is deprecated; use `constraints`"),
-];
-
 const DEFAULT_BINARY_OPERATORS: [&str; 4] = ["+", "-", "/", "*"];
 
 /// SymbolicRegression.jl's `Options(; kws...)`, with the `equation_search` settings that the Rust
@@ -291,38 +260,26 @@ pub(crate) fn options<T: Precision>(mut kw: Keywords) -> Result<SearchOptions<T>
     };
     o.operators = operators::<T>(&mut kw)?;
 
-    macro_rules! set {
-        (Some $convert:ident: $($field:ident),+ $(,)?) => {
-            $(if let Some(v) = kw.take(stringify!($field)) {
-                o.$field = Some($convert(stringify!($field), v)?);
+    macro_rules! set_regular {
+        ([$kw:ident, $options:ident]
+            regular { $($origin:ident $mode:ident $convert:ident: $($field:ident),+;)* }
+            special { $($special_origin:ident $special:ident;)* }
+            rejected { $($rejected_origin:ident $rejected:ident: $reason:literal;)* }
+        ) => {
+            $(set_regular!(@$mode $kw, $options, $convert: $($field),+);)*
+        };
+        (@plain $kw:ident, $options:ident, $convert:ident: $($field:ident),+) => {
+            $(if let Some(value) = $kw.take(stringify!($field)) {
+                $options.$field = $convert(stringify!($field), value)?;
             })+
         };
-        ($convert:ident: $($field:ident),+ $(,)?) => {
-            $(if let Some(v) = kw.take(stringify!($field)) {
-                o.$field = $convert(stringify!($field), v)?;
+        (@optional $kw:ident, $options:ident, $convert:ident: $($field:ident),+) => {
+            $(if let Some(value) = $kw.take(stringify!($field)) {
+                $options.$field = Some($convert(stringify!($field), value)?);
             })+
         };
     }
-    set!(to_usize: ncycles_per_iteration, optimizer_nrestarts, optimizer_iterations, optimizer_f_calls_limit,
-        optimizer_g_calls_limit, topn, niterations, maxsize);
-    set!(to_cost: warmup_maxsize_by);
-    set!(to_positive: populations, population_size, tournament_selection_n, print_precision);
-    set!(to_nonnegative: parsimony, adaptive_parsimony_scaling, alpha, perturbation_factor,
-        timeout_in_seconds, dimensional_constraint_penalty, optimizer_g_abstol, optimizer_x_abstol, optimizer_f_reltol);
-    set!(to_probability: crossover_probability, probability_negate_constant, optimizer_probability,
-        fraction_replaced, fraction_replaced_hof, fraction_replaced_guesses);
-    set!(to_cost: complexity_of_constants);
-    set!(to_probability32: tournament_selection_p);
-    set!(to_bool: dimensionless_constants_only, use_frequency, use_frequency_in_tournament, skip_mutation_failures,
-        annealing, should_optimize_constants, migration, hof_migration, deterministic, save_to_file, progress,
-        use_tracing, use_baseline);
-    set!(to_u64: max_evals);
-    set!(Some to_positive: maxdepth, terminal_width);
-    set!(Some to_usize: batch_size);
-    set!(Some to_bool: should_simplify);
-    set!(Some to_i32: verbosity);
-    set!(Some to_u64: seed);
-    set!(Some to_string: output_directory, run_id);
+    keyword_table::keyword_table!(set_regular, kw, o);
     if let Some(v) = kw.take("output_style") {
         o.output_style = match to_string("output_style", v)?.as_str() {
             "auto" => symbolic_regression::OutputStyle::Auto,
@@ -506,6 +463,33 @@ pub(crate) fn options<T: Precision>(mut kw: Keywords) -> Result<SearchOptions<T>
         return Err("at least one crossover weight must be positive when crossover_probability > 0".into());
     }
     Ok(o)
+}
+
+const EVALUATION_KEYS: [&str; 4] = ["operators", "binary_operators", "unary_operators", "expression_spec"];
+
+/// The keywords that define how an expression evaluates: its operators and template. Runtime
+/// settings such as I/O paths, loss, and optimizer are dropped.
+pub(crate) fn evaluation_keywords(pairs: Vec<(String, Value)>) -> Vec<(String, Value)> {
+    pairs
+        .into_iter()
+        .filter(|(k, _)| EVALUATION_KEYS.contains(&k.as_str()))
+        .collect()
+}
+
+/// Default options with only the operators and template of `pairs`, for evaluating saved
+/// expressions without reapplying the search's runtime configuration.
+pub(crate) fn evaluation_options<T: Precision>(pairs: Vec<(String, Value)>) -> Result<SearchOptions<T>, String> {
+    let mut kw = Keywords::new(evaluation_keywords(pairs));
+    let operators = operators::<T>(&mut kw)?;
+    let template = kw
+        .take("expression_spec")
+        .map(|value| template(value, &operators.set))
+        .transpose()?;
+    Ok(SearchOptions {
+        operators,
+        template,
+        ..Default::default()
+    })
 }
 
 /// SymbolicRegression.jl's `defaults`, a version such as `"0.24.5"`: versions before 1.0.0 select
@@ -1063,7 +1047,35 @@ fn guess<T: Precision>(value: Value) -> Result<Guess<T, T::Ops, D>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn seed_accepts_full_u64_range() {
+        let o = search_options([("seed", Value::UInt(u64::MAX))]).unwrap();
+        assert_eq!(o.seed, Some(u64::MAX));
+        assert!(error([("seed", Value::Int(-1))]).contains("non-negative"));
+        assert!(to_int("limit", Value::UInt(u64::MAX)).is_err());
+        assert_eq!(to_int("limit", Value::Int(-1)), Ok(-1));
+        let raw = vec![("seed".to_owned(), Value::UInt(u64::MAX))];
+        let bytes = postcard::to_allocvec(&raw).unwrap();
+        assert_eq!(postcard::from_bytes::<Vec<(String, Value)>>(&bytes).unwrap(), raw);
+    }
 
+    #[test]
+    fn keyword_metadata_matches_conversion() {
+        let mut names = std::collections::BTreeSet::new();
+        for &key in SUPPORTED_OPTIONS {
+            assert!(names.insert(key), "duplicate supported option {key}");
+            search_options([(key, Value::None)]).unwrap_or_else(|e| panic!("stale supported option {key}: {e}"));
+        }
+        for &(key, reason) in JULIA_ONLY {
+            assert!(names.insert(key), "duplicate or conflicting option {key}");
+            assert!(!reason.is_empty(), "unclassified Julia-only option {key}");
+            assert!(error([(key, Value::None)]).contains(reason));
+        }
+        for key in ["extra", "multithreaded", "deprecated_return_state", "mutationWeights"] {
+            assert!(JULIA_ONLY.iter().any(|&(name, _)| name == key), "unclassified {key}");
+        }
+        assert!(error([("unknown", Value::None)]).contains("unknown option"));
+    }
     #[test]
     fn validates_dsl_and_nested_constraints() {
         let o = search_options([
@@ -1367,45 +1379,92 @@ mod tests {
         assert_eq!(o.mutation_weights.rotate_tree, defaults.rotate_tree);
         assert_eq!(o.mutation_weights.mutate_operator, defaults.mutate_operator);
     }
-}
 
-/// test/unit/basic/test_options.jl | "Test operators parameter conflicts"
-#[cfg(test)]
-#[test]
-fn operators_parameter_conflicts() {
-    fn strs<const N: usize>(items: [&str; N]) -> Value {
-        Value::List(items.iter().map(|s| Value::Str(s.to_string())).collect())
+    /// test/unit/basic/test_options.jl | "Test operators parameter conflicts"
+    #[test]
+    fn operators_parameter_conflicts() {
+        let operators = || {
+            Value::Dict(vec![
+                (Value::Int(1), strs(["sin", "cos"])),
+                (Value::Int(2), strs(["+", "*", "-"])),
+            ])
+        };
+        let conflict = "`operators` cannot be combined with `binary_operators` or `unary_operators`";
+        assert_eq!(
+            error([("operators", operators()), ("binary_operators", strs(["+", "*"]))]),
+            conflict
+        );
+        assert_eq!(
+            error([("operators", operators()), ("unary_operators", strs(["sin"]))]),
+            conflict
+        );
+        assert_eq!(
+            error([
+                ("operators", operators()),
+                ("operator_enum_constructor", Value::Str("OperatorEnum".into()))
+            ]),
+            "`operator_enum_constructor` is a SymbolicRegression.jl option that the Rust engine does not support: it takes a Julia type"
+        );
+        let alone = search_options([("operators", operators())]).unwrap();
+        assert_eq!((alone.operators.nops(1), alone.operators.nops(2)), (2, 3));
     }
-    fn search_options<const N: usize>(pairs: [(&str, Value); N]) -> Result<SearchOptions<f64>, String> {
-        options::<f64>(Keywords::new(
-            pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
-        ))
+
+    fn pairs<const N: usize>(items: [(&str, Value); N]) -> Vec<(String, Value)> {
+        items.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
     }
-    fn error<const N: usize>(pairs: [(&str, Value); N]) -> String {
-        search_options(pairs).err().expect("the options are invalid")
-    }
-    let operators = || {
-        Value::Dict(vec![
-            (Value::Int(1), strs(["sin", "cos"])),
-            (Value::Int(2), strs(["+", "*", "-"])),
+
+    fn template_spec() -> Value {
+        dict(vec![
+            ("combine", Value::Str("f(x) + p[1]".into())),
+            ("expressions", strs(["f"])),
+            ("variable_names", strs(["x"])),
+            ("parameters", dict(vec![("p", Value::Int(1))])),
         ])
-    };
-    let conflict = "`operators` cannot be combined with `binary_operators` or `unary_operators`";
-    assert_eq!(
-        error([("operators", operators()), ("binary_operators", strs(["+", "*"]))]),
-        conflict
-    );
-    assert_eq!(
-        error([("operators", operators()), ("unary_operators", strs(["sin"]))]),
-        conflict
-    );
-    assert_eq!(
-        error([
-            ("operators", operators()),
-            ("operator_enum_constructor", Value::Str("OperatorEnum".into()))
-        ]),
-        "`operator_enum_constructor` is a SymbolicRegression.jl option that the Rust engine does not support: it takes a Julia type"
-    );
-    let alone = search_options([("operators", operators())]).unwrap();
-    assert_eq!((alone.operators.nops(1), alone.operators.nops(2)), (2, 3));
+    }
+
+    #[test]
+    fn evaluation_keywords_keep_only_operators_and_template() {
+        let kept = evaluation_keywords(pairs([
+            ("input_stream", Value::Str("stdin".into())),
+            ("binary_operators", strs(["+", "*"])),
+            ("output_directory", Value::Str("/nonexistent/out".into())),
+            ("unary_operators", strs(["inv(x) = 1/x"])),
+            ("tracing_file", Value::Str("/nonexistent/trace".into())),
+            ("expression_spec", template_spec()),
+            ("elementwise_loss", Value::Str("not a loss".into())),
+        ]));
+        assert_eq!(
+            kept,
+            pairs([
+                ("binary_operators", strs(["+", "*"])),
+                ("unary_operators", strs(["inv(x) = 1/x"])),
+                ("expression_spec", template_spec()),
+            ])
+        );
+    }
+
+    #[test]
+    fn evaluation_options_ignore_runtime_settings() {
+        let o = evaluation_options::<f64>(pairs([
+            ("input_stream", Value::Str("stdin".into())),
+            ("output_directory", Value::Str("/nonexistent/out".into())),
+            ("tracing_file", Value::Str("/nonexistent/trace".into())),
+            ("elementwise_loss", Value::Str("not a loss".into())),
+            ("optimizer_algorithm", Value::Str("NotAnOptimizer".into())),
+            ("binary_operators", strs(["+", "*"])),
+            ("unary_operators", strs(["cos", "inv(x) = 1/x"])),
+            ("expression_spec", template_spec()),
+        ]))
+        .unwrap();
+        assert_eq!((o.operators.nops(1), o.operators.nops(2)), (2, 2));
+        assert_eq!(o.template.unwrap().n_parameters(), 1);
+
+        let by_arity = evaluation_options::<f32>(vec![(
+            "operators".into(),
+            Value::Dict(vec![(Value::Int(1), strs(["sin"])), (Value::Int(2), strs(["+"]))]),
+        )])
+        .unwrap();
+        assert_eq!((by_arity.operators.nops(1), by_arity.operators.nops(2)), (1, 1));
+        assert!(by_arity.template.is_none());
+    }
 }

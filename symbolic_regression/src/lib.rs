@@ -59,15 +59,16 @@ pub use options::{
     MutationWeights, OptimizerAlgorithm, Options, OutputStyle, Parallelism, WasmOptionsShim, parse_early_stop,
 };
 pub use plugins::{AdaptiveMutationWeights, MutationBurst, Reward};
-pub use pop_member::PopMember;
+pub use pop_member::{Evaluator, PopMember};
 pub use population::Population;
 pub use printing::{format_hall, format_member, format_search_state, split_string, wrap_equation_string};
 pub use run_output::{
-    LogCallback, LogEquation, LogOutput, LogOutputs, LogPayload, LogPopulation, LogSummaries, SrLogger,
-    generate_run_id, hall_of_fame_rows,
+    CREATE_OUTPUT_DIRECTORY_ERROR_PREFIX, LogCallback, LogEquation, LogOutput, LogOutputs, LogPayload, LogPopulation,
+    LogSummaries, SrLogger, WRITE_HALL_OF_FAME_ERROR_PREFIX, generate_run_id, hall_of_fame_rows,
 };
 pub use search_utils::{SearchEngine, SearchResult, equation_search, resume_search};
 pub use stop_controller::{ExternalStop, InputStream};
+pub use tracing::{OPEN_TRACING_FILE_ERROR_PREFIX, WRITE_TRACING_FILE_ERROR_PREFIX};
 #[cfg(feature = "bench")]
 pub use {
     crate::mutation_functions::{insert_random_op_in_place, random_expr, random_expr_append_ops, rotate_tree_in_place},
@@ -76,7 +77,6 @@ pub use {
     constant_optimization::{OptimizeConstantsCtx, optimize_constants},
     mutate::{NextGenerationCtx, next_generation},
     plugins::MutationWeightsState,
-    pop_member::Evaluator,
     selection::best_of_sample,
 };
 

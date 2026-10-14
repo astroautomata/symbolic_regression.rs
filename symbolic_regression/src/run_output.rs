@@ -14,6 +14,9 @@ use crate::hall_of_fame::{HallOfFame, pareto_volume};
 use crate::options::Options;
 use crate::pop_member::PopMember;
 
+pub const CREATE_OUTPUT_DIRECTORY_ERROR_PREFIX: &str = "cannot create output directory ";
+pub const WRITE_HALL_OF_FAME_ERROR_PREFIX: &str = "cannot write hall of fame ";
+
 pub type LogCallback<T> = Arc<dyn Fn(&LogPayload<T>) + Send + Sync>;
 
 /// SymbolicRegression.jl's `SRLogger`: step zero and every `log_interval` steps,
@@ -162,7 +165,7 @@ pub(crate) fn save_to_file<T: Float + Display, Ops: OperatorSet, const D: usize>
             "hall_of_fame.csv".to_string()
         };
         std::fs::create_dir_all(&directory)
-            .map_err(|e| format!("cannot create output directory {}: {e}", directory.display()))?;
+            .map_err(|e| format!("{CREATE_OUTPUT_DIRECTORY_ERROR_PREFIX}{}: {e}", directory.display()))?;
         let mut csv = String::from("Complexity,Loss,Equation\n");
         for (complexity, loss, equation) in hall_of_fame_rows(hall, dataset, options) {
             writeln!(
@@ -177,7 +180,7 @@ pub(crate) fn save_to_file<T: Float + Display, Ops: OperatorSet, const D: usize>
         for name in [&filename, &backup_filename] {
             let path = directory.join(name);
             write_atomically(&directory, name, &csv)
-                .map_err(|e| format!("cannot write hall of fame {}: {e}", path.display()))?;
+                .map_err(|e| format!("{WRITE_HALL_OF_FAME_ERROR_PREFIX}{}: {e}", path.display()))?;
         }
     }
     #[cfg(target_arch = "wasm32")]

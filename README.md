@@ -35,7 +35,7 @@ maturin build --release --manifest-path symbolic_regression_py/Cargo.toml --out 
 pip install wheelhouse/*.whl
 ```
 
-The distribution is `symbolic-regression-rs`; import it as `symbolic_regression_rs`. The wheel uses Python's stable ABI and needs no Julia installation. `X` has shape `(n_samples, n_features)` and `y` has shape `(n_samples,)` or `(n_samples, n_outputs)`. Both arrays, and optional `weights`, must have the same NumPy `float32` or `float64` dtype.
+The distribution is `symbolic-regression-rs`; import it as `symbolic_regression_rs`. The wheel uses Python's stable ABI and needs no Julia installation. `X` has shape `(n_samples, n_features)` and `y` has shape `(n_samples,)` or `(n_samples, n_outputs)`. Both arrays, and optional `weights`, must have the same NumPy `float32` or `float64` dtype. Weights must match both the shape and number of dimensions of `y`. For two-dimensional `y`, `y_variable_names` and `y_units` each require one string per output; for one-dimensional `y`, each takes a single string.
 
 ```python
 import numpy as np
@@ -48,9 +48,12 @@ state = equation_search(
     seed=0, deterministic=True, parallelism="serial", save_to_file=False,
 )
 print(state.pareto_fronts[0])  # (complexity, loss, equation) rows
+prediction = state.evaluate(X)  # Last Pareto row, with the state's dtype
 ```
 
-Keywords follow SymbolicRegression.jl's `Options` and `equation_search`, including string operators, `elementwise_loss`, `early_stop_condition`, units, and guesses. Julia-only and unknown options raise `ValueError`. Pickle a `SearchState` to save it, then pass the restored state as `saved_state` with compatible options to continue. Ctrl-C returns partial results with `state.interrupted=True`. See [the Python example](./symbolic_regression_py/examples/example.py).
+Keywords follow SymbolicRegression.jl's `Options` and `equation_search`, including string operators, `elementwise_loss`, `early_stop_condition`, units, and guesses. `symbolic_regression_rs.SUPPORTED_OPTIONS` lists accepted option names, and `JULIA_ONLY_OPTIONS` maps rejected names to reasons. Julia-only and unknown options raise `ValueError`, including when their value is `None`. Output-file failures raise `OSError`. Pickle a `SearchState` to save it, then pass the restored state as `saved_state` with compatible options to continue. Pickles require the same package version and state format; damaged or extended payloads are rejected. Ctrl-C returns partial results with `state.interrupted=True`, and further interrupts are consumed while the search finishes its running work. See [the Python example](./symbolic_regression_py/examples/example.py).
+
+`state.evaluate(X, output=0, complexity=None)` evaluates a stored expression directly. `X` must have the state's dtype and feature count. `output` selects an output, and `complexity` selects an exact complexity from that output's returned Pareto rows; omitting it selects the last row, which has the lowest loss. Custom operators, template formulas, and fitted template parameters survive pickling. Only operator and template definitions are saved for evaluation; machine-local input and output settings are excluded. Invalid template indices and nonfinite predictions raise `ValueError`.
 
 Rust-specific settings are `output_style`, `use_baseline`, and `optimizer_g_calls_limit`, `optimizer_g_abstol`, `optimizer_x_abstol`, and `optimizer_f_reltol`; the optimizer settings also accept the corresponding names inside `optimizer_options`.
 
