@@ -1,5 +1,6 @@
 use num_traits::Float;
 
+use crate::check_constraints::check_expression;
 use crate::loss_functions::max_zero;
 use crate::options::{LossScale, Options};
 use crate::pop_member::PopMember;
@@ -28,7 +29,21 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
         }
     }
 
-    pub fn consider(&mut self, member: &PopMember<T, Ops, D>, options: &Options<T, Ops, D>) {
+    /// Matches SymbolicRegression.jl's checked `update_hall_of_fame!`: only members that pass
+    /// [`check_expression`] at `options.maxsize` can enter.
+    pub fn consider(&mut self, member: &PopMember<T, Ops, D>, options: &Options<T, Ops, D>)
+    where
+        Ops: dynamic_expressions::OperatorSet,
+    {
+        let c = member.complexity;
+        if c > 0 && c <= options.maxsize && check_expression(&member.expr, options, options.maxsize) {
+            self.consider_unchecked(member, options);
+        }
+    }
+
+    /// Keeps `member` if it is the cheapest seen at its complexity, as SymbolicRegression.jl's
+    /// `s_r_cycle` does for its per-cycle `best_seen` without checking constraints.
+    pub(crate) fn consider_unchecked(&mut self, member: &PopMember<T, Ops, D>, options: &Options<T, Ops, D>) {
         let c = member.complexity;
         // Match SymbolicRegression.jl `s_r_cycle`: keep entries with `0 < c <= maxsize`.
         if c == 0 || c > options.maxsize {
@@ -52,7 +67,10 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
         }
     }
 
-    pub fn update_from_members(&mut self, members: &[PopMember<T, Ops, D>], options: &Options<T, Ops, D>) {
+    pub fn update_from_members(&mut self, members: &[PopMember<T, Ops, D>], options: &Options<T, Ops, D>)
+    where
+        Ops: dynamic_expressions::OperatorSet,
+    {
         for m in members {
             self.consider(m, options);
         }

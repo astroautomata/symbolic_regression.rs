@@ -9,7 +9,6 @@ use fastrand::Rng;
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 
 use crate::adaptive_parsimony::RunningSearchStatistics;
-use crate::check_constraints::check_expression;
 use crate::dataset::{Dataset, TaggedDataset};
 use crate::expression::Expression;
 use crate::guesses::{ParsedGuesses, seed_members};
@@ -835,9 +834,7 @@ where
                 None => (HallOfFame::new(options.maxsize), Vec::new()),
             };
             for seed in &seeds {
-                if check_expression(&seed.expr, options, options.maxsize) {
-                    hall.consider(seed, options);
-                }
+                hall.consider(seed, options);
             }
             let mut pops = Vec::with_capacity(options.populations);
             for i in 0..options.populations {

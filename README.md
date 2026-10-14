@@ -232,6 +232,8 @@ let options = Options::<f64, BuiltinOpsF64, 2> {
 
 `Options::default()` uses the current SymbolicRegression.jl hyperparameters. Rust operator sets are generic, so callers select operators explicitly. `seed: None` draws a fresh random seed for each search; `seed: Some(value)` repeats its random stream. `Options::with_defaults(DefaultsProfile::Legacy)` selects the pre-1.0 profile, and `DefaultsProfile::V1` selects the 1.x profile. `Batching::Auto` samples datasets with more than 1,000 rows; an unset `batch_size` selects 128, 256, or 512 rows as the dataset grows. An unset `maxdepth` follows `maxsize`, and unset `should_simplify` enables simplification only when no constraints are configured. `optimizer_algorithm` selects `OptimizerAlgorithm::BFGS` or `OptimizerAlgorithm::NelderMead`. Weighted `mutations` and `crossovers` replace defaults of the same built-in kind; `default_mutations: Some(vec![])` and `default_crossovers: Some(vec![])` disable their defaults.
 
+Search halls of fame retain only expressions within `maxsize` that satisfy the configured constraints, including every template subexpression.
+
 ## Template expressions
 
 `Options::template` fixes the shape of the equation, as PySR's `TemplateExpressionSpec` does. The combine formula is a string in the same syntax; it calls subexpressions that the search evolves, takes derivatives with `D(f, i)`, and indexes learnable parameter vectors. Indexing a parameter vector by a category column (`p[class]`, with classes numbered from 1) gives each class its own constants, which replaces SymbolicRegression.jl's former `ParametricExpression`:

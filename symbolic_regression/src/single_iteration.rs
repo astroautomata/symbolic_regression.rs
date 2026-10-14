@@ -78,7 +78,9 @@ where
                 _ops: core::marker::PhantomData,
             },
         );
-        best_seen.update_from_members(&pop.members, ctx.options);
+        for m in &pop.members {
+            best_seen.consider_unchecked(m, ctx.options);
+        }
     }
     (num_evals, best_seen)
 }

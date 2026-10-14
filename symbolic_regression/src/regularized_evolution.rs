@@ -81,7 +81,7 @@ where
                     let (baby, accepted, selected) = burst.run(ctx.rng, &allstar, |rng, parent| {
                         let (baby, accepted, step_trace) = step(rng, parent);
                         if accepted {
-                            ctx.best_seen.consider(&baby, ctx.options);
+                            ctx.best_seen.consider_unchecked(&baby, ctx.options);
                         }
                         if tracing {
                             burst_steps.push((parent.clone(), baby.clone(), step_trace));
@@ -124,8 +124,8 @@ where
             );
             num_evals += tmp;
             if accepted {
-                ctx.best_seen.consider(&baby1, ctx.options);
-                ctx.best_seen.consider(&baby2, ctx.options);
+                ctx.best_seen.consider_unchecked(&baby1, ctx.options);
+                ctx.best_seen.consider_unchecked(&baby2, ctx.options);
             }
             if !accepted && ctx.options.skip_mutation_failures {
                 continue;
