@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "symbolic-regression-rs"
+description = "Python bindings for symbolic_regression, the Rust port of SymbolicRegression.jl."
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["numpy"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.maturin]
+module-name = "symbolic_regression_rs"
+bindings = "pyo3"

@@ -28,6 +28,11 @@ use crate::{migration, single_iteration, tracing, warmup};
 
 /// What a search found, with the state SymbolicRegression.jl's `return_state` returns: pass it to
 /// [`resume_search`] or [`SearchEngine::resume`] to continue the search.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(serialize = "T: serde::Serialize", deserialize = "T: serde::Deserialize<'de>"))
+)]
 pub struct SearchResult<T: Float, Ops, const D: usize> {
     /// One hall of fame per output, in the order of the datasets.
     pub halls_of_fame: Vec<HallOfFame<T, Ops, D>>,
@@ -43,6 +48,7 @@ pub struct SearchResult<T: Float, Ops, const D: usize> {
     /// The directory name beneath `Options::output_directory` that holds this run's files.
     pub run_id: String,
     /// Each population's generator, so that a warm start continues its random stream.
+    #[cfg_attr(feature = "serde", serde(with = "rng_states"))]
     rngs: Vec<Vec<Rng>>,
     key: WarmStartKey,
 }
@@ -65,8 +71,9 @@ impl<T: Float, Ops, const D: usize> Clone for SearchResult<T, Ops, D> {
 /// The options a warm start must keep, as SymbolicRegression.jl's `check_warm_start_compatibility`
 /// lists them, and the shape of the data the populations were evolved on. Each is written out so
 /// that two keys compare field by field.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
-struct WarmStartKey(Vec<(&'static str, String)>);
+struct WarmStartKey(Vec<(String, String)>);
 
 impl WarmStartKey {
     fn new<T: Float, Ops: OperatorSet, const D: usize>(datasets: &[Dataset<T>], options: &Options<T, Ops, D>) -> Self {
@@ -122,7 +129,7 @@ impl WarmStartKey {
                 t.variable_names().to_vec(),
             )
         });
-        Self(vec![
+        let fields: [(&str, String); 13] = [
             ("operators", format!("{operators:?}")),
             ("op_constraints", format!("{op_constraints:?}")),
             ("nested_constraints", format!("{nested_constraints:?}")),
@@ -153,7 +160,8 @@ impl WarmStartKey {
                 "number of features",
                 format!("{:?}", datasets.iter().map(|d| d.n_features).collect::<Vec<_>>()),
             ),
-        ])
+        ];
+        Self(fields.map(|(name, value)| (name.to_owned(), value)).into())
     }
 
     /// SymbolicRegression.jl's `WarmStartIncompatibleError`, naming every changed field.
@@ -163,7 +171,7 @@ impl WarmStartKey {
             .iter()
             .zip(&new.0)
             .filter(|(old, new)| old != new)
-            .map(|(old, _)| old.0)
+            .map(|(old, _)| old.0.as_str())
             .collect();
         if changed.is_empty() {
             return Ok(());
@@ -172,6 +180,26 @@ impl WarmStartKey {
             "Warm start incompatible due to changed field(s): {}. Start a new search instead.",
             changed.join(", ")
         ))
+    }
+}
+
+/// Each generator as its state, from which `Rng::with_seed` continues the same stream.
+#[cfg(feature = "serde")]
+mod rng_states {
+    use fastrand::Rng;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(rngs: &[Vec<Rng>], serializer: S) -> Result<S::Ok, S::Error> {
+        let states: Vec<Vec<u64>> = rngs.iter().map(|row| row.iter().map(Rng::get_seed).collect()).collect();
+        states.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Vec<Rng>>, D::Error> {
+        let states = Vec::<Vec<u64>>::deserialize(deserializer)?;
+        Ok(states
+            .into_iter()
+            .map(|row| row.into_iter().map(Rng::with_seed).collect())
+            .collect())
     }
 }
 

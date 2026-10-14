@@ -6,6 +6,7 @@ use num_traits::Float;
 use crate::options::Options;
 
 /// Stores one expression component inline, or multiple components in a vector.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub enum OneOrMany<T> {
     Single(T),
@@ -60,10 +61,132 @@ impl<T> From<Vec<T>> for OneOrMany<T> {
 
 /// A candidate equation: one tree per template subexpression, or a single tree in a search without
 /// a template, and the template's parameter vectors, concatenated in declaration order.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(serialize = "T: serde::Serialize", deserialize = "T: serde::Deserialize<'de>"))
+)]
 #[derive(Debug)]
 pub struct Expression<T, Ops, const D: usize> {
+    #[cfg_attr(feature = "serde", serde(with = "tree_serde"))]
     pub trees: OneOrMany<PostfixExpr<T, Ops, D>>,
     pub params: Vec<T>,
+}
+
+/// Serializes `dynamic_expressions` trees from this crate, so that crate needs no serde support.
+/// Serialization borrows the trees; deserialization rebuilds them through `PostfixExpr::new`.
+#[cfg(feature = "serde")]
+mod tree_serde {
+    use dynamic_expressions::{Metadata, PNode, PostfixExpr};
+    use serde::ser::SerializeStruct;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::OneOrMany;
+
+    #[allow(dead_code)]
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "PNode", rename = "PNode")]
+    enum PNodeDef {
+        Var { feature: u16 },
+        Const { idx: u16 },
+        Op { arity: u8, op: u16 },
+    }
+
+    #[allow(dead_code)]
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "Metadata", rename = "Metadata")]
+    struct MetadataDef {
+        variable_names: Vec<String>,
+    }
+
+    struct NodesRef<'a>(&'a [PNode]);
+
+    impl Serialize for NodesRef<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_seq(self.0.iter().map(NodeRef))
+        }
+    }
+
+    struct NodeRef<'a>(&'a PNode);
+
+    impl Serialize for NodeRef<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            PNodeDef::serialize(self.0, serializer)
+        }
+    }
+
+    struct MetadataRef<'a>(&'a Metadata);
+
+    impl Serialize for MetadataRef<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            MetadataDef::serialize(self.0, serializer)
+        }
+    }
+
+    struct TreeRef<'a, T, Ops, const D: usize>(&'a PostfixExpr<T, Ops, D>);
+
+    impl<T: Serialize, Ops, const D: usize> Serialize for TreeRef<'_, T, Ops, D> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let tree = self.0;
+            let mut state = serializer.serialize_struct("PostfixExpr", 3)?;
+            state.serialize_field("nodes", &NodesRef(&tree.nodes))?;
+            state.serialize_field("consts", &tree.consts)?;
+            state.serialize_field("meta", &MetadataRef(&tree.meta))?;
+            state.end()
+        }
+    }
+
+    struct TreesRef<'a, T, Ops, const D: usize>(&'a [PostfixExpr<T, Ops, D>]);
+
+    impl<T: Serialize, Ops, const D: usize> Serialize for TreesRef<'_, T, Ops, D> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_seq(self.0.iter().map(TreeRef))
+        }
+    }
+
+    pub fn serialize<S: Serializer, T: Serialize, Ops, const D: usize>(
+        trees: &OneOrMany<PostfixExpr<T, Ops, D>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match trees {
+            OneOrMany::Single(tree) => serializer.serialize_newtype_variant("OneOrMany", 0, "Single", &TreeRef(tree)),
+            OneOrMany::Multiple(trees) => {
+                serializer.serialize_newtype_variant("OneOrMany", 1, "Multiple", &TreesRef(trees))
+            }
+        }
+    }
+
+    #[derive(Deserialize)]
+    #[serde(transparent)]
+    struct Node(#[serde(with = "PNodeDef")] PNode);
+
+    #[derive(Deserialize)]
+    #[serde(rename = "PostfixExpr", bound = "T: Deserialize<'de>")]
+    struct Tree<T> {
+        nodes: Vec<Node>,
+        consts: Vec<T>,
+        #[serde(with = "MetadataDef")]
+        meta: Metadata,
+    }
+
+    impl<T> Tree<T> {
+        fn into_expr<Ops, const D: usize>(self) -> PostfixExpr<T, Ops, D> {
+            PostfixExpr::new(
+                self.nodes.into_iter().map(|node| node.0).collect(),
+                self.consts,
+                self.meta,
+            )
+        }
+    }
+
+    pub fn deserialize<'de, De: Deserializer<'de>, T: Deserialize<'de>, Ops, const D: usize>(
+        deserializer: De,
+    ) -> Result<OneOrMany<PostfixExpr<T, Ops, D>>, De::Error> {
+        Ok(match OneOrMany::<Tree<T>>::deserialize(deserializer)? {
+            OneOrMany::Single(tree) => OneOrMany::Single(tree.into_expr()),
+            OneOrMany::Multiple(trees) => OneOrMany::Multiple(trees.into_iter().map(Tree::into_expr).collect()),
+        })
+    }
 }
 
 impl<T: Clone, Ops, const D: usize> Clone for Expression<T, Ops, D> {

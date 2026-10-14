@@ -4,6 +4,11 @@ use crate::loss_functions::max_zero;
 use crate::options::{LossScale, Options};
 use crate::pop_member::PopMember;
 
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(serialize = "T: serde::Serialize", deserialize = "T: serde::Deserialize<'de>"))
+)]
 pub struct HallOfFame<T: Float, Ops, const D: usize> {
     pub best_by_complexity: Vec<Option<PopMember<T, Ops, D>>>,
 }

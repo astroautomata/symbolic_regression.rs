@@ -63,7 +63,8 @@ pub use pop_member::PopMember;
 pub use population::Population;
 pub use printing::{format_hall, format_member, format_search_state, split_string, wrap_equation_string};
 pub use run_output::{
-    LogCallback, LogEquation, LogOutput, LogOutputs, LogPayload, LogPopulation, LogSummaries, SrLogger, generate_run_id,
+    LogCallback, LogEquation, LogOutput, LogOutputs, LogPayload, LogPopulation, LogSummaries, SrLogger,
+    generate_run_id, hall_of_fame_rows,
 };
 pub use search_utils::{SearchEngine, SearchResult, equation_search, resume_search};
 pub use stop_controller::{ExternalStop, InputStream};

@@ -10,6 +10,20 @@ use crate::check_constraints::check_constraints;
 
 type Ops = BuiltinOpsF64<CustomOps<f64>>;
 
+/// test/unit/basic/test_options.jl | "Test operators parameter conflicts"
+#[test]
+fn explicit_operators_are_valid_alone() {
+    let operator_set = BuiltinOpsF64::new().with_custom(CustomOps::default());
+    let options = Options::<f64, Ops, 3> {
+        operators: operator_set.from_names(["sin", "cos", "+", "*", "sub"]).unwrap(),
+        save_to_file: false,
+        ..Default::default()
+    };
+    assert_eq!(options.operators.nops(1), 2);
+    assert_eq!(options.operators.nops(2), 3);
+    assert!(options.validate().is_ok());
+}
+
 fn with_max5() -> Ops {
     let mut custom = CustomOps::default();
     custom.define("max5(a, b, c, d, e) = max(a, b, c, d, e)").unwrap();

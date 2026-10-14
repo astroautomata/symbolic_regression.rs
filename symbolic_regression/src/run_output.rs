@@ -12,6 +12,7 @@ use num_traits::Float;
 use crate::dataset::Dataset;
 use crate::hall_of_fame::{HallOfFame, pareto_volume};
 use crate::options::Options;
+use crate::pop_member::PopMember;
 
 pub type LogCallback<T> = Arc<dyn Fn(&LogPayload<T>) + Send + Sync>;
 
@@ -104,19 +105,43 @@ pub(crate) fn log_output<T: Float + Display, Ops: OperatorSet, const D: usize>(
                     format!("complexity={}", member.complexity),
                     LogEquation {
                         loss: member.loss,
-                        equation: member.expr.string(
-                            options,
-                            StringTreeOptions {
-                                variable_names: Some(&dataset.variable_names),
-                                julia_constants: true,
-                                ..Default::default()
-                            },
-                        ),
+                        equation: equation_string(member, dataset, options),
                     },
                 )
             })
             .collect(),
     }
+}
+
+/// The equation as the hall-of-fame file and the logger write it.
+fn equation_string<T: Float + Display, Ops: OperatorSet, const D: usize>(
+    member: &PopMember<T, Ops, D>,
+    dataset: &Dataset<T>,
+    options: &Options<T, Ops, D>,
+) -> String {
+    member.expr.string(
+        options,
+        StringTreeOptions {
+            variable_names: Some(&dataset.variable_names),
+            julia_constants: true,
+            ..Default::default()
+        },
+    )
+}
+
+/// The rows of the hall-of-fame file, one per Pareto-front member from simplest to most complex:
+/// its complexity, its loss as the file writes it, and its equation.
+pub fn hall_of_fame_rows<T: Float + Display, Ops: OperatorSet, const D: usize>(
+    hall: &HallOfFame<T, Ops, D>,
+    dataset: &Dataset<T>,
+    options: &Options<T, Ops, D>,
+) -> Vec<(usize, f64, String)> {
+    hall.front()
+        .map(|member| {
+            let loss = member.loss.to_string().parse().expect("float loss");
+            (member.complexity, loss, equation_string(member, dataset, options))
+        })
+        .collect()
 }
 
 pub(crate) fn save_to_file<T: Float + Display, Ops: OperatorSet, const D: usize>(
@@ -139,20 +164,11 @@ pub(crate) fn save_to_file<T: Float + Display, Ops: OperatorSet, const D: usize>
         std::fs::create_dir_all(&directory)
             .map_err(|e| format!("cannot create output directory {}: {e}", directory.display()))?;
         let mut csv = String::from("Complexity,Loss,Equation\n");
-        for member in hall.front() {
-            let equation = member.expr.string(
-                options,
-                StringTreeOptions {
-                    variable_names: Some(&dataset.variable_names),
-                    julia_constants: true,
-                    ..Default::default()
-                },
-            );
+        for (complexity, loss, equation) in hall_of_fame_rows(hall, dataset, options) {
             writeln!(
                 csv,
-                "{},{},\"{}\"",
-                member.complexity,
-                julia_float(member.loss.to_string().parse().expect("float loss")),
+                "{complexity},{},\"{}\"",
+                julia_float(loss),
                 equation.replace('"', "\"\"")
             )
             .unwrap();

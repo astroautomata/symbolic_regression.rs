@@ -32,6 +32,75 @@ pub struct PopMember<T: Float, Ops, const D: usize> {
     pub cost: T,
 }
 
+/// Members serialize without their evaluation plans, which loading rebuilds from the trees.
+#[cfg(feature = "serde")]
+mod serialization {
+    use num_traits::Float;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::PopMember;
+    use crate::expression::Expression;
+
+    #[derive(Serialize)]
+    #[serde(bound = "T: Serialize")]
+    struct SavedRef<'a, T, Ops, const D: usize> {
+        birth: u64,
+        reference: i64,
+        parent: i64,
+        expr: &'a Expression<T, Ops, D>,
+        complexity: usize,
+        loss: T,
+        cost: T,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(bound = "T: Deserialize<'de>")]
+    struct Saved<T, Ops, const D: usize> {
+        birth: u64,
+        reference: i64,
+        parent: i64,
+        expr: Expression<T, Ops, D>,
+        complexity: usize,
+        loss: T,
+        cost: T,
+    }
+
+    impl<T: Float + Serialize, Ops, const D: usize> Serialize for PopMember<T, Ops, D> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            SavedRef {
+                birth: self.birth,
+                reference: self.reference,
+                parent: self.parent,
+                expr: &self.expr,
+                complexity: self.complexity,
+                loss: self.loss,
+                cost: self.cost,
+            }
+            .serialize(serializer)
+        }
+    }
+
+    impl<'de, T: Float + Deserialize<'de>, Ops, const D: usize> Deserialize<'de> for PopMember<T, Ops, D> {
+        fn deserialize<De: Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
+            let saved = Saved::<T, Ops, D>::deserialize(deserializer)?;
+            // Restored members must be older than newly born deterministic members.
+            super::pseudo_time().fetch_max(saved.birth, super::Ordering::Relaxed);
+            // A plan depends only on the tree; the feature count just bounds its variable indices.
+            let plans = saved.expr.compile_plans(usize::from(u16::MAX));
+            Ok(PopMember {
+                birth: saved.birth,
+                reference: saved.reference,
+                parent: saved.parent,
+                expr: saved.expr,
+                plans,
+                complexity: saved.complexity,
+                loss: saved.loss,
+                cost: saved.cost,
+            })
+        }
+    }
+}
+
 static PSEUDO_TIME: OnceLock<AtomicU64> = OnceLock::new();
 
 fn pseudo_time() -> &'static AtomicU64 {

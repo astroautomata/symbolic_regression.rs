@@ -299,8 +299,8 @@ mod tests {
         load().entries.iter().map(Entry::key).collect()
     }
 
-    fn first_todo(mapping: &mut Mapping) -> &mut Entry {
-        mapping.entries.iter_mut().find(|e| e.status == "todo").unwrap()
+    fn first_done(mapping: &mut Mapping) -> &mut Entry {
+        mapping.entries.iter_mut().find(|e| e.status == "done").unwrap()
     }
 
     #[test]
@@ -337,8 +337,7 @@ mod tests {
     #[test]
     fn missing_rust_test_file_is_an_error() {
         let mut mapping = load();
-        let entry = first_todo(&mut mapping);
-        entry.status = "done".into();
+        let entry = first_done(&mut mapping);
         entry.rust = vec!["dynamic_expressions/tests/no_such_file.rs::no_such_test".into()];
         let errors = structural_errors(&mapping, None);
         assert!(
@@ -350,8 +349,7 @@ mod tests {
     #[test]
     fn missing_rust_test_fn_is_an_error() {
         let mut mapping = load();
-        let entry = first_todo(&mut mapping);
-        entry.status = "done".into();
+        let entry = first_done(&mut mapping);
         entry.rust = vec!["dynamic_expressions/tests/test_eval.rs::no_such_test".into()];
         let errors = structural_errors(&mapping, None);
         assert!(
@@ -363,7 +361,7 @@ mod tests {
     #[test]
     fn done_without_rust_is_an_error() {
         let mut mapping = load();
-        first_todo(&mut mapping).status = "done".into();
+        first_done(&mut mapping).rust.clear();
         let errors = structural_errors(&mapping, None);
         assert!(
             errors.iter().any(|e| e.contains("`rust` tests must be listed")),
@@ -372,8 +370,8 @@ mod tests {
     }
 
     #[test]
-    fn checked_in_mapping_is_done_through_pr_4() {
-        assert_eq!(todo_errors(&load().entries, 4), Vec::<String>::new());
+    fn checked_in_mapping_is_done_through_pr_7() {
+        assert_eq!(todo_errors(&load().entries, 7), Vec::<String>::new());
     }
 
     #[test]

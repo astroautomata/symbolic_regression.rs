@@ -16,13 +16,43 @@ Try out a fully browser-based demo of WebAssembly-compiled symbolic regression [
 > This package is an **experiment**. The API is not stabilized, and you should expect large breaking changes in the syntax.
 > This library is not ready for use.
 
-This workspace contains three crates:
+This workspace contains four crates:
 
 | Crate | crates.io | CI |
 |---|---|---|
 | [`symbolic_regression`](./symbolic_regression) | [![crates.io](https://img.shields.io/crates/v/symbolic_regression)](https://crates.io/crates/symbolic_regression) | [![CI (symbolic_regression)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-symbolic-regression.yml/badge.svg?branch=main)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-symbolic-regression.yml) |
 | [`dynamic_expressions`](./dynamic_expressions) | [![crates.io](https://img.shields.io/crates/v/dynamic_expressions)](https://crates.io/crates/dynamic_expressions) | [![CI (dynamic_expressions)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-dynamic-expressions.yml/badge.svg?branch=main)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-dynamic-expressions.yml) |
 | [`symbolic_regression_wasm`](./symbolic_regression_wasm) | [![crates.io](https://img.shields.io/crates/v/symbolic_regression_wasm)](https://crates.io/crates/symbolic_regression_wasm) | [![CI (Web UI)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-web.yml/badge.svg?branch=main)](https://github.com/astro-automata/symbolic_regression.rs/actions/workflows/ci-web.yml) |
+| [`symbolic_regression_py`](./symbolic_regression_py) | Python wheel: `symbolic-regression-rs` | [![CI (Python)](https://github.com/astroautomata/symbolic_regression.rs/actions/workflows/ci-symbolic-regression.yml/badge.svg?branch=main)](https://github.com/astroautomata/symbolic_regression.rs/actions/workflows/ci-symbolic-regression.yml) |
+
+## Python
+
+Build and install the standalone Python wheel from this checkout with Rust, Python 3.10 or later, and [maturin](https://www.maturin.rs/):
+
+```bash
+pip install "maturin>=1.9.4,<2"
+maturin build --release --manifest-path symbolic_regression_py/Cargo.toml --out wheelhouse
+pip install wheelhouse/*.whl
+```
+
+The distribution is `symbolic-regression-rs`; import it as `symbolic_regression_rs`. The wheel uses Python's stable ABI and needs no Julia installation. `X` has shape `(n_samples, n_features)` and `y` has shape `(n_samples,)` or `(n_samples, n_outputs)`. Both arrays, and optional `weights`, must have the same NumPy `float32` or `float64` dtype.
+
+```python
+import numpy as np
+from symbolic_regression_rs import equation_search
+
+X = np.random.default_rng(0).uniform(-2, 2, (64, 2))
+y = X[:, 0]**2 + X[:, 1]
+state = equation_search(
+    X, y, binary_operators=["+", "*"], niterations=40, populations=4,
+    seed=0, deterministic=True, parallelism="serial", save_to_file=False,
+)
+print(state.pareto_fronts[0])  # (complexity, loss, equation) rows
+```
+
+Keywords follow SymbolicRegression.jl's `Options` and `equation_search`, including string operators, `elementwise_loss`, `early_stop_condition`, units, and guesses. Julia-only and unknown options raise `ValueError`. Pickle a `SearchState` to save it, then pass the restored state as `saved_state` with compatible options to continue. Ctrl-C returns partial results with `state.interrupted=True`. See [the Python example](./symbolic_regression_py/examples/example.py).
+
+Rust-specific settings are `output_style`, `use_baseline`, and `optimizer_g_calls_limit`, `optimizer_g_abstol`, `optimizer_x_abstol`, and `optimizer_f_reltol`; the optimizer settings also accept the corresponding names inside `optimizer_options`.
 
 ## Low-level API
 
