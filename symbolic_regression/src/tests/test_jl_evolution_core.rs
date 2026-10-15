@@ -423,7 +423,34 @@ fn deterministic_search_repeats_best_equation() {
         .collect();
     assert_eq!(results[0], results[1]);
 }
-
+#[test]
+fn batched_search_reports_full_dataset_hall_of_fame_losses() {
+    let x = data(64, 1);
+    let dataset = Dataset::new(x.clone(), x.row(0).mapv(|v| v * v + 0.3));
+    let options = Options {
+        use_baseline: false,
+        batching: crate::Batching::On,
+        batch_size: Some(4),
+        populations: 1,
+        population_size: 8,
+        tournament_selection_n: 2,
+        ncycles_per_iteration: 8,
+        niterations: 3,
+        parallelism: Parallelism::Serial,
+        seed: Some(17),
+        ..options()
+    };
+    let result = crate::equation_search(std::slice::from_ref(&dataset), &options).unwrap();
+    let mut evaluator = Evaluator::new(dataset.n_rows);
+    let members: Vec<_> = result.halls_of_fame[0].best_by_complexity.iter().flatten().collect();
+    assert!(!members.is_empty());
+    for member in members {
+        let mut recomputed = member.clone();
+        recomputed.evaluate(&TaggedDataset::new(&dataset, None), &options, &mut evaluator);
+        assert_eq!(member.loss, recomputed.loss);
+        assert_eq!(member.cost, recomputed.cost);
+    }
+}
 #[test]
 fn nelder_mead_uses_affine_simplex_without_gradients() {
     use crate::optim::{EvalBudget, Objective, OptimOptions, nelder_mead_minimize};

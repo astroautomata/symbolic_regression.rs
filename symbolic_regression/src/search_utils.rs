@@ -1150,7 +1150,7 @@ where
         .use_tracing
         .then(|| IterationTrace::start(output + 1, pop_idx + 1, pop_state.iteration, &pop_state.pop));
     pop_state.iteration += 1;
-    let (evals1, best_seen) = pop_state.run_iteration_phase(
+    let (evals1, mut best_seen) = pop_state.run_iteration_phase(
         single_iteration::s_r_cycle,
         full_dataset,
         options,
@@ -1169,7 +1169,13 @@ where
         controller,
         trace.as_mut(),
     );
-    let evals = evals1.max(0.0) + evals2.max(0.0);
+    let mut evals = evals1.max(0.0) + evals2.max(0.0);
+    if options.use_batching(full_dataset.n_rows) {
+        for member in best_seen.best_by_complexity.iter_mut().flatten() {
+            member.evaluate(&full_dataset, options, &mut pop_state.evaluator);
+            evals += 1.0;
+        }
+    }
 
     let best_sub_pop = migration::best_sub_pop(&pop_state.pop, options.topn);
 
