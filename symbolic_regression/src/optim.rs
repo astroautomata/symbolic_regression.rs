@@ -383,6 +383,7 @@ pub(crate) fn bfgs_minimize(
         inv_h[i * n + i] = 1.0;
     }
 
+    let mut successive_f_converged = 0;
     let mut g_calls = 1;
     let mut fx = obj.fg(&x, &mut g, &mut budget)?;
     if !fx.is_finite() {
@@ -464,9 +465,12 @@ pub(crate) fn bfgs_minimize(
             *dst = gcur - gpi;
         }
 
-        if (opts.x_abstol > 0.0 && inf_norm(&dx) <= opts.x_abstol)
-            || (opts.f_reltol > 0.0 && (fx - phi0).abs() <= opts.f_reltol * fx.abs())
-        {
+        if (fx - phi0).abs() <= opts.f_reltol * fx.abs() {
+            successive_f_converged += 1;
+        } else {
+            successive_f_converged = 0;
+        }
+        if inf_norm(&dx) <= opts.x_abstol || successive_f_converged > 1 {
             break;
         }
         let dx_dg = dot(&dx, &dg);
@@ -516,6 +520,7 @@ pub(crate) fn newton_1d_minimize(
 ) -> Option<OptimResult> {
     let mut budget = EvalBudget::default();
     let mut x = x0;
+    let mut successive_f_converged = 0;
     let mut g_calls = 0;
     let mut best_x = x0;
     let mut best_f = f64::INFINITY;
@@ -583,7 +588,7 @@ pub(crate) fn newton_1d_minimize(
         let x_vec = [x];
         let s_vec = [s];
         let mut x_new = [x];
-        let (alpha, accepted_fx) = backtracking_linesearch(
+        let (_alpha, accepted_fx) = backtracking_linesearch(
             &ls,
             LineSearchInput {
                 x: &x_vec,
@@ -595,15 +600,18 @@ pub(crate) fn newton_1d_minimize(
             &mut x_new,
             &mut phi_at,
         )?;
-        let step = alpha * s;
-        x += step;
+        let x_prev = x;
+        x = x_new[0];
         if accepted_fx < best_f {
             best_x = x;
             best_f = accepted_fx;
         }
-        if (opts.x_abstol > 0.0 && step.abs() <= opts.x_abstol)
-            || (opts.f_reltol > 0.0 && (accepted_fx - phi0).abs() <= opts.f_reltol * accepted_fx.abs())
-        {
+        if (accepted_fx - phi0).abs() <= opts.f_reltol * accepted_fx.abs() {
+            successive_f_converged += 1;
+        } else {
+            successive_f_converged = 0;
+        }
+        if (x - x_prev).abs() <= opts.x_abstol || successive_f_converged > 1 {
             break;
         }
     }
@@ -654,6 +662,73 @@ mod tests {
             let f = t * t;
             g_out[0] = 2.0 * t;
             Some(f)
+        }
+    }
+
+    struct RoundedObjective {
+        exponential: bool,
+        trials: Vec<f64>,
+    }
+
+    impl Objective for RoundedObjective {
+        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
+            budget.f_calls += 1;
+            self.trials.push(x[0]);
+            Some(if self.exponential { 1e20 + x[0].exp() } else { x[0] })
+        }
+
+        fn fg(&mut self, x: &[f64], g: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
+            budget.f_calls += 1;
+            g[0] = if self.exponential { x[0].exp() } else { 1.0 };
+            Some(if self.exponential { 1e20 + x[0].exp() } else { x[0] })
+        }
+    }
+
+    #[test]
+    fn optimizers_stop_after_two_unchanged_losses_with_zero_tolerance() {
+        for newton in [false, true] {
+            let mut obj = RoundedObjective {
+                exponential: true,
+                trials: vec![],
+            };
+            let opts = OptimOptions {
+                iterations: 8,
+                ..Default::default()
+            };
+            let res = if newton {
+                newton_1d_minimize(0.0, &mut obj, opts, BackTracking::default())
+            } else {
+                bfgs_minimize(&[0.0], &mut obj, opts, BackTracking::default())
+            }
+            .unwrap();
+            // Each unit line-search step is accepted. Optim stops after two successive
+            // zero loss changes, even though x and its gradient still change.
+            assert_eq!(obj.trials.len(), 2, "newton={newton}");
+            assert!(obj.trials[1] < obj.trials[0]);
+            assert_eq!(res.minimum, 1e20);
+        }
+    }
+
+    #[test]
+    fn optimizers_stop_when_stored_constants_do_not_change() {
+        for newton in [false, true] {
+            let mut obj = RoundedObjective {
+                exponential: false,
+                trials: vec![],
+            };
+            let opts = OptimOptions {
+                iterations: 8,
+                ..Default::default()
+            };
+            let res = if newton {
+                newton_1d_minimize(1e30, &mut obj, opts, BackTracking::default())
+            } else {
+                bfgs_minimize(&[1e30], &mut obj, opts, BackTracking::default())
+            }
+            .unwrap();
+            // The nonzero step rounds away on addition. Optim tests the stored x.
+            assert_eq!(obj.trials, vec![1e30], "newton={newton}");
+            assert_eq!(res.minimizer, vec![1e30]);
         }
     }
 
