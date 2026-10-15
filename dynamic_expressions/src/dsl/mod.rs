@@ -3,7 +3,15 @@
 
 pub mod ast;
 #[doc(hidden)]
+pub mod diff;
+#[doc(hidden)]
+pub mod ir;
+#[doc(hidden)]
+pub mod kernels;
+#[doc(hidden)]
 pub mod lexer;
+#[doc(hidden)]
+pub mod lower;
 mod parser;
 
 use core::fmt;

@@ -503,6 +503,32 @@ pub mod kernels {
         complete
     }
 
+    /// Writes `Op::partial(args, idx)` per row. No finiteness check: callers combine partials
+    /// with argument derivatives and check the combined result.
+    pub fn partial_nary<const A: usize, T: Float, Op: crate::traits::Operator<T, A>>(
+        out: &mut [T],
+        args: &[SrcRef<'_, T>],
+        idx: usize,
+    ) {
+        debug_assert_eq!(args.len(), A);
+        let arg_views: [ArgView<'_, T>; A] = make_arg_views(args);
+        if A == 1 {
+            eval_unary_loop(out, arg_views[0], move |a| Op::partial(&vals1(a), idx));
+        } else if A == 2 {
+            eval_binary_loop(out, arg_views[0], arg_views[1], move |a, b| {
+                Op::partial(&vals2(a, b), idx)
+            });
+        } else {
+            let mut vals: [T; A] = [T::zero(); A];
+            for (row, outv) in out.iter_mut().enumerate() {
+                for (v, view) in vals.iter_mut().zip_eq(arg_views) {
+                    *v = view.get(row);
+                }
+                *outv = Op::partial(&vals, idx);
+            }
+        }
+    }
+
     pub fn diff_nary<const A: usize, T: Float + core::ops::AddAssign, Op: crate::traits::Operator<T, A>>(
         out_val: &mut [T],
         out_der: &mut [T],
