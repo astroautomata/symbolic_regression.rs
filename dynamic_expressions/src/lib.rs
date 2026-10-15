@@ -3,6 +3,7 @@
 pub mod compile;
 pub mod custom;
 pub mod dispatch;
+pub mod dsl;
 pub mod evaluate;
 pub mod evaluate_derivative;
 pub mod expression;
