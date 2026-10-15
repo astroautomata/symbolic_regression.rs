@@ -61,8 +61,12 @@ pub(crate) struct OptimResult {
 }
 
 pub(crate) trait Objective {
-    fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64>;
-    fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut EvalBudget) -> Option<f64>;
+    fn f_only(&mut self, x: &[f64]) -> Option<f64>;
+    fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64>;
+}
+
+fn same_point(a: &[f64], b: &[f64]) -> bool {
+    a.iter().zip_eq(b).all(|(a, b)| a.to_bits() == b.to_bits())
 }
 
 pub(crate) fn inf_norm(v: &[f64]) -> f64 {
@@ -237,7 +241,11 @@ pub(crate) fn backtracking_linesearch(
 }
 
 /// Optim.jl's affine simplex and dimension-adaptive Nelder-Mead coefficients.
-pub(crate) fn nelder_mead_minimize(x0: &[f64], obj: &mut impl Objective, opts: OptimOptions) -> Option<OptimResult> {
+pub(crate) fn nelder_mead_minimize(
+    x0: &[f64],
+    obj: &mut impl Objective,
+    opts: OptimOptions,
+) -> Result<OptimResult, usize> {
     let n = x0.len();
     assert!(n > 0);
     let m = n + 1;
@@ -247,11 +255,22 @@ pub(crate) fn nelder_mead_minimize(x0: &[f64], obj: &mut impl Objective, opts: O
         simplex[j + 1][j] = 1.5 * x0[j] + 0.025;
     }
     let mut values = vec![f64::INFINITY; m];
+    let mut x_f = vec![0.0; n];
+    let mut cached_value = None;
     let mut evaluate = |x: &[f64], budget: &mut EvalBudget| {
+        if let Some(value) = cached_value {
+            if same_point(x, &x_f) {
+                return Some(value);
+            }
+        }
         if opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit {
             return None;
         }
-        Some(obj.f_only(x, budget).unwrap_or(f64::INFINITY))
+        budget.f_calls += 1;
+        x_f.copy_from_slice(x);
+        let value = obj.f_only(x).unwrap_or(f64::INFINITY);
+        cached_value = Some(value);
+        Some(value)
     };
     for (value, x) in values.iter_mut().zip(&simplex) {
         if let Some(f) = evaluate(x, &mut budget) {
@@ -344,14 +363,14 @@ pub(crate) fn nelder_mead_minimize(x0: &[f64], obj: &mut impl Objective, opts: O
     let best = order[0];
     if let Some(f) = evaluate(&centroid, &mut budget) {
         if f < values[best] {
-            return Some(OptimResult {
+            return Ok(OptimResult {
                 minimizer: centroid,
                 minimum: f,
                 f_calls: budget.f_calls,
             });
         }
     }
-    Some(OptimResult {
+    Ok(OptimResult {
         minimizer: simplex.swap_remove(best),
         minimum: values[best],
         f_calls: budget.f_calls,
@@ -363,9 +382,9 @@ pub(crate) fn bfgs_minimize(
     obj: &mut impl Objective,
     opts: OptimOptions,
     ls: BackTracking,
-) -> Option<OptimResult> {
+) -> Result<OptimResult, usize> {
     let n = x0.len();
-    let mut budget = EvalBudget::default();
+    let mut budget = EvalBudget { f_calls: 1 };
 
     let mut x = x0.to_vec();
     let mut x_prev = vec![0.0; n];
@@ -385,9 +404,9 @@ pub(crate) fn bfgs_minimize(
 
     let mut successive_f_converged = 0;
     let mut g_calls = 1;
-    let mut fx = obj.fg(&x, &mut g, &mut budget)?;
+    let mut fx = obj.fg(&x, &mut g).ok_or(budget.f_calls)?;
     if !fx.is_finite() {
-        return None;
+        return Err(budget.f_calls);
     }
 
     for _ in 0..opts.iterations {
@@ -420,12 +439,19 @@ pub(crate) fn bfgs_minimize(
         }
 
         let phi0 = fx;
+        x_prev.copy_from_slice(&x);
+        let mut cached_phi = Some(phi0);
         let mut phi_at = |x_trial: &[f64]| -> Option<f64> {
+            if same_point(x_trial, &x_prev) {
+                return cached_phi;
+            }
             if opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit {
                 return None;
             }
-            let v = obj.f_only(x_trial, &mut budget)?;
-            if v.is_finite() { Some(v) } else { None }
+            budget.f_calls += 1;
+            x_prev.copy_from_slice(x_trial);
+            cached_phi = obj.f_only(x_trial).filter(|v| v.is_finite());
+            cached_phi
         };
 
         let (_alpha, accepted_fx) = backtracking_linesearch(
@@ -439,7 +465,8 @@ pub(crate) fn bfgs_minimize(
             },
             &mut x_ls,
             &mut phi_at,
-        )?;
+        )
+        .ok_or(budget.f_calls)?;
 
         x_prev.copy_from_slice(&x);
         g_prev.copy_from_slice(&g);
@@ -452,8 +479,9 @@ pub(crate) fn bfgs_minimize(
             break;
         }
         g_calls += 1;
-        fx = obj.fg(&x, &mut g, &mut budget)?;
-        if !fx.is_finite() {
+        let gradient_fx = obj.fg(&x, &mut g).ok_or(budget.f_calls)?;
+        fx = accepted_fx;
+        if !gradient_fx.is_finite() {
             break;
         }
 
@@ -505,7 +533,7 @@ pub(crate) fn bfgs_minimize(
         }
     }
 
-    Some(OptimResult {
+    Ok(OptimResult {
         minimizer: x,
         minimum: fx,
         f_calls: budget.f_calls,
@@ -517,28 +545,39 @@ pub(crate) fn newton_1d_minimize(
     obj: &mut impl Objective,
     opts: OptimOptions,
     ls: BackTracking,
-) -> Option<OptimResult> {
-    let mut budget = EvalBudget::default();
+) -> Result<OptimResult, usize> {
+    let mut budget = EvalBudget { f_calls: 1 };
     let mut x = x0;
     let mut successive_f_converged = 0;
     let mut g_calls = 0;
     let mut best_x = x0;
-    let mut best_f = f64::INFINITY;
     let mut g_tmp = [0.0f64];
+    let initial_f = obj.fg(&[x], &mut g_tmp).ok_or(budget.f_calls)?;
+    let initial_g = g_tmp[0];
+    if !initial_f.is_finite() || !initial_g.is_finite() {
+        return Err(budget.f_calls);
+    }
+    let mut best_f = initial_f;
+    let mut current_f = initial_f;
 
-    for _ in 0..opts.iterations {
+    for iteration in 0..opts.iterations {
         if opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit {
             break;
         }
-        let x_vec = [x];
         if opts.g_calls_limit != 0 && g_calls >= opts.g_calls_limit {
             break;
         }
+        let (f, g) = if iteration == 0 {
+            (initial_f, initial_g)
+        } else {
+            obj.fg(&[x], &mut g_tmp)
+                .filter(|f| f.is_finite())
+                .ok_or(budget.f_calls)?;
+            (current_f, g_tmp[0])
+        };
         g_calls += 1;
-        let f = obj.fg(&x_vec, &mut g_tmp, &mut budget)?;
-        let g = g_tmp[0];
         if !f.is_finite() || !g.is_finite() {
-            return None;
+            return Err(budget.f_calls);
         }
         if f < best_f {
             best_f = f;
@@ -556,9 +595,9 @@ pub(crate) fn newton_1d_minimize(
             break;
         }
         g_calls += 2;
-        let _ = obj.fg(&x_plus, &mut g_tmp, &mut budget)?;
+        let _ = obj.fg(&x_plus, &mut g_tmp).ok_or(budget.f_calls)?;
         let g_plus = g_tmp[0];
-        let _ = obj.fg(&x_minus, &mut g_tmp, &mut budget)?;
+        let _ = obj.fg(&x_minus, &mut g_tmp).ok_or(budget.f_calls)?;
         let g_minus = g_tmp[0];
         let h = (g_plus - g_minus) / (2.0 * eps);
         let mut h_mod = h.abs().max(1e-12);
@@ -577,12 +616,19 @@ pub(crate) fn newton_1d_minimize(
         }
 
         let phi0 = f;
+        let mut x_f = x;
+        let mut cached_phi = Some(phi0);
         let mut phi_at = |x_t: &[f64]| -> Option<f64> {
+            if x_t[0].to_bits() == x_f.to_bits() {
+                return cached_phi;
+            }
             if opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit {
                 return None;
             }
-            let v = obj.f_only(x_t, &mut budget)?;
-            if v.is_finite() { Some(v) } else { None }
+            budget.f_calls += 1;
+            x_f = x_t[0];
+            cached_phi = obj.f_only(x_t).filter(|v| v.is_finite());
+            cached_phi
         };
 
         let x_vec = [x];
@@ -599,9 +645,11 @@ pub(crate) fn newton_1d_minimize(
             },
             &mut x_new,
             &mut phi_at,
-        )?;
+        )
+        .ok_or(budget.f_calls)?;
         let x_prev = x;
         x = x_new[0];
+        current_f = accepted_fx;
         if accepted_fx < best_f {
             best_x = x;
             best_f = accepted_fx;
@@ -616,7 +664,7 @@ pub(crate) fn newton_1d_minimize(
         }
     }
 
-    Some(OptimResult {
+    Ok(OptimResult {
         minimizer: vec![best_x],
         minimum: best_f,
         f_calls: budget.f_calls,
@@ -630,15 +678,13 @@ mod tests {
     struct Quad2D;
 
     impl Objective for Quad2D {
-        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn f_only(&mut self, x: &[f64]) -> Option<f64> {
             let t0 = x[0] - 1.0;
             let t1 = x[1] + 2.0;
             Some(t0 * t0 + 10.0 * t1 * t1)
         }
 
-        fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64> {
             let t0 = x[0] - 1.0;
             let t1 = x[1] + 2.0;
             g_out[0] = 2.0 * t0;
@@ -650,14 +696,12 @@ mod tests {
     struct Quad1D;
 
     impl Objective for Quad1D {
-        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn f_only(&mut self, x: &[f64]) -> Option<f64> {
             let t = x[0] - 3.0;
             Some(t * t)
         }
 
-        fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64> {
             let t = x[0] - 3.0;
             let f = t * t;
             g_out[0] = 2.0 * t;
@@ -665,20 +709,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn bfgs_counts_start_and_line_search_trials_only() {
+        let result = bfgs_minimize(
+            &[0.0],
+            &mut Quad1D,
+            OptimOptions {
+                iterations: 1,
+                ..Default::default()
+            },
+            BackTracking::default(),
+        )
+        .unwrap();
+        // f(x)=(x-3)^2: x=0 starts the run; x=6 is rejected; x=3 is accepted.
+        assert_eq!(result.minimizer, vec![3.0]);
+        assert_eq!(result.f_calls, 3);
+    }
+
+    #[test]
+    fn newton_counts_start_and_line_search_trials_only() {
+        let result = newton_1d_minimize(
+            0.0,
+            &mut Quad1D,
+            OptimOptions {
+                iterations: 1,
+                ..Default::default()
+            },
+            BackTracking::default(),
+        )
+        .unwrap();
+        // f(x)=(x-3)^2: the Hessian is 2 and the first trial reaches x=3.
+        assert_eq!(result.minimizer, vec![3.0]);
+        assert_eq!(result.f_calls, 2);
+    }
+
     struct RoundedObjective {
         exponential: bool,
         trials: Vec<f64>,
+        gradient_calls: usize,
     }
 
     impl Objective for RoundedObjective {
-        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn f_only(&mut self, x: &[f64]) -> Option<f64> {
             self.trials.push(x[0]);
             Some(if self.exponential { 1e20 + x[0].exp() } else { x[0] })
         }
 
-        fn fg(&mut self, x: &[f64], g: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn fg(&mut self, x: &[f64], g: &mut [f64]) -> Option<f64> {
+            self.gradient_calls += 1;
             g[0] = if self.exponential { x[0].exp() } else { 1.0 };
             Some(if self.exponential { 1e20 + x[0].exp() } else { x[0] })
         }
@@ -690,6 +768,7 @@ mod tests {
             let mut obj = RoundedObjective {
                 exponential: true,
                 trials: vec![],
+                gradient_calls: 0,
             };
             let opts = OptimOptions {
                 iterations: 8,
@@ -715,6 +794,7 @@ mod tests {
             let mut obj = RoundedObjective {
                 exponential: false,
                 trials: vec![],
+                gradient_calls: 0,
             };
             let opts = OptimOptions {
                 iterations: 8,
@@ -727,7 +807,9 @@ mod tests {
             }
             .unwrap();
             // The nonzero step rounds away on addition. Optim tests the stored x.
-            assert_eq!(obj.trials, vec![1e30], "newton={newton}");
+            assert_eq!(res.f_calls, 1, "newton={newton}");
+            assert!(obj.trials.is_empty(), "newton={newton}");
+            assert_eq!(obj.gradient_calls, if newton { 3 } else { 2 }, "newton={newton}");
             assert_eq!(res.minimizer, vec![1e30]);
         }
     }
@@ -793,8 +875,7 @@ mod tests {
     struct Quad3DOffDiag;
 
     impl Objective for Quad3DOffDiag {
-        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn f_only(&mut self, x: &[f64]) -> Option<f64> {
             // f(x) = 0.5 x^T A x - b^T x
             // A = [[2,1,0],[1,2,0],[0,0,3]] (SPD), b = [1,0,2]
             let a00 = 2.0;
@@ -817,8 +898,7 @@ mod tests {
             Some(0.5 * xtax - (b0 * x0 + b1 * x1 + b2 * x2))
         }
 
-        fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64> {
             let a00 = 2.0;
             let a01 = 1.0;
             let a11 = 2.0;

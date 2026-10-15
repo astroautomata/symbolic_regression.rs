@@ -453,17 +453,16 @@ fn batched_search_reports_full_dataset_hall_of_fame_losses() {
 }
 #[test]
 fn nelder_mead_uses_affine_simplex_without_gradients() {
-    use crate::optim::{EvalBudget, Objective, OptimOptions, nelder_mead_minimize};
+    use crate::optim::{Objective, OptimOptions, nelder_mead_minimize};
     struct Quadratic {
         points: Vec<Vec<f64>>,
     }
     impl Objective for Quadratic {
-        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn f_only(&mut self, x: &[f64]) -> Option<f64> {
             self.points.push(x.to_vec());
             Some((x[0] - 3.0).powi(2) + (x[1] + 2.0).powi(2))
         }
-        fn fg(&mut self, _: &[f64], _: &mut [f64], _: &mut EvalBudget) -> Option<f64> {
+        fn fg(&mut self, _: &[f64], _: &mut [f64]) -> Option<f64> {
             panic!("NelderMead does not request gradients")
         }
     }
@@ -491,17 +490,16 @@ fn nelder_mead_uses_affine_simplex_without_gradients() {
 
 #[test]
 fn optimizer_gradient_budget_keeps_the_reported_loss_consistent() {
-    use crate::optim::{BackTracking, EvalBudget, Objective, OptimOptions, bfgs_minimize};
+    use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize};
     struct Quadratic;
     impl Objective for Quadratic {
-        fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-            budget.f_calls += 1;
+        fn f_only(&mut self, x: &[f64]) -> Option<f64> {
             Some((x[0] - 1.0).powi(2) + 10.0 * (x[1] + 2.0).powi(2))
         }
-        fn fg(&mut self, x: &[f64], g: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
+        fn fg(&mut self, x: &[f64], g: &mut [f64]) -> Option<f64> {
             g[0] = 2.0 * (x[0] - 1.0);
             g[1] = 20.0 * (x[1] + 2.0);
-            self.f_only(x, budget)
+            self.f_only(x)
         }
     }
     let result = bfgs_minimize(

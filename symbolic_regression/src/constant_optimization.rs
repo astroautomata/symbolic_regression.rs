@@ -160,7 +160,7 @@ impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D:
         member: &mut PopMember<T, Ops, D>,
         optim_opts: OptimOptions,
         ls: BackTracking,
-    ) -> Option<crate::optim::OptimResult> {
+    ) -> Result<crate::optim::OptimResult, usize> {
         let algorithm = self.options.optimizer_algorithm;
         let mut obj = ConstObjective {
             plans: &member.plans,
@@ -205,14 +205,12 @@ impl<T: Float + FromPrimitive + AddAssign, Ops, const D: usize> Objective for Co
 where
     Ops: OperatorSet<T = T>,
 {
-    fn f_only(&mut self, x: &[f64], budget: &mut crate::optim::EvalBudget) -> Option<f64> {
-        budget.f_calls += 1;
+    fn f_only(&mut self, x: &[f64]) -> Option<f64> {
         self.set(x)?;
         self.workspace.loss_only(self.plans, self.expr)
     }
 
-    fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut crate::optim::EvalBudget) -> Option<f64> {
-        budget.f_calls += 1;
+    fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64> {
         self.set(x)?;
         self.workspace.loss_and_grad(self.plans, self.expr, g_out)
     }
@@ -273,8 +271,8 @@ where
 
     {
         let res = workspace.optimize_from_start(&x0, n_params, member, optim_opts, ls);
-        if let Some(res) = res {
-            n_evals += (res.f_calls as f64) * eval_fraction;
+        n_evals += res.as_ref().map_or_else(|&calls| calls, |res| res.f_calls) as f64 * eval_fraction;
+        if let Ok(res) = res {
             if res.minimum < best_f {
                 best_f = res.minimum;
                 best_x = res.minimizer;
@@ -291,8 +289,8 @@ where
         }
 
         let res = workspace.optimize_from_start(&xt, n_params, member, optim_opts, ls);
-        if let Some(res) = res {
-            n_evals += (res.f_calls as f64) * eval_fraction;
+        n_evals += res.as_ref().map_or_else(|&calls| calls, |res| res.f_calls) as f64 * eval_fraction;
+        if let Ok(res) = res {
             if res.minimum < best_f {
                 best_f = res.minimum;
                 best_x = res.minimizer;
@@ -337,6 +335,41 @@ mod tests {
     use super::*;
     use crate::operator_library::OperatorLibrary;
     use crate::tests::common::{D, T, TestOps, infix};
+
+    #[test]
+    fn failed_constant_optimization_runs_still_count_start_values() {
+        use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
+        let dataset = Dataset::new(Array2::zeros((1, 4)), Array1::ones(4));
+        let options = Options::<T, BuiltinOpsF64, D> {
+            operators: BuiltinOpsF64::new().from_names(["sqrt"]).unwrap(),
+            optimizer_nrestarts: 2,
+            use_baseline: false,
+            ..Default::default()
+        };
+        let mut member = PopMember::from_expr(
+            infix::<BuiltinOpsF64, D>(&options.operators.set, "sqrt(0.0)"),
+            1,
+            &options,
+        );
+        let mut evaluator = Evaluator::new(dataset.n_rows);
+        let mut grad_ctx = GradContext::new(dataset.n_rows);
+        let tagged = TaggedDataset::new(&dataset, None);
+        assert!(member.evaluate(&tagged, &options, &mut evaluator));
+        let (improved, evals) = optimize_constants(
+            &mut Rng::with_seed(0),
+            &mut member,
+            OptimizeConstantsCtx {
+                dataset: tagged,
+                options: &options,
+                evaluator: &mut evaluator,
+                grad_ctx: &mut grad_ctx,
+            },
+        );
+        assert!(!improved);
+        // The initial run and each restart evaluate a finite value at zero, then
+        // fail because sqrt has a non-finite derivative there. Each start counts.
+        assert_eq!(evals, (1 + options.optimizer_nrestarts) as f64);
+    }
 
     /// SymbolicRegression.jl optimizes constants on the loss without the dimensional penalty
     /// (`regularization=false`) and stores the member's loss with it.

@@ -9,7 +9,7 @@ use ndarray::{Array1, Array2};
 use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
 use crate::loss_functions::baseline_loss_from_zero_expression;
-use crate::optim::{BackTracking, EvalBudget, Objective, OptimOptions, bfgs_minimize};
+use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize};
 use crate::pop_member::Evaluator;
 use crate::{Dataset, OperatorLibrary, Options, PopMember};
 
@@ -23,8 +23,7 @@ struct QuadND<'a> {
 }
 
 impl Objective for QuadND<'_> {
-    fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-        budget.f_calls += 1;
+    fn f_only(&mut self, x: &[f64]) -> Option<f64> {
         let mut acc = 0.0;
         for ((&xi, &ti), &wi) in x.iter().zip_eq(self.target).zip_eq(self.weight) {
             let d = xi - ti;
@@ -33,8 +32,7 @@ impl Objective for QuadND<'_> {
         Some(acc)
     }
 
-    fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
-        budget.f_calls += 1;
+    fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64> {
         let mut acc = 0.0;
         for (((&xi, &ti), &wi), go) in x
             .iter()
@@ -66,7 +64,7 @@ pub fn bfgs_quadratic_n16() -> Option<(Vec<f64>, f64)> {
         ..Default::default()
     };
     let ls = BackTracking::default();
-    let res = bfgs_minimize(&x0, &mut obj, opts, ls)?;
+    let res = bfgs_minimize(&x0, &mut obj, opts, ls).ok()?;
     Some((res.minimizer, res.minimum))
 }
 
