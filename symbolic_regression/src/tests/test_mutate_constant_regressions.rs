@@ -7,7 +7,7 @@ use crate::Options;
 #[test]
 fn constant_mutation_is_bounded_with_floor_at_zero_temperature() {
     let mut expr = PostfixExpr::<f64, (), 2>::new(vec![PNode::Const { idx: 0 }], vec![1.0], Metadata::default());
-    let options: Options<f64, 2> = Options {
+    let options: Options<f64, (), 2> = Options {
         probability_negate_constant: 1.0, // `rand() > 1.0` never, so no sign flip.
         perturbation_factor: 123.0,       // irrelevant at temperature=0.
         ..Default::default()
@@ -31,7 +31,7 @@ fn constant_mutation_is_bounded_with_floor_at_zero_temperature() {
 #[test]
 fn constant_mutation_uses_inverted_sign_flip_probability() {
     let mut expr = PostfixExpr::<f64, (), 2>::new(vec![PNode::Const { idx: 0 }], vec![1.0], Metadata::default());
-    let options: Options<f64, 2> = Options {
+    let options: Options<f64, (), 2> = Options {
         probability_negate_constant: 0.0, // `rand() > 0.0` should negate almost always.
         ..Default::default()
     };

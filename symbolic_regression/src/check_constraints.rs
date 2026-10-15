@@ -41,9 +41,9 @@ impl NestedConstraints {
     }
 }
 
-pub fn check_constraints<T: Float, Ops, const D: usize>(
+pub fn check_constraints<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     curmaxsize: usize,
 ) -> bool {
     let needs_depth_check = options.maxdepth < curmaxsize  // maxsize is much faster to check, so ideally we skip depth check
@@ -55,7 +55,7 @@ pub fn check_constraints<T: Float, Ops, const D: usize>(
         if expr.nodes.len() > curmaxsize {
             return false;
         }
-        if !check_default_op_arg_constraints::<T, D>(&expr.nodes, options) {
+        if !check_default_op_arg_constraints(&expr.nodes, options) {
             return false;
         }
     } else {
@@ -72,7 +72,10 @@ pub fn check_constraints<T: Float, Ops, const D: usize>(
     check_nested_constraints::<D>(&expr.nodes, &options.nested_constraints)
 }
 
-fn check_default_op_arg_constraints<T: Float, const D: usize>(nodes: &[PNode], options: &Options<T, D>) -> bool {
+fn check_default_op_arg_constraints<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    nodes: &[PNode],
+    options: &Options<T, Ops, D>,
+) -> bool {
     if options.op_constraints.limits.is_empty() {
         return true;
     }

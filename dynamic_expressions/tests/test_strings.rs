@@ -49,7 +49,7 @@ fn oplus3(
 #[test]
 fn string_tree_matches_expected() {
     let ex = expr_readme_like();
-    let s = string_tree(&ex, StringTreeOptions::default());
+    let s = string_tree(&ex, &common::TestOps::new(), StringTreeOptions::default());
     assert_eq!(s, "x0 * cos(x1 - 3.2)");
 }
 
@@ -57,7 +57,7 @@ fn string_tree_matches_expected() {
 fn string_tree_uses_variable_names() {
     let mut ex = expr_readme_like();
     ex.meta.variable_names = vec!["x".into(), "y".into()];
-    let s = string_tree(&ex, StringTreeOptions::default());
+    let s = string_tree(&ex, &common::TestOps::new(), StringTreeOptions::default());
     assert_eq!(s, "x * cos(y - 3.2)");
 }
 
@@ -69,7 +69,7 @@ fn infix_preserves_child_parens_for_precedence() {
     let c = common::var(2);
 
     let expr = (a + b) * c;
-    let s = string_tree(&expr, StringTreeOptions::default());
+    let s = string_tree(&expr, &common::TestOps::new(), StringTreeOptions::default());
     assert_eq!(s, "(a + b) * c");
 }
 
@@ -86,7 +86,7 @@ fn ternary_infix_custom_op_preserves_child_grouping() {
     // a + b ⊕ b + c ⊕ a  (ambiguous / wrong-looking).
     let expr = oplus3(add_infix3(a.clone(), b.clone()), add_infix3(b, c), a);
 
-    let s = string_tree(&expr, StringTreeOptions::default());
+    let s = string_tree(&expr, &Infix3Ops::new(), StringTreeOptions::default());
     assert_eq!(s, "(a + b) ⊕ (b + c) ⊕ a");
 }
 
@@ -103,4 +103,52 @@ fn default_string_variable_uses_name_and_falls_back() {
         dynamic_expressions::strings::default_string_variable(0, Some(&empty)),
         "x0"
     );
+}
+
+#[test]
+fn symbolic_tokens_print_infix_and_names_print_as_calls() {
+    use dynamic_expressions::operator_enum::builtin;
+    use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
+
+    type Ops = BuiltinOpsF64;
+    let ops = Ops::new();
+    let binary = |id: u16| -> PostfixExpr<f64, Ops, 3> {
+        PostfixExpr::new(
+            vec![
+                PNode::Var { feature: 0 },
+                PNode::Var { feature: 1 },
+                PNode::Op { arity: 2, op: id },
+            ],
+            vec![],
+            Metadata::default(),
+        )
+    };
+    let pretty = || StringTreeOptions {
+        pretty: true,
+        ..Default::default()
+    };
+
+    let greater = binary(<Ops as HasOp<builtin::Greater>>::ID);
+    assert_eq!(
+        string_tree(&greater, &ops, StringTreeOptions::default()),
+        "greater(x0, x1)"
+    );
+    assert_eq!(string_tree(&greater, &ops, pretty()), "x0 > x1");
+
+    let add = binary(<Ops as HasOp<builtin::Add>>::ID);
+    assert_eq!(string_tree(&add, &ops, StringTreeOptions::default()), "x0 + x1");
+    assert_eq!(string_tree(&add, &ops, pretty()), "x0 + x1");
+
+    let pow = binary(<Ops as HasOp<builtin::Pow>>::ID);
+    assert_eq!(string_tree(&pow, &ops, StringTreeOptions::default()), "x0 ^ x1");
+
+    let and = binary(<Ops as HasOp<builtin::LogicalAnd>>::ID);
+    assert_eq!(
+        string_tree(&and, &ops, StringTreeOptions::default()),
+        "logical_and(x0, x1)"
+    );
+    assert_eq!(string_tree(&and, &ops, pretty()), "x0 && x1");
+
+    let atan2 = binary(<Ops as HasOp<builtin::Atan2>>::ID);
+    assert_eq!(string_tree(&atan2, &ops, pretty()), "atan2(x0, x1)");
 }
