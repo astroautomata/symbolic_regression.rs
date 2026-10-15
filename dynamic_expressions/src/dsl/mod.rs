@@ -1,10 +1,15 @@
 //! A small Julia-compatible scalar language for custom operators, losses, early-stop conditions,
 //! and template formulas.
 
+pub mod ast;
 #[doc(hidden)]
 pub mod lexer;
+mod parser;
 
 use core::fmt;
+
+pub use self::ast::{BinaryOp, DefKind, Definition, Expr, ExprKind, Formula, Ident, Param, Stmt, TypeVar, UnaryOp};
+pub use self::parser::{parse_definition, parse_formula};
 
 /// Byte offsets into the source string, `start..end`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
