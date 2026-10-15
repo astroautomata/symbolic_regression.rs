@@ -12,7 +12,7 @@ use crate::mapping::{self, Entry, Key};
 
 const LV: &str = "LoopVectorization (Julia-only acceleration)";
 const DISTRIBUTED: &str = "Distributed multiprocessing (not supported)";
-const COMPLEX: &str = "complex-valued data: the Rust engine requires T: num_traits::Float";
+const NOT_FLOAT: &str = "Rust engine requires T: Float";
 const VALUE_TYPES: &str = "custom value types (not supported)";
 
 /// (path prefix, testitem name or None for every testitem under the prefix, value); first match wins.
@@ -90,7 +90,7 @@ const EXCLUSIONS: &[Rule<&str>] = &[
     (
         "test/unit/operators-core/test_abstract_numbers.jl",
         Some("Abstract numbers"),
-        COMPLEX,
+        NOT_FLOAT,
     ),
     ("test/unit/operators-core/test_abstract_numbers.jl", None, VALUE_TYPES),
     (
@@ -98,20 +98,16 @@ const EXCLUSIONS: &[Rule<&str>] = &[
         Some("Custom complexity mapping"),
         "complexity_mapping (not supported)",
     ),
-    (
-        "test/unit/precompile/test_integer_evaluation.jl",
-        None,
-        "integer-valued data: the Rust engine requires T: num_traits::Float",
-    ),
+    ("test/unit/precompile/test_integer_evaluation.jl", None, NOT_FLOAT),
     (
         "test/integration/ext/loopvectorization/test_operators.jl",
         Some("Built-in operators pass validation for complex numbers"),
-        COMPLEX,
+        NOT_FLOAT,
     ),
     (
         "test/integration/ext/loopvectorization/test_operators.jl",
         Some("Incompatibilities are caught"),
-        COMPLEX,
+        NOT_FLOAT,
     ),
 ];
 

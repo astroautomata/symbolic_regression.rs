@@ -181,35 +181,41 @@ file = "test/integration/ext/loopvectorization/test_operators.jl"
 line = 1
 name = "Generic operator tests"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::generic_operator_semantics"]
+note = "f32 and f64 only; Float16 and BigFloat are not Rust float types, and `@inferred` has no Rust counterpart."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_operators.jl"
 line = 78
 name = "Built-in operators pass validation"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::builtin_operator_names_resolve_and_evaluate"]
+note = "Rust selects SymbolicRegression.jl's safe semantics by name; the port checks names, `^` resolving to pow, comparison display symbols, and that every selected operator evaluates without infinities on f32 and f64."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_operators.jl"
 line = 146
 name = "Built-in operators pass validation for complex numbers"
 status = "excluded"
-excluded = "complex-valued data: the Rust engine requires T: num_traits::Float"
+excluded = "Rust engine requires T: Float"
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_operators.jl"
 line = 160
 name = "Incompatibilities are caught"
 status = "excluded"
-excluded = "complex-valued data: the Rust engine requires T: num_traits::Float"
+excluded = "Rust engine requires T: Float"
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_operators.jl"
 line = 173
 name = "Operators with wrong type fail"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::custom_operator_returning_bool_is_rejected"]
+note = "Rust generics make a wrong-float-type return impossible; the port checks the DSL's equivalent setup error for an operator that returns Bool."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_operators.jl"
@@ -230,7 +236,9 @@ file = "test/integration/ext/loopvectorization/test_operators.jl"
 line = 301
 name = "user_provided_operators applies safe operator mappings"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::selected_operators_use_safe_semantics"]
+note = "Rust has one log/sqrt/pow, with the safe semantics; the port checks that they return NaN where the unsafe versions return -Inf or Inf."
 
 [[testitem]]
 file = "test/integration/ext/loopvectorization/test_template_expression.jl"
@@ -811,28 +819,36 @@ file = "test/unit/basic/test_options.jl"
 line = 189
 name = "Test operators stored globally"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_custom_operators.rs::operator_sets_are_values_not_globals"]
+note = "Rust keeps operator sets as values in Options, not in a global; the port checks that two sets with different definitions of the same name stay independent."
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 199
 name = "Test with_max_degree_from_context"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::max_arity_follows_operator_set"]
+note = "The node degree D is a const generic in Rust; the port checks the highest arity of each operator selection and that default constraints are unlimited."
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 219
 name = "Test operator appears in multiple degrees error"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::operator_in_two_arities_needs_an_arity"]
+note = "Rust keys constraints by arity and id, so the Julia error cannot occur; the port checks that `-` is ambiguous at lookup and that an arity-qualified constraint applies only to sub."
 
 [[testitem]]
 file = "test/unit/basic/test_options.jl"
 line = 235
 name = "Test build_constraints with pre-processed vector format"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::default_constraints_cover_every_arity"]
+note = "The tuple format is internal to Julia; the port checks the per-arity defaults it encodes through check_constraints."
 
 [[testitem]]
 file = "test/unit/basic/test_pretty_printing.jl"
@@ -853,7 +869,9 @@ file = "test/unit/basic/test_pretty_printing.jl"
 line = 71
 name = "pretty print expression"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_printing.rs::print_uses_the_given_operator_set"]
+note = "Rust expressions do not store their operators, so printing always takes the operator set; unnamed variables print as x0, x1 (0-based)."
 
 [[testitem]]
 file = "test/unit/basic/test_pretty_printing.jl"
@@ -867,14 +885,17 @@ file = "test/unit/basic/test_pretty_printing.jl"
 line = 142
 name = "pretty print vs serialization for comparison operators"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_printing.rs::comparison_operators_pretty_vs_serialized"]
 
 [[testitem]]
 file = "test/unit/basic/test_print.jl"
 line = 1
 name = "Test printing"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_printing.rs::printing_nested_operators_with_variable_names"]
+note = "Constants print with Rust's float Display (`3`, not `3.0`); the global LATEST_OPERATORS check has no Rust counterpart."
 
 [[testitem]]
 file = "test/unit/basic/test_progress_display.jl"
@@ -895,14 +916,16 @@ file = "test/unit/constraints/test_constraints.jl"
 line = 1
 name = "Test constraints interface"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_constraints.rs::constraints_interface"]
 
 [[testitem]]
 file = "test/unit/constraints/test_nested_constraints.jl"
 line = 1
 name = "Test nested constraint checking"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_constraints.rs::nested_constraint_checking"]
 
 [[testitem]]
 file = "test/unit/dataset/test_batched_dataset.jl"
@@ -972,7 +995,9 @@ file = "test/unit/evaluation/test_evaluation.jl"
 line = 1
 name = "Test validity of expression evaluation"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_evaluation.rs::fused_evaluation_paths_match_closures"]
+note = "Inputs are uniform on [-2, 2] from a seeded RNG instead of randn."
 
 [[testitem]]
 file = "test/unit/evaluation/test_fast_cycle.jl"
@@ -1406,7 +1431,9 @@ file = "test/unit/misc/test_hash.jl"
 line = 1
 name = "Test hash of tree"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_evaluation.rs::hash_of_tree"]
+note = "Julia checks only the hash type; the port checks that the hash is stable across clones and differs for a different root operator."
 
 [[testitem]]
 file = "test/unit/misc/test_loss_scale.jl"
@@ -1567,7 +1594,7 @@ file = "test/unit/operators-core/test_abstract_numbers.jl"
 line = 1
 name = "Abstract numbers"
 status = "excluded"
-excluded = "complex-valued data: the Rust engine requires T: num_traits::Float"
+excluded = "Rust engine requires T: Float"
 
 [[testitem]]
 file = "test/unit/operators-core/test_abstract_numbers.jl"
@@ -1588,14 +1615,16 @@ file = "test/unit/operators-core/test_complexity.jl"
 line = 1
 name = "Test complexity evaluation"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_jl_complexity.rs::complexity_with_operator_overrides"]
 
 [[testitem]]
 file = "test/unit/operators-core/test_complexity.jl"
 line = 27
 name = "Test other things about complexity"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["symbolic_regression/tests/test_jl_complexity.rs::complexity_with_variable_and_constant_costs"]
 
 [[testitem]]
 file = "test/unit/operators-core/test_complexity.jl"
@@ -1609,7 +1638,9 @@ file = "test/unit/operators-core/test_custom_operators.jl"
 line = 1
 name = "Test custom operators"
 pr = 1
-status = "todo"
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_custom_operators.rs::custom_operators_print_and_evaluate"]
+note = "Julia's module-scoping cases map to separate CustomOps tables."
 
 [[testitem]]
 file = "test/unit/parallel/test_custom_operators_multiprocessing.jl"
@@ -1875,7 +1906,7 @@ file = "test/unit/precompile/test_integer_evaluation.jl"
 line = 1
 name = "Test validity of integer expression evaluation"
 status = "excluded"
-excluded = "integer-valued data: the Rust engine requires T: num_traits::Float"
+excluded = "Rust engine requires T: Float"
 
 [[testitem]]
 file = "test/unit/precompile/test_precompilation.jl"
