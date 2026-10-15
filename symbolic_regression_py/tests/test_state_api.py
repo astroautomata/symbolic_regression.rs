@@ -185,6 +185,7 @@ state = sr.equation_search(
     progress=False, verbosity=0, save_to_file=False, input_stream="devnull",
     run_id="state-format-fixture",
 )
+assert state.total_evals == 0
 assert state.pareto_fronts == [[(1, 0.0, "x0")]]
 np.testing.assert_array_equal(state.evaluate(X), X[:, 0])
 _, (encoded,) = state.__reduce__()
@@ -192,7 +193,7 @@ encoded = bytes(encoded)
 print(len(encoded), *struct.unpack("<II", encoded[:8]))
 '''
     observed = tuple(map(int, subprocess.check_output([sys.executable, "-c", code], text=True).split()))
-    assert observed == (559, 2, 1831551450), (
+    assert observed == (559, 2, 1062615642), (
         "Serialized search state changed. If the serialized layout changed, bump STATE_FORMAT "
         "before recording the new fixture length and checksum. "
         f"Observed (length, format, checksum): {observed}"

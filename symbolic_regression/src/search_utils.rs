@@ -816,7 +816,6 @@ where
             Some(p) => (p.total_evals, Some((p.halls_of_fame, p.populations, p.rngs))),
             None => (0.0, None),
         };
-        let mut total_evals = 0.0;
         let mut halls = Vec::with_capacity(datasets.len());
         let mut outputs = Vec::with_capacity(datasets.len());
         for (j, (dataset, seeds)) in tagged.iter().zip(seeds).enumerate() {
@@ -862,7 +861,6 @@ where
                         else {
                             break;
                         };
-                        total_evals += state.pop.len() as f64 * dataset.dataset_fraction();
                         state
                     }
                 };
@@ -887,7 +885,7 @@ where
         for warning in &warnings {
             progress.warn(warning);
         }
-        progress.set_initial_evals(total_evals as u64);
+        progress.set_initial_evals(0);
 
         if options.save_to_file && options.niterations == 0 {
             for (output, (hall, dataset)) in halls.iter().zip(datasets).enumerate() {
@@ -908,7 +906,7 @@ where
         let core = SearchCore {
             outputs,
             halls,
-            total_evals,
+            total_evals: 0.0,
             progress,
             order_rng: Rng::with_seed(seed ^ 0x9e37_79b9_7f4a_7c15),
             cur_iter: 0,

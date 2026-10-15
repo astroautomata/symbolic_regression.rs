@@ -232,7 +232,9 @@ let options = Options::<f64, BuiltinOpsF64, 2> {
 
 `Options::default()` uses the current SymbolicRegression.jl hyperparameters. Rust operator sets are generic, so callers select operators explicitly. `seed: None` draws a fresh random seed for each search; `seed: Some(value)` repeats its random stream. `Options::with_defaults(DefaultsProfile::Legacy)` selects the pre-1.0 profile, and `DefaultsProfile::V1` selects the 1.x profile. `Batching::Auto` samples datasets with more than 1,000 rows; an unset `batch_size` selects 128, 256, or 512 rows as the dataset grows. An unset `maxdepth` follows `maxsize`, and unset `should_simplify` enables simplification only when no constraints are configured. `optimizer_algorithm` selects `OptimizerAlgorithm::BFGS` or `OptimizerAlgorithm::NelderMead`. Weighted `mutations` and `crossovers` replace defaults of the same built-in kind; `default_mutations: Some(vec![])` and `default_crossovers: Some(vec![])` disable their defaults.
 
-Search halls of fame retain only expressions within `maxsize` that satisfy the configured constraints, including every template subexpression.
+Search halls of fame retain only expressions within `maxsize` that satisfy the configured constraints, including every template subexpression. Their reported losses and costs use the full dataset, including when batching is enabled.
+
+Evaluation counts exclude the initial population. Optimizer counts include objective values from successful and failed runs, and exclude derivative probes. BFGS and Newton stop when constants stop changing or the loss meets its tolerance on two successive iterations, even with zero tolerances.
 
 ## Template expressions
 
