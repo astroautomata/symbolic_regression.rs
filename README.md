@@ -143,6 +143,21 @@ let operators = MyOps::new().from_names(["square", "exp", "add", "sub"]).unwrap(
 let options = Options::<f64, MyOps, _> { operators, ..Default::default() };
 ```
 
+Operators can also be written as strings in the Julia syntax that PySR uses, such as `"inv(x) = 1/x"` or `"f(x, y) = x * exp(-y^2)"`. They are parsed, differentiated, and compiled once, when the operator set is built; errors such as unknown functions are reported then. `parse_operator_tokens` accepts built-in names and definitions together, and the definitions become the `custom` table of the operator set:
+
+```rust
+use symbolic_regression::prelude::*;
+
+let (custom, names) = parse_operator_tokens::<f64, _>(["+", "*", "cos", "inv(x) = 1/x"]).unwrap();
+let operator_set = BuiltinOpsF64::new().with_custom(custom);
+let options = Options::<f64, _, 2> {
+    operators: operator_set.from_names(&names).unwrap(),
+    ..Default::default()
+};
+```
+
+The WASM binding (`WasmSearch`) accepts the same definitions in its operator lists.
+
 ## WASM
 
 This workspace includes a thin `wasm-bindgen` wrapper crate (`symbolic_regression_wasm`) at `symbolic_regression_wasm/` and a minimal browser UI at `web_ui/` (Vite + WebWorker).

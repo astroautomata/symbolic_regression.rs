@@ -1,4 +1,6 @@
-use dynamic_expressions::dsl::{DefKind, Expr, ExprKind, Span, Stmt, UnaryOp, parse_definition, parse_formula};
+use dynamic_expressions::dsl::{
+    CustomOps, DefKind, Expr, ExprKind, Span, Stmt, UnaryOp, parse_definition, parse_formula, parse_operator_tokens,
+};
 
 fn sexpr(e: &Expr) -> String {
     match &e.kind {
@@ -314,4 +316,39 @@ fn parser_bounds_nesting_and_length_instead_of_overflowing_the_stack() {
     }
     let err = parse_formula(&format!("p{}", "[1]".repeat(deep))).unwrap_err();
     assert_eq!(err.message, too_deep);
+}
+
+/// The largest accepted expressions parse, compile, clone, and drop on a 1 MiB stack, the WASM
+/// default.
+#[test]
+fn largest_accepted_expressions_fit_a_small_stack() {
+    let sources = [
+        chain(" + ", "x", 256),
+        chain(" && ", "x > 0", 128).replacen("= ", "= ifelse(", 1) + ", x, -x)",
+        format!("f(x) = {}x{}", "sin(".repeat(30), ")".repeat(30)),
+        format!("f(x) = {}x{}", "(".repeat(31), ")".repeat(31)),
+    ];
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || {
+            for src in sources {
+                let def = parse_definition(&src).unwrap();
+                drop(def.clone());
+                CustomOps::<f64>::default().define(&src).unwrap();
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn operator_tokens_recognize_every_definition_form() {
+    let (custom, names) =
+        parse_operator_tokens::<f64, _>(["+", "cos", "sq(x) = x*x", "function cube3(x)\n    return x*x*x\nend"])
+            .unwrap();
+    assert_eq!(names, ["+", "cos", "sq", "cube3"]);
+    assert_eq!(custom.len(), 2);
+    let err = parse_operator_tokens::<f64, _>(["x -> x^2"]).unwrap_err();
+    assert!(err.message.contains("custom operators need a name"), "{}", err.message);
 }

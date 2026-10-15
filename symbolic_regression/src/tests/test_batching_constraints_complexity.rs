@@ -110,11 +110,11 @@ fn constraints_op_arg_and_nested_constraints_work() {
     );
 
     let mut options: Options<f64, Ops, D> = Options {
-        complexity_of_variables: 1,
-        complexity_of_constants: 1,
+        complexity_of_variables: 1.0,
+        complexity_of_constants: 1.0,
         ..Default::default()
     };
-    options.operator_complexity_overrides.insert(add, 0);
+    options.operator_complexity_overrides.insert(add, 0.0);
 
     // Require arg0 of Add to have complexity <= 1 (so (x0+x1) fails).
     let mut op_constraints = OpConstraints::<D>::default();
@@ -163,12 +163,12 @@ fn compute_complexity_respects_custom_weights_and_rounding() {
     );
 
     let mut options: Options<f64, Ops, D> = Options {
-        complexity_of_variables: 2,
-        complexity_of_constants: 1,
+        complexity_of_variables: 2.0,
+        complexity_of_constants: 1.0,
         ..Default::default()
     };
-    options.operator_complexity_overrides.insert(add, 1);
-    options.operator_complexity_overrides.insert(sin, 3);
+    options.operator_complexity_overrides.insert(add, 1.0);
+    options.operator_complexity_overrides.insert(sin, 3.0);
 
     // sin(x0): 3 + 2 = 5
     // add: 1 + 5 + 1 = 7

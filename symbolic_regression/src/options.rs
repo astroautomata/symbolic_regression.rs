@@ -74,9 +74,9 @@ macro_rules! sr_options_spec {
                 batch_size:
                     (usize, 50, "batch-size"),
                 complexity_of_constants:
-                    (u16, 1, "complexity-of-constants"),
+                    (f32, 1.0, "complexity-of-constants"),
                 complexity_of_variables:
-                    (u16, 1, "complexity-of-variables"),
+                    (f32, 1.0, "complexity-of-variables"),
                 maxsize:
                     (usize, 30, "maxsize"),
                 maxdepth:
@@ -195,18 +195,33 @@ macro_rules! __define_options {
             $(pub $iname: bool,)*
             $(pub $pname: bool,)*
 
-            /// The operator set that evaluates and prints every expression in the search
-            /// (`operators.set`), and the operators the search may use.
+            /// The operator set that evaluates, prints, and parses every expression in the
+            /// search (`operators.set`), and the operators the search may use. Operators written
+            /// as strings live in the set's `custom` table and get ids after the built-ins:
+            ///
+            /// ```
+            /// use symbolic_regression::prelude::*;
+            ///
+            /// let (custom, names) = parse_operator_tokens::<f64, _>(["+", "*", "inv(x) = 1/x"]).unwrap();
+            /// let options = Options::<f64, _, 3> {
+            ///     operators: BuiltinOpsF64::new().with_custom(custom).from_names(&names).unwrap(),
+            ///     ..Default::default()
+            /// };
+            /// assert_eq!(options.operators.nops(1), 1);
+            /// assert_eq!(options.operators.nops(2), 2);
+            /// ```
             pub operators: Operators<Ops, D>,
             pub mutation_weights: MutationWeights,
             pub loss: LossObject<T>,
 
             pub output_style: OutputStyle,
 
-            pub variable_complexities: Option<Vec<u16>>,
+            /// Complexity costs may be fractional; a tree's complexity is the sum of its node
+            /// costs rounded to the nearest integer, as in SymbolicRegression.jl.
+            pub variable_complexities: Option<Vec<f32>>,
             pub operator_complexity_overrides: std::collections::HashMap<
                 dynamic_expressions::OpId,
-                u16,
+                f32,
             >,
             pub op_constraints: crate::check_constraints::OpConstraints<D>,
             pub nested_constraints: crate::check_constraints::NestedConstraints,
@@ -287,8 +302,8 @@ sr_options_spec!(__define_wasm_options_shim);
 impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T, Ops, D> {
     #[inline]
     pub fn uses_default_complexity(&self) -> bool {
-        self.complexity_of_constants == 1
-            && self.complexity_of_variables == 1
+        self.complexity_of_constants == 1.0
+            && self.complexity_of_variables == 1.0
             && self.variable_complexities.is_none()
             && self.operator_complexity_overrides.is_empty()
             && (Ops::UNIT_COMPLEXITY

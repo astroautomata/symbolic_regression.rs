@@ -84,14 +84,14 @@ fn unit_complexity_guarantee_includes_marker_and_runtime_metadata() {
     opts.operators.set.custom.complexity = 5;
     assert!(!opts.uses_default_complexity());
     assert_eq!(compute_complexity(&nodes, &opts), 6);
-    opts.operator_complexity_overrides.insert(op, 2);
-    opts.variable_complexities = Some(vec![4]);
+    opts.operator_complexity_overrides.insert(op, 2.0);
+    opts.variable_complexities = Some(vec![4.0]);
     assert_eq!(compute_complexity(&nodes, &opts), 6);
     let mut plain = Options::<f64, BuiltinOpsF64, 2> {
-        complexity_of_constants: 3,
+        complexity_of_constants: 3.0,
         ..Default::default()
     };
     assert_eq!(compute_complexity(&[PNode::Const { idx: 0 }], &plain), 3);
-    plain.complexity_of_variables = 4;
+    plain.complexity_of_variables = 4.0;
     assert_eq!(compute_complexity(&[PNode::Var { feature: 0 }], &plain), 4);
 }

@@ -2,6 +2,7 @@
 //! and template formulas.
 
 pub mod ast;
+mod custom_ops;
 #[doc(hidden)]
 pub mod diff;
 #[doc(hidden)]
@@ -13,11 +14,15 @@ pub mod lexer;
 #[doc(hidden)]
 pub mod lower;
 mod parser;
+#[doc(hidden)]
+pub mod program;
 
 use core::fmt;
 
 pub use self::ast::{BinaryOp, DefKind, Definition, Expr, ExprKind, Formula, Ident, Param, Stmt, TypeVar, UnaryOp};
+pub use self::custom_ops::{CustomOps, Defined, is_definition, parse_operator_tokens};
 pub use self::parser::{parse_definition, parse_formula};
+pub use self::program::{DslFloat, ScalarFn};
 
 /// Byte offsets into the source string, `start..end`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]

@@ -1,5 +1,6 @@
 //! Convenience re-exports for examples and quickstarts.
 
+pub use dynamic_expressions::dsl::{CustomOps, parse_operator_tokens};
 pub use dynamic_expressions::evaluate::EvalOptions;
 pub use dynamic_expressions::expression::PostfixExpr;
 pub use dynamic_expressions::node::PNode;

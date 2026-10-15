@@ -1,7 +1,7 @@
 use dynamic_expressions::dsl::ir::{Graph, Node, NodeId, Ty};
 use dynamic_expressions::dsl::kernels::Kernel;
 use dynamic_expressions::dsl::lower::{Lowered, lower};
-use dynamic_expressions::dsl::{Span, parse_definition};
+use dynamic_expressions::dsl::{CustomOps, Span, parse_definition};
 
 fn span_of(src: &str, needle: &str) -> Span {
     let start = src.find(needle).unwrap_or_else(|| panic!("{needle:?} not in {src:?}"));
@@ -160,6 +160,8 @@ fn lower_bool_and_num_types() {
     ] {
         assert_eq!(lower_with(src, &[]).ty, Ty::Num, "{src}");
     }
+    let mut custom = CustomOps::<f64>::default();
+    custom.define("step(x) = greater(x, 0)").unwrap();
 
     let msg = "expected a Bool condition, found a number";
     let src = "f(x) = x && true";
