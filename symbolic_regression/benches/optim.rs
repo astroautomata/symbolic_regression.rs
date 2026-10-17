@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use dynamic_expressions::expression::PostfixExpr;
 use dynamic_expressions::node::PNode;
 use dynamic_expressions::operator_enum::builtin;
@@ -16,7 +16,7 @@ use symbolic_regression::operator_selection::OperatorsSampling;
 use symbolic_regression::{
     Dataset, Evaluator, NextGenerationCtx, OptimizeConstantsCtx, Options, PopMember, Population,
     RunningSearchStatistics, TaggedDataset, best_of_sample, check_constraints, equation_search,
-    insert_random_op_in_place, next_generation, optimize_constants, rotate_tree_in_place,
+    insert_random_op_in_place, next_generation, optimize_constants, parse_loss, rotate_tree_in_place,
 };
 
 type T = f32;
@@ -41,7 +41,7 @@ fn random_leaf<R: Rng>(rng: &mut R, n_features: usize, consts: &mut Vec<T>) -> P
 
 fn random_expr<Ops2, const D2: usize, R: Rng>(
     rng: &mut R,
-    operators: &Operators<D2>,
+    operators: &Operators<Ops, D2>,
     n_features: usize,
     target_size: usize,
 ) -> PostfixExpr<T, Ops2, D2> {
@@ -89,17 +89,21 @@ fn random_expr<Ops2, const D2: usize, R: Rng>(
     PostfixExpr::new(nodes, consts, Default::default())
 }
 
-fn make_ops_search() -> Operators<D> {
-    Ops::from_names(["exp", "abs", "+", "sub", "*", "/"]).expect("search operators")
+fn make_ops_search() -> Operators<Ops, D> {
+    Ops::new()
+        .from_names(["exp", "abs", "+", "sub", "*", "/"])
+        .expect("search operators")
 }
 
-fn make_ops_utils() -> Operators<D> {
-    Ops::from_names(["sin", "cos", "+", "sub", "*", "/"]).expect("utils operators")
+fn make_ops_utils() -> Operators<Ops, D> {
+    Ops::new()
+        .from_names(["sin", "cos", "+", "sub", "*", "/"])
+        .expect("utils operators")
 }
 
-fn make_search_options(seed: u64) -> Options<T, D> {
-    let mut options = Options::<T, D> {
-        seed,
+fn make_search_options(seed: u64) -> Options<T, Ops, D> {
+    let mut options = Options::<T, Ops, D> {
+        seed: Some(seed),
         niterations: 30,
         populations: 1,
         population_size: 64,
@@ -113,8 +117,8 @@ fn make_search_options(seed: u64) -> Options<T, D> {
     options
 }
 
-fn make_utils_options() -> Options<T, D> {
-    Options::<T, D> {
+fn make_utils_options() -> Options<T, Ops, D> {
+    Options::<T, Ops, D> {
         operators: make_ops_utils(),
         progress: false,
         ..Default::default()
@@ -166,7 +170,7 @@ fn make_random_dataset(seed: u64, n_rows: usize, n_features: usize) -> Dataset<T
 fn make_population(
     seed: u64,
     dataset: &Dataset<T>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     pop_size: usize,
     tree_size: usize,
 ) -> (Population<T, Ops, D>, RunningSearchStatistics) {
@@ -199,7 +203,7 @@ fn bench_search(c: &mut Criterion) {
     group.bench_function("equation_search", |b| {
         b.iter(|| {
             for (dataset, options) in datasets.iter().zip_eq(&options) {
-                let _ = equation_search::<T, Ops, D>(dataset, options);
+                let _ = equation_search::<T, Ops, D>(std::slice::from_ref(dataset), options);
             }
         })
     });
@@ -261,6 +265,8 @@ fn bench_utils(c: &mut Criterion) {
                             stats: &stats,
                             options: &options,
                             evaluator: &mut evaluator,
+                            population: &population.members,
+                            weights_state: &mut Default::default(),
                             _ops: PhantomData::<Ops>,
                         };
                         let _ = next_generation(member, ctx);
@@ -303,19 +309,43 @@ fn bench_utils(c: &mut Criterion) {
         });
     }
 
-    // compute_complexity_x10 (Rust uses fixed u16 complexity types)
+    // compute_complexity_x10: inputs and results pass through black_box, so the compiler
+    // cannot delete the measured work.
     {
-        let options = make_utils_options();
+        let options = std::hint::black_box(make_utils_options());
         let mut rng = StdRng::seed_from_u64(7);
         let trees: Vec<_> = (0..10)
             .map(|_| random_expr::<Ops, D, _>(&mut rng, &options.operators, 3, 20))
             .collect();
+        let trees = std::hint::black_box(trees);
 
-        group.bench_function(BenchmarkId::new("compute_complexity_x10", "u16"), |b| {
+        group.bench_function(BenchmarkId::new("compute_complexity_x10", "default_costs"), |b| {
             b.iter(|| {
                 for tree in &trees {
-                    let _ = symbolic_regression::compute_complexity(&tree.nodes, &options);
+                    std::hint::black_box(symbolic_regression::compute_complexity(&tree.nodes, &options));
                 }
+            })
+        });
+    }
+
+    // compute_complexity_batch: a population-sized batch of trees of sampled size 10 to 30, the
+    // maxsize range of typical searches, summing every result
+    {
+        let options = make_utils_options();
+        let mut rng = StdRng::seed_from_u64(8);
+        let trees: Vec<_> = (0..1000)
+            .map(|_| {
+                let size = rng.random_range(10..=30);
+                random_expr::<Ops, D, _>(&mut rng, &options.operators, 3, size)
+            })
+            .collect();
+
+        group.bench_function(BenchmarkId::new("compute_complexity_batch", "1000"), |b| {
+            b.iter(|| {
+                trees
+                    .iter()
+                    .map(|tree| symbolic_regression::compute_complexity(&tree.nodes, &options))
+                    .sum::<usize>()
             })
         });
     }
@@ -370,7 +400,7 @@ fn bench_utils(c: &mut Criterion) {
     {
         let mut options = make_utils_options();
         options.maxsize = 30;
-        options.maxdepth = 20;
+        options.maxdepth = Some(20);
 
         let add: OpId = <Ops as HasOp<builtin::Add>>::op_id();
         let sub: OpId = <Ops as HasOp<builtin::Sub>>::op_id();
@@ -455,5 +485,58 @@ fn bench_rotate_tree(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_search, bench_utils, bench_rotate_tree);
+fn bench_losses(c: &mut Criterion) {
+    const REGRESSION: &[&str] = &[
+        "L2DistLoss()",
+        "L1DistLoss()",
+        "HuberLoss(1.0)",
+        "LPDistLoss{3}()",
+        "PeriodicLoss(1.0)",
+        "L1EpsilonInsLoss(0.1)",
+        "L2EpsilonInsLoss(0.1)",
+        "LogitDistLoss()",
+        "QuantileLoss(0.3)",
+        "LogCoshLoss()",
+    ];
+    const CLASSIFICATION: &[&str] = &[
+        "ZeroOneLoss()",
+        "PerceptronLoss()",
+        "LogitMarginLoss()",
+        "L1HingeLoss()",
+        "L2HingeLoss()",
+        "SmoothedL1HingeLoss(0.5)",
+        "ModifiedHuberLoss()",
+        "L2MarginLoss()",
+        "ExpLoss()",
+        "SigmoidLoss()",
+        "DWDMarginLoss(1.0)",
+    ];
+    let mut group = c.benchmark_group("builtin_loss");
+    for (names, classification) in [(REGRESSION, false), (CLASSIFICATION, true)] {
+        for &name in names {
+            let loss = parse_loss::<T>(name).unwrap();
+            for n in [64usize, 256, 1000, 10000] {
+                let yhat: Vec<T> = (0..n).map(|i| (i as T * 0.37).sin()).collect();
+                let y: Vec<T> = (0..n)
+                    .map(|i| match classification {
+                        true if i % 3 == 0 => -1.0,
+                        true => 1.0,
+                        false => (i as T * 0.11).cos(),
+                    })
+                    .collect();
+                let mut out = vec![0.0; n];
+                group.throughput(Throughput::Elements(n as u64));
+                group.bench_with_input(BenchmarkId::new(format!("{name}/loss"), n), &n, |b, _| {
+                    b.iter(|| loss.loss(std::hint::black_box(&yhat), &y, None))
+                });
+                group.bench_with_input(BenchmarkId::new(format!("{name}/dloss"), n), &n, |b, _| {
+                    b.iter(|| loss.dloss_dyhat(std::hint::black_box(&yhat), &y, None, &mut out))
+                });
+            }
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(benches, bench_search, bench_utils, bench_rotate_tree, bench_losses);
 criterion_main!(benches);

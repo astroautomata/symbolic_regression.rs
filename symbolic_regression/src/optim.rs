@@ -7,6 +7,9 @@ pub(crate) struct OptimOptions {
     pub iterations: usize,
     pub f_calls_limit: usize,
     pub g_abstol: f64,
+    pub g_calls_limit: usize,
+    pub x_abstol: f64,
+    pub f_reltol: f64,
 }
 
 impl Default for OptimOptions {
@@ -15,6 +18,9 @@ impl Default for OptimOptions {
             iterations: 1000,
             f_calls_limit: 0,
             g_abstol: 1e-8,
+            g_calls_limit: 0,
+            x_abstol: 0.0,
+            f_reltol: 0.0,
         }
     }
 }
@@ -230,6 +236,128 @@ pub(crate) fn backtracking_linesearch(
     None
 }
 
+/// Optim.jl's affine simplex and dimension-adaptive Nelder-Mead coefficients.
+pub(crate) fn nelder_mead_minimize(x0: &[f64], obj: &mut impl Objective, opts: OptimOptions) -> Option<OptimResult> {
+    let n = x0.len();
+    assert!(n > 0);
+    let m = n + 1;
+    let mut budget = EvalBudget::default();
+    let mut simplex = vec![x0.to_vec(); m];
+    for j in 0..n {
+        simplex[j + 1][j] = 1.5 * x0[j] + 0.025;
+    }
+    let mut values = vec![f64::INFINITY; m];
+    let mut evaluate = |x: &[f64], budget: &mut EvalBudget| {
+        if opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit {
+            return None;
+        }
+        Some(obj.f_only(x, budget).unwrap_or(f64::INFINITY))
+    };
+    for (value, x) in values.iter_mut().zip(&simplex) {
+        if let Some(f) = evaluate(x, &mut budget) {
+            *value = f;
+        } else {
+            break;
+        }
+    }
+    let mut order: Vec<usize> = (0..m).collect();
+    let mut centroid = vec![0.0; n];
+    let mut reflect = vec![0.0; n];
+    let mut candidate = vec![0.0; n];
+    let expansion = 1.0 + 2.0 / n as f64;
+    let contraction = 0.75 - 0.5 / n as f64;
+    let shrink = 1.0 - 1.0 / n as f64;
+    for _ in 0..opts.iterations {
+        order.sort_unstable_by(|&a, &b| values[a].total_cmp(&values[b]));
+        let best = order[0];
+        let worst = order[n];
+        let mean = values.iter().sum::<f64>() / m as f64;
+        let spread = (values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / m as f64).sqrt();
+        if spread <= opts.g_abstol || (opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit) {
+            break;
+        }
+        centroid.fill(0.0);
+        for &i in &order[..n] {
+            for (c, &v) in centroid.iter_mut().zip(&simplex[i]) {
+                *c += v / n as f64;
+            }
+        }
+        for j in 0..n {
+            reflect[j] = 2.0 * centroid[j] - simplex[worst][j];
+        }
+        let Some(f_reflect) = evaluate(&reflect, &mut budget) else {
+            break;
+        };
+        let mut do_shrink = false;
+        if f_reflect < values[best] {
+            for j in 0..n {
+                candidate[j] = centroid[j] + expansion * (reflect[j] - centroid[j]);
+            }
+            let f_expand = evaluate(&candidate, &mut budget);
+            if f_expand.is_some_and(|f| f < f_reflect) {
+                simplex[worst].copy_from_slice(&candidate);
+                values[worst] = f_expand.unwrap();
+            } else {
+                simplex[worst].copy_from_slice(&reflect);
+                values[worst] = f_reflect;
+            }
+        } else if f_reflect < values[order[n - 1]] {
+            simplex[worst].copy_from_slice(&reflect);
+            values[worst] = f_reflect;
+        } else {
+            let outside = f_reflect < values[worst];
+            let factor = if outside { contraction } else { -contraction };
+            for j in 0..n {
+                candidate[j] = centroid[j] + factor * (reflect[j] - centroid[j]);
+            }
+            let Some(f_contract) = evaluate(&candidate, &mut budget) else {
+                break;
+            };
+            let threshold = if outside { f_reflect } else { values[worst] };
+            if f_contract < threshold {
+                simplex[worst].copy_from_slice(&candidate);
+                values[worst] = f_contract;
+            } else {
+                do_shrink = true;
+            }
+        }
+        if do_shrink {
+            for &i in &order[1..] {
+                for j in 0..n {
+                    candidate[j] = simplex[best][j] + shrink * (simplex[i][j] - simplex[best][j]);
+                }
+                let Some(f) = evaluate(&candidate, &mut budget) else {
+                    break;
+                };
+                simplex[i].copy_from_slice(&candidate);
+                values[i] = f;
+            }
+        }
+    }
+    order.sort_unstable_by(|&a, &b| values[a].total_cmp(&values[b]));
+    centroid.fill(0.0);
+    for &i in &order[..n] {
+        for (c, &v) in centroid.iter_mut().zip(&simplex[i]) {
+            *c += v / n as f64;
+        }
+    }
+    let best = order[0];
+    if let Some(f) = evaluate(&centroid, &mut budget) {
+        if f < values[best] {
+            return Some(OptimResult {
+                minimizer: centroid,
+                minimum: f,
+                f_calls: budget.f_calls,
+            });
+        }
+    }
+    Some(OptimResult {
+        minimizer: simplex.swap_remove(best),
+        minimum: values[best],
+        f_calls: budget.f_calls,
+    })
+}
+
 pub(crate) fn bfgs_minimize(
     x0: &[f64],
     obj: &mut impl Objective,
@@ -255,6 +383,7 @@ pub(crate) fn bfgs_minimize(
         inv_h[i * n + i] = 1.0;
     }
 
+    let mut g_calls = 1;
     let mut fx = obj.fg(&x, &mut g, &mut budget)?;
     if !fx.is_finite() {
         return None;
@@ -298,7 +427,7 @@ pub(crate) fn bfgs_minimize(
             if v.is_finite() { Some(v) } else { None }
         };
 
-        let (_alpha, _) = backtracking_linesearch(
+        let (_alpha, accepted_fx) = backtracking_linesearch(
             &ls,
             LineSearchInput {
                 x: &x,
@@ -315,6 +444,13 @@ pub(crate) fn bfgs_minimize(
         g_prev.copy_from_slice(&g);
         x.copy_from_slice(&x_ls);
 
+        if (opts.g_calls_limit != 0 && g_calls >= opts.g_calls_limit)
+            || (opts.f_calls_limit != 0 && budget.f_calls >= opts.f_calls_limit)
+        {
+            fx = accepted_fx;
+            break;
+        }
+        g_calls += 1;
         fx = obj.fg(&x, &mut g, &mut budget)?;
         if !fx.is_finite() {
             break;
@@ -328,6 +464,11 @@ pub(crate) fn bfgs_minimize(
             *dst = gcur - gpi;
         }
 
+        if (opts.x_abstol > 0.0 && inf_norm(&dx) <= opts.x_abstol)
+            || (opts.f_reltol > 0.0 && (fx - phi0).abs() <= opts.f_reltol * fx.abs())
+        {
+            break;
+        }
         let dx_dg = dot(&dx, &dg);
         let curvature_eps = 1e-12;
         if !(dx_dg.is_finite() && dx_dg > curvature_eps) {
@@ -375,6 +516,7 @@ pub(crate) fn newton_1d_minimize(
 ) -> Option<OptimResult> {
     let mut budget = EvalBudget::default();
     let mut x = x0;
+    let mut g_calls = 0;
     let mut best_x = x0;
     let mut best_f = f64::INFINITY;
     let mut g_tmp = [0.0f64];
@@ -384,6 +526,10 @@ pub(crate) fn newton_1d_minimize(
             break;
         }
         let x_vec = [x];
+        if opts.g_calls_limit != 0 && g_calls >= opts.g_calls_limit {
+            break;
+        }
+        g_calls += 1;
         let f = obj.fg(&x_vec, &mut g_tmp, &mut budget)?;
         let g = g_tmp[0];
         if !f.is_finite() || !g.is_finite() {
@@ -401,6 +547,10 @@ pub(crate) fn newton_1d_minimize(
         let eps = f64::EPSILON.sqrt() * (x.abs() + 1.0);
         let x_plus = [x + eps];
         let x_minus = [x - eps];
+        if opts.g_calls_limit != 0 && g_calls + 2 > opts.g_calls_limit {
+            break;
+        }
+        g_calls += 2;
         let _ = obj.fg(&x_plus, &mut g_tmp, &mut budget)?;
         let g_plus = g_tmp[0];
         let _ = obj.fg(&x_minus, &mut g_tmp, &mut budget)?;
@@ -433,7 +583,7 @@ pub(crate) fn newton_1d_minimize(
         let x_vec = [x];
         let s_vec = [s];
         let mut x_new = [x];
-        let (alpha, _) = backtracking_linesearch(
+        let (alpha, accepted_fx) = backtracking_linesearch(
             &ls,
             LineSearchInput {
                 x: &x_vec,
@@ -445,7 +595,17 @@ pub(crate) fn newton_1d_minimize(
             &mut x_new,
             &mut phi_at,
         )?;
-        x += alpha * s;
+        let step = alpha * s;
+        x += step;
+        if accepted_fx < best_f {
+            best_x = x;
+            best_f = accepted_fx;
+        }
+        if (opts.x_abstol > 0.0 && step.abs() <= opts.x_abstol)
+            || (opts.f_reltol > 0.0 && (accepted_fx - phi0).abs() <= opts.f_reltol * accepted_fx.abs())
+        {
+            break;
+        }
     }
 
     Some(OptimResult {
@@ -532,6 +692,7 @@ mod tests {
             iterations: 50,
             f_calls_limit: 0,
             g_abstol: 1e-10,
+            ..Default::default()
         };
         let ls = BackTracking::default();
         let mut obj = Quad2D;
@@ -546,6 +707,7 @@ mod tests {
             iterations: 25,
             f_calls_limit: 0,
             g_abstol: 1e-10,
+            ..Default::default()
         };
         let ls = BackTracking::default();
         let mut obj = Quad1D;
@@ -613,6 +775,7 @@ mod tests {
             iterations: 100,
             f_calls_limit: 0,
             g_abstol: 1e-10,
+            ..Default::default()
         };
         let ls = BackTracking::default();
         let mut obj = Quad3DOffDiag;

@@ -21,9 +21,10 @@ fn test_timeout_under_max_iterations() {
         Array1::from_vec(vec![1.0]),
     );
 
-    let operators = SlowOps::from_names::<D, _>(["slow_id"]).unwrap();
+    let operators = SlowOps::new().from_names::<D, _>(["slow_id"]).unwrap();
 
-    let options = Options::<f64, D> {
+    let options = Options::<f64, SlowOps, D> {
+        save_to_file: false,
         timeout_in_seconds: 0.05,
         niterations: 1_000_000_000,
         operators,
@@ -34,9 +35,9 @@ fn test_timeout_under_max_iterations() {
     // Start the wall-clock timer before constructing the engine, since the timeout clock starts in
     // `StopController::from_options(...)` during `SearchEngine::new(...)`.
     let start = Instant::now();
-    let mut engine = SearchEngine::<f64, SlowOps, D>::new(dataset, options);
+    let mut engine = SearchEngine::<f64, SlowOps, D>::new(vec![dataset], options).unwrap();
     let total_cycles = engine.total_cycles();
-    while engine.step(1) > 0 {}
+    while engine.step(1).unwrap() > 0 {}
     let elapsed = start.elapsed();
 
     assert!(engine.is_finished());

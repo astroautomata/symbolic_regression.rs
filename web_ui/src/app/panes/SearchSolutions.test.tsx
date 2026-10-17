@@ -35,8 +35,8 @@ function setCommonState(args: { xColumns: number[] }) {
     total_cycles: 10,
     cycles_completed: 1,
     total_evals: 0,
-    best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" },
-    pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1 }]
+    best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" },
+    pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0 }]
   };
 
   useSessionStore.setState({
@@ -47,8 +47,12 @@ function setCommonState(args: { xColumns: number[] }) {
       y_column: 1,
       weights_column: null,
       validation_fraction: 0,
-      loss_kind: "mse",
-      huber_delta: 1.0,
+      x_units: null,
+      y_units: null,
+      loss: "L2DistLoss()",
+      early_stop_condition: null,
+      template: null,
+      guesses: [],
 
       seed: 0,
       niterations: 100,
@@ -56,11 +60,11 @@ function setCommonState(args: { xColumns: number[] }) {
       population_size: 16,
       ncycles_per_iteration: 10,
       maxsize: 30,
-      maxdepth: 30,
+      maxdepth: null,
       warmup_maxsize_by: 0,
       parsimony: 0,
       adaptive_parsimony_scaling: 1040,
-      crossover_probability: 0.0259,
+      crossover_probability: 0.20,
       perturbation_factor: 0.129,
       probability_negate_constant: 0.00743,
       tournament_selection_n: 15,
@@ -72,8 +76,11 @@ function setCommonState(args: { xColumns: number[] }) {
       optimizer_f_calls_limit: 10_000,
       fraction_replaced: 0.00036,
       fraction_replaced_hof: 0.0614,
+      fraction_replaced_guesses: 0.001,
       topn: 12,
       print_precision: 5,
+      loss_scale: "log",
+      dimensional_constraint_penalty: 1000,
 
       use_frequency: true,
       use_frequency_in_tournament: true,
@@ -85,7 +92,20 @@ function setCommonState(args: { xColumns: number[] }) {
       use_baseline: true,
       progress: false,
       should_simplify: false,
+      dimensionless_constants_only: false,
 
+      optimizer_algorithm: "BFGS",
+      optimizer_g_abstol: 1e-8,
+      optimizer_x_abstol: 0,
+      optimizer_f_reltol: 0,
+      optimizer_g_calls_limit: 0,
+      parallelism: "multithreading",
+      batching: "auto",
+      batch_size: null,
+      mutations: [],
+      default_mutations: null,
+      crossovers: [],
+      default_crossovers: null,
       mutation_weights: {
         mutate_constant: 0.0346,
         mutate_operator: 0.293,
@@ -108,7 +128,7 @@ function setCommonState(args: { xColumns: number[] }) {
       error: null,
       split,
       snapshot: snap,
-      front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" }],
+      front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" }],
       selectedId: "1",
       selectedComplexity: 3,
       evalByKey: {
@@ -137,21 +157,25 @@ describe("SearchSolutions fit plot", () => {
       total_cycles: 10,
       cycles_completed: 1,
       total_evals: 0,
-      best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" },
-      pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1 }]
+      best: { id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" },
+      pareto_points: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0 }]
     };
 
     useSessionStore.setState({
       csvText: "x,y\n0,1\n1,3\n2,5\n",
       parsed: null,
-      options: { has_headers: true, x_columns: [0], y_column: 1, weights_column: null, validation_fraction: 0, niterations: 10 } as any,
+      options: {
+        has_headers: true, x_columns: [0], y_column: 1, weights_column: null, validation_fraction: 0,
+        x_units: null, y_units: null, dimensional_constraint_penalty: 1000, dimensionless_constants_only: false,
+        niterations: 10
+      } as any,
       runtime: {
         status: "ready",
         error: null,
         split,
         snapshot: snap,
         evalsPerSecond: null,
-        front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, equation: "x", equation_full: "x" }],
+        front: [{ id: "1", complexity: 3, loss: 0.1, cost: 0.1, score: 0, equation: "x", equation_full: "x" }],
         selectedId: "1",
         selectedComplexity: 3,
         evalByKey: {

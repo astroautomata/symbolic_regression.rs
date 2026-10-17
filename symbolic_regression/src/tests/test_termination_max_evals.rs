@@ -12,18 +12,20 @@ fn search_engine_honors_max_evals_budget() {
         Array1::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
+        save_to_file: false,
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         use_baseline: false,
         niterations: 10,
         populations: 2,
         population_size: 2,
+        tournament_selection_n: 1,
         max_evals: 4, // exactly the initial population evaluation budget
         ..Default::default()
     };
 
-    let mut engine = SearchEngine::<T, TestOps, D>::new(dataset, options);
-    let completed = engine.step(1000);
+    let mut engine = SearchEngine::<T, TestOps, D>::new(vec![dataset], options).unwrap();
+    let completed = engine.step(1000).unwrap();
 
     assert_eq!(completed, 0);
     assert!(engine.is_finished());

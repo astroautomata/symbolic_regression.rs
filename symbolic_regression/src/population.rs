@@ -6,6 +6,14 @@ pub struct Population<T: Float, Ops, const D: usize> {
     pub members: Vec<PopMember<T, Ops, D>>,
 }
 
+impl<T: Float, Ops, const D: usize> Clone for Population<T, Ops, D> {
+    fn clone(&self) -> Self {
+        Self {
+            members: self.members.clone(),
+        }
+    }
+}
+
 impl<T: Float, Ops, const D: usize> Population<T, Ops, D> {
     pub fn new(members: Vec<PopMember<T, Ops, D>>) -> Self {
         Self { members }

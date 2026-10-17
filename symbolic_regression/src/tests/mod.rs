@@ -1,4 +1,5 @@
-mod common;
+pub(crate) mod common;
+mod test_backsolve;
 mod test_batching_constraints_complexity;
 mod test_compress_constants;
 mod test_constant_optimization_birth_reset;
@@ -7,6 +8,17 @@ mod test_count_depth_proptests;
 mod test_early_stop;
 mod test_equation_search_runs;
 mod test_frequency_in_tournament;
+mod test_guess_corpus;
+mod test_jl_constraints;
+mod test_jl_dataset;
+mod test_jl_evolution_core;
+mod test_jl_guesses;
+mod test_jl_losses;
+mod test_jl_mixed;
+mod test_jl_options;
+mod test_jl_plugins;
+mod test_jl_templates;
+mod test_jl_units;
 mod test_loss;
 mod test_mutate_constant_regressions;
 mod test_mutation_regressions;
@@ -16,3 +28,8 @@ mod test_random_distributions;
 mod test_rotate_tree_proptests;
 mod test_swap_operands_arity_gt2;
 mod test_termination_max_evals;
+mod test_tracing;
+mod test_units;
+
+#[cfg(feature = "progress")]
+mod test_output_display;

@@ -1,9 +1,9 @@
-use ndarray::{Array2, ArrayView2};
+use ndarray::Array2;
 use num_traits::Float;
 
 use crate::compile::{EvalPlan, compile_plan};
 use crate::dispatch::{GradKernelCtx, GradRef, SrcRef};
-use crate::evaluate::{EvalOptions, resolve_val_src};
+use crate::evaluate::{EvalOptions, XColumns, leaves_finite, resolve_val_src};
 use crate::expression::PostfixExpr;
 use crate::node::Src;
 use crate::traits::{OpId, OperatorSet};
@@ -123,7 +123,8 @@ fn resolve_jac_src<'a, T: Float>(
 
 fn eval_jac_tree_array<T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
-    x_columns: ArrayView2<'_, T>,
+    ops: &Ops,
+    x: XColumns<'_, T>,
     target: JacTarget,
     ctx: &mut GradContext<T, D>,
     opts: &EvalOptions,
@@ -132,6 +133,7 @@ where
     T: Float + core::ops::AddAssign,
     Ops: OperatorSet<T = T>,
 {
+    let x_columns = x.view();
     assert!(x_columns.is_standard_layout(), "X must be contiguous");
     assert_eq!(ctx.n_rows, x_columns.ncols());
     let n_rows = x_columns.ncols();
@@ -162,6 +164,10 @@ where
         .as_slice_mut()
         .expect("grad scratch must be contiguous");
     let x_data = x_columns.as_slice().expect("X must be contiguous");
+    complete &= !opts.check_finite || leaves_finite(plan, x, &expr.consts);
+    if opts.early_exit && !complete {
+        return nan_grad_return(n_rows, n_dir);
+    }
     let slot_stride = n_rows;
     let jac_stride = n_rows * n_dir;
 
@@ -197,7 +203,7 @@ where
             *dst_ja = resolve_jac_src(instr.args[j], target, dst_slot, jac_before, jac_after, jac_stride);
         }
 
-        let ok = Ops::grad(
+        let ok = ops.grad(
             OpId {
                 arity: instr.arity,
                 id: instr.op,
@@ -289,15 +295,16 @@ where
     )
 }
 
-pub fn eval_grad_tree_array<T, Ops, const D: usize>(
+pub fn eval_grad_tree_array<'a, T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
-    x_columns: ArrayView2<'_, T>,
+    ops: &Ops,
+    x_columns: impl Into<XColumns<'a, T>>,
     variable: bool,
     ctx: &mut GradContext<T, D>,
     opts: &EvalOptions,
 ) -> (Vec<T>, GradMatrix<T>, bool)
 where
-    T: Float + core::ops::AddAssign,
+    T: Float + core::ops::AddAssign + 'a,
     Ops: OperatorSet<T = T>,
 {
     let target = if variable {
@@ -305,23 +312,25 @@ where
     } else {
         JacTarget::Constants
     };
-    eval_jac_tree_array(expr, x_columns, target, ctx, opts)
+    eval_jac_tree_array(expr, ops, x_columns.into(), target, ctx, opts)
 }
 
-pub fn eval_diff_tree_array<T, Ops, const D: usize>(
+pub fn eval_diff_tree_array<'a, T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
-    x_columns: ArrayView2<'_, T>,
+    ops: &Ops,
+    x_columns: impl Into<XColumns<'a, T>>,
     direction: usize,
     ctx: &mut DiffContext<T, D>,
     opts: &EvalOptions,
 ) -> (Vec<T>, Vec<T>, bool)
 where
-    T: Float + core::ops::AddAssign,
+    T: Float + core::ops::AddAssign + 'a,
     Ops: OperatorSet<T = T>,
 {
-    assert!(x_columns.is_standard_layout(), "X must be contiguous");
-    assert!(direction < x_columns.nrows());
-    let (out_val, jac, complete) = eval_jac_tree_array(expr, x_columns, JacTarget::VariableDir(direction), ctx, opts);
+    let x = x_columns.into();
+    assert!(x.view().is_standard_layout(), "X must be contiguous");
+    assert!(direction < x.view().nrows());
+    let (out_val, jac, complete) = eval_jac_tree_array(expr, ops, x, JacTarget::VariableDir(direction), ctx, opts);
     debug_assert_eq!(jac.n_dir, 1);
     (out_val, jac.data, complete)
 }

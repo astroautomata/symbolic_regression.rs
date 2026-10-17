@@ -5,10 +5,15 @@ Build with RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals'.
 );
 
 pub(crate) mod adaptive_parsimony;
+pub mod backsolve;
 pub(crate) mod check_constraints;
 pub(crate) mod complexity;
 pub(crate) mod constant_optimization;
 pub(crate) mod dataset;
+pub(crate) mod dimensional_analysis;
+pub(crate) mod evaluate_inverse;
+pub(crate) mod expression;
+pub(crate) mod guesses;
 pub(crate) mod hall_of_fame;
 pub(crate) mod loss_functions;
 pub(crate) mod migration;
@@ -18,16 +23,21 @@ pub(crate) mod operator_library;
 pub mod operator_selection;
 pub(crate) mod optim;
 pub(crate) mod options;
+pub(crate) mod plugins;
 pub(crate) mod pop_member;
 pub(crate) mod population;
 pub mod prelude;
+pub(crate) mod printing;
 pub(crate) mod progress_bars;
 pub(crate) mod random;
 pub(crate) mod regularized_evolution;
+pub(crate) mod run_output;
 pub(crate) mod search_utils;
 pub(crate) mod selection;
 pub(crate) mod single_iteration;
 pub(crate) mod stop_controller;
+pub(crate) mod tracing;
+pub mod units;
 pub(crate) mod warmup;
 
 #[cfg(feature = "bench")]
@@ -36,14 +46,27 @@ pub mod bench;
 pub use check_constraints::{NestedConstraints, OpConstraints};
 pub use complexity::compute_complexity;
 pub use dataset::{Dataset, TaggedDataset};
+pub use dynamic_expressions::dsl::TemplateStructure;
 pub use dynamic_expressions::{OperatorSelectError, Operators, op, opset};
-pub use hall_of_fame::HallOfFame;
-pub use loss_functions::{LossKind, epsilon_insensitive, huber, log_cosh, lp, mae, make_loss, mse, quantile, rmse};
+pub use expression::{Expression, OneOrMany};
+pub use guesses::{Guess, ParsedGuesses, TemplateGuessValue, parse_guesses};
+pub use hall_of_fame::{HallOfFame, choose_best, pareto_volume};
+pub use loss_functions::{BuiltinLoss, LossFn, LossObject, parse_loss};
 pub use operator_library::OperatorLibrary;
 pub use operator_selection::OperatorsSampling;
-pub use options::{EarlyStop, EarlyStopCondition, MutationWeights, Options, OutputStyle, WasmOptionsShim};
+pub use options::{
+    Batching, BuiltinMutation, ConstantMutation, Crossover, DefaultsProfile, EarlyStop, EarlyStopCondition, LossScale,
+    MutationWeights, OptimizerAlgorithm, Options, OutputStyle, Parallelism, WasmOptionsShim, parse_early_stop,
+};
+pub use plugins::{AdaptiveMutationWeights, MutationBurst, Reward};
 pub use pop_member::PopMember;
-pub use search_utils::{SearchEngine, SearchResult, equation_search};
+pub use population::Population;
+pub use printing::{format_hall, format_member, format_search_state, split_string, wrap_equation_string};
+pub use run_output::{
+    LogCallback, LogEquation, LogOutput, LogOutputs, LogPayload, LogPopulation, LogSummaries, SrLogger, generate_run_id,
+};
+pub use search_utils::{SearchEngine, SearchResult, equation_search, resume_search};
+pub use stop_controller::{ExternalStop, InputStream};
 #[cfg(feature = "bench")]
 pub use {
     crate::mutation_functions::{insert_random_op_in_place, random_expr, random_expr_append_ops, rotate_tree_in_place},
@@ -51,8 +74,8 @@ pub use {
     check_constraints::check_constraints,
     constant_optimization::{OptimizeConstantsCtx, optimize_constants},
     mutate::{NextGenerationCtx, next_generation},
+    plugins::MutationWeightsState,
     pop_member::Evaluator,
-    population::Population,
     selection::best_of_sample,
 };
 

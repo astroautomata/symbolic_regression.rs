@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
-use dynamic_expressions::OpId;
 use dynamic_expressions::node::PNode;
+use dynamic_expressions::{OpId, OperatorSet};
 use num_traits::Float;
 
+use crate::expression::Expression;
 use crate::options::Options;
 
-pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
+pub(crate) fn compute_custom_complexity_checked<T: Float, Ops: OperatorSet, const D: usize>(
     nodes: &[PNode],
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     op_arg_limits: Option<&HashMap<OpId, [Option<u16>; D]>>,
 ) -> Option<usize> {
-    let mut st: Vec<usize> = Vec::with_capacity(nodes.len().min(256));
+    let mut st: Vec<f32> = Vec::with_capacity(nodes.len().min(256));
 
     for n in nodes {
         match *n {
@@ -23,14 +24,14 @@ pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
                     .and_then(|v| v.get(idx))
                     .copied()
                     .unwrap_or(options.complexity_of_variables);
-                st.push(c as usize);
+                st.push(c);
             }
-            PNode::Const { .. } => st.push(options.complexity_of_constants as usize),
+            PNode::Const { .. } => st.push(options.complexity_of_constants),
             PNode::Op { arity, op } => {
                 let a = arity as usize;
-                let mut child = [0usize; D];
+                let mut child = [0.0f32; D];
                 for j in (0..a).rev() {
-                    child[j] = st.pop().unwrap_or(0);
+                    child[j] = st.pop().unwrap_or(0.0);
                 }
 
                 let oid = OpId { arity, id: op };
@@ -39,18 +40,18 @@ pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
                         let Some(lim) = limits[j] else {
                             continue;
                         };
-                        if child[j] > (lim as usize) {
+                        if rounded(child[j]) > usize::from(lim) {
                             return None;
                         }
                     }
                 }
 
-                let mut sum: usize = 0;
-                for c in child {
-                    sum = sum.saturating_add(c);
-                }
-                let base = options.operator_complexity_overrides.get(&oid).copied().unwrap_or(1);
-                st.push((base as usize).saturating_add(sum));
+                let base = options
+                    .operator_complexity_overrides
+                    .get(&oid)
+                    .copied()
+                    .unwrap_or_else(|| f32::from(options.operators.set.complexity(oid)));
+                st.push(base + child.iter().sum::<f32>());
             }
         }
     }
@@ -58,13 +59,29 @@ pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
     if st.len() != 1 {
         return None;
     }
-    Some(st[0])
+    Some(rounded(st[0]))
 }
 
-pub fn compute_complexity<T: Float, const D: usize>(nodes: &[PNode], options: &Options<T, D>) -> usize {
+/// Julia's `round(Int, x)`: nearest integer, ties to even.
+fn rounded(complexity: f32) -> usize {
+    complexity.round_ties_even() as usize
+}
+
+pub fn compute_complexity<T: Float, Ops: OperatorSet, const D: usize>(
+    nodes: &[PNode],
+    options: &Options<T, Ops, D>,
+) -> usize {
     if options.uses_default_complexity() {
         return nodes.len();
     }
 
-    compute_custom_complexity_checked::<T, D>(nodes, options, None).unwrap_or(0)
+    compute_custom_complexity_checked(nodes, options, None).unwrap_or(0)
+}
+
+impl<T: Float, Ops: OperatorSet, const D: usize> Options<T, Ops, D> {
+    /// The complexity of a candidate: the sum of its trees' complexities. A template's combine
+    /// formula and parameters add nothing, as in SymbolicRegression.jl.
+    pub fn complexity(&self, expr: &Expression<T, Ops, D>) -> usize {
+        expr.trees.iter().map(|t| compute_complexity(&t.nodes, self)).sum()
+    }
 }

@@ -14,21 +14,40 @@ fn search_terminates_when_early_stop_condition_satisfied() {
         Array1::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
+        save_to_file: false,
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         use_baseline: false,
         niterations: 100,
         populations: 2,
         population_size: 4,
+        tournament_selection_n: 3,
         ncycles_per_iteration: 5,
         early_stop_condition: Some(EarlyStop::below::<T>(1e-6)),
         ..Default::default()
     };
 
-    let mut engine = SearchEngine::<T, TestOps, D>::new(dataset, options);
-    engine.step(usize::MAX);
+    let mut engine = SearchEngine::<T, TestOps, D>::new(vec![dataset], options).unwrap();
+    engine.step(usize::MAX).unwrap();
 
     // The search should bail out long before the full niterations budget.
     assert!(engine.is_finished());
     assert!(engine.cycles_completed() < 100 * 2);
+}
+
+#[test]
+fn early_stop_thresholds_are_julia_number_literals() {
+    for (src, threshold) in [
+        ("1e-6", 1e-6),
+        ("1f-6", f64::from(1e-6_f32)),
+        (" -2.5 ", -2.5),
+        ("+.5", 0.5),
+        ("1_000.0", 1000.0),
+    ] {
+        let stop = crate::parse_early_stop::<f64>(src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert!(stop(threshold - threshold.abs() * 1e-9, 1), "{src}");
+        assert!(!stop(threshold, 1), "{src}");
+    }
+    let err = crate::parse_early_stop::<f64>("1e").err().unwrap();
+    assert!(err.message.contains("an exponent needs digits"), "{err}");
 }
