@@ -70,8 +70,8 @@ pub fn finite_diff_dir(
         check_finite: true,
         early_exit: true,
     };
-    let (eplus, okp) = eval_tree_array::<f64, TestOps, 3>(expr, x_plus.view(), &opts);
-    let (eminus, okm) = eval_tree_array::<f64, TestOps, 3>(expr, x_minus.view(), &opts);
+    let (eplus, okp) = eval_tree_array::<f64, TestOps, 3>(expr, &TestOps::new(), x_plus.view(), &opts);
+    let (eminus, okm) = eval_tree_array::<f64, TestOps, 3>(expr, &TestOps::new(), x_minus.view(), &opts);
     assert!(okp && okm);
     eplus
         .iter()
@@ -98,7 +98,8 @@ pub fn grad_matches_diffs(expr: &PostfixExpr<f64, TestOps, 3>, x: &ArrayView2<'_
     let n_dir = if variable { x.nrows() } else { expr.consts.len() };
 
     let mut gctx = GradContext::<f64, 3>::new(n_rows);
-    let (_eval, grad, ok) = eval_grad_tree_array::<f64, TestOps, 3>(expr, *x, variable, &mut gctx, &opts);
+    let (_eval, grad, ok) =
+        eval_grad_tree_array::<f64, TestOps, 3>(expr, &TestOps::new(), *x, variable, &mut gctx, &opts);
     assert!(ok);
     assert_eq!(grad.n_dir, n_dir);
     assert_eq!(grad.n_rows, n_rows);
@@ -108,7 +109,8 @@ pub fn grad_matches_diffs(expr: &PostfixExpr<f64, TestOps, 3>, x: &ArrayView2<'_
     if variable {
         for dir in 0..n_dir {
             let mut dctx = DiffContext::<f64, 3>::new(n_rows);
-            let (_e, d, okd) = eval_diff_tree_array::<f64, TestOps, 3>(expr, *x, dir, &mut dctx, &opts);
+            let (_e, d, okd) =
+                eval_diff_tree_array::<f64, TestOps, 3>(expr, &TestOps::new(), *x, dir, &mut dctx, &opts);
             assert!(okd);
             for (&gv, dv) in grad.data[dir * n_rows..(dir + 1) * n_rows].iter().zip_eq(d) {
                 assert_relative_eq!(gv, dv, epsilon = 1e-6, max_relative = 1e-6);

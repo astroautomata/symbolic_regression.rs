@@ -19,7 +19,7 @@ fn combining_constant_exprs_shifts_const_indices_and_merges_metadata() {
         check_finite: true,
         early_exit: true,
     };
-    let (y, ok) = dynamic_expressions::eval_tree_array::<f64, TestOps, 3>(&expr, x_view, &opts);
+    let (y, ok) = dynamic_expressions::eval_tree_array::<f64, TestOps, 3>(&expr, &TestOps::new(), x_view, &opts);
     assert!(ok);
 
     let n_rows = x_view.ncols();

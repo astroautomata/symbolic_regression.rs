@@ -17,7 +17,7 @@ fn leaf_expr() -> PostfixExpr<T, TestOps, D> {
 
 #[test]
 fn tournament_penalizes_frequent_sizes_when_enabled() {
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         tournament_selection_n: 2,
         tournament_selection_p: 1.0,
