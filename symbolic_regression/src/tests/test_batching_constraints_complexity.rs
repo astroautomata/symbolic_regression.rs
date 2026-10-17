@@ -109,7 +109,7 @@ fn constraints_op_arg_and_nested_constraints_work() {
         Default::default(),
     );
 
-    let mut options: Options<f64, D> = Options {
+    let mut options: Options<f64, Ops, D> = Options {
         complexity_of_variables: 1,
         complexity_of_constants: 1,
         ..Default::default()
@@ -162,7 +162,7 @@ fn compute_complexity_respects_custom_weights_and_rounding() {
         Default::default(),
     );
 
-    let mut options: Options<f64, D> = Options {
+    let mut options: Options<f64, Ops, D> = Options {
         complexity_of_variables: 2,
         complexity_of_constants: 1,
         ..Default::default()

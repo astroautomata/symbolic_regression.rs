@@ -41,6 +41,7 @@ fn gen_random_tree_fixed_size<T: Float, Ops: OperatorSet<T = T>, const D: usize,
     rng: &mut R,
     target_size: usize,
     n_features: usize,
+    ops: &Ops,
 ) -> PostfixExpr<T, Ops, D> {
     assert!(target_size >= 1);
     let mut nodes = Vec::with_capacity(target_size);
@@ -49,7 +50,7 @@ fn gen_random_tree_fixed_size<T: Float, Ops: OperatorSet<T = T>, const D: usize,
 
     let ops_by_arity: [Vec<u16>; D] = core::array::from_fn(|arity_minus_one| {
         let arity = (arity_minus_one + 1) as u8;
-        Ops::ops_with_arity(arity).to_vec()
+        ops.ops_with_arity(arity).collect()
     });
 
     while nodes.len() < target_size {
@@ -104,11 +105,12 @@ fn make_data<T: Float>() -> Array2<T> {
 fn bench_eval_group<T, Ops, const D: usize>(c: &mut criterion::Criterion, type_name: &str)
 where
     T: Float + core::ops::AddAssign + Send + Sync,
-    Ops: OperatorSet<T = T> + Send + Sync,
+    Ops: OperatorSet<T = T> + Default + Send + Sync,
 {
+    let ops = Ops::default();
     let mut rng = StdRng::seed_from_u64(0);
     let trees: Vec<PostfixExpr<T, Ops, D>> = (0..N_TREES)
-        .map(|_| gen_random_tree_fixed_size(&mut rng, TREE_SIZE, N_FEATURES))
+        .map(|_| gen_random_tree_fixed_size(&mut rng, TREE_SIZE, N_FEATURES, &ops))
         .collect();
     let data = make_data::<T>();
     let x_view = data.view();
@@ -123,7 +125,7 @@ where
         let mut ctx = dynamic_expressions::EvalContext::<T, D>::new(N_ROWS);
         b.iter(|| {
             for tree in &trees {
-                let _ = dynamic_expressions::eval_tree_array_into(&mut out, tree, x_view, &mut ctx, &opts);
+                let _ = dynamic_expressions::eval_tree_array_into(&mut out, tree, &ops, x_view, &mut ctx, &opts);
             }
         })
     });
@@ -133,7 +135,7 @@ where
             let mut gctx = dynamic_expressions::GradContext::<T, D>::new(N_ROWS);
             b.iter(|| {
                 for tree in &trees {
-                    let _ = dynamic_expressions::eval_grad_tree_array(tree, x_view, true, &mut gctx, &opts);
+                    let _ = dynamic_expressions::eval_grad_tree_array(tree, &ops, x_view, true, &mut gctx, &opts);
                 }
             })
         });
@@ -144,11 +146,12 @@ where
 fn bench_utilities<T, Ops, const D: usize>(c: &mut criterion::Criterion, type_name: &str)
 where
     T: Float + Send + Sync,
-    Ops: OperatorSet<T = T> + Send + Sync,
+    Ops: OperatorSet<T = T> + Default + Send + Sync,
 {
+    let ops = Ops::default();
     let mut rng = StdRng::seed_from_u64(1);
     let mut trees: Vec<PostfixExpr<T, Ops, D>> = (0..N_TREES)
-        .map(|_| gen_random_tree_fixed_size(&mut rng, TREE_SIZE, N_FEATURES))
+        .map(|_| gen_random_tree_fixed_size(&mut rng, TREE_SIZE, N_FEATURES, &ops))
         .collect();
     let eval_opts = EvalOptions {
         check_finite: false,
@@ -163,7 +166,7 @@ where
     group.bench_function(criterion::BenchmarkId::from_parameter("simplify"), |b| {
         b.iter(|| {
             for tree in &mut trees {
-                let _ = dynamic_expressions::simplify_in_place(tree, &eval_opts);
+                let _ = dynamic_expressions::simplify_in_place(tree, &ops, &eval_opts);
             }
         })
     });
@@ -171,7 +174,7 @@ where
     group.bench_function(criterion::BenchmarkId::from_parameter("combine_operators"), |b| {
         b.iter(|| {
             for tree in &mut trees {
-                let _ = dynamic_expressions::combine_operators_in_place(tree);
+                let _ = dynamic_expressions::combine_operators_in_place(tree, &ops);
             }
         })
     });
@@ -203,15 +206,16 @@ where
 fn bench_count_depth_sizes<T, Ops, const D: usize>(c: &mut criterion::Criterion, type_name: &str)
 where
     T: Float + Send + Sync,
-    Ops: OperatorSet<T = T> + Send + Sync,
+    Ops: OperatorSet<T = T> + Default + Send + Sync,
 {
+    let ops = Ops::default();
     let mut rng = StdRng::seed_from_u64(2);
     let sizes = [8usize, 20, 64, 128];
     let mut group = c.benchmark_group(format!("utilities/{type_name}/count_depth_sizes"));
 
     for size in sizes {
         let trees: Vec<PostfixExpr<T, Ops, D>> = (0..N_TREES)
-            .map(|_| gen_random_tree_fixed_size(&mut rng, size, N_FEATURES))
+            .map(|_| gen_random_tree_fixed_size(&mut rng, size, N_FEATURES, &ops))
             .collect();
 
         group.bench_function(criterion::BenchmarkId::from_parameter(size), |b| {

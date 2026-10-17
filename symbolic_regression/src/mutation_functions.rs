@@ -30,7 +30,7 @@ fn random_leaf<T: Float>(rng: &mut Rng, n_features: usize, consts: &mut Vec<T>) 
 
 pub fn random_expr<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
     n_features: usize,
     target_size: usize,
 ) -> PostfixExpr<T, Ops, D> {
@@ -74,7 +74,7 @@ pub fn random_expr<T: Float, Ops, const D: usize>(
 /// Note: final node count is generally larger than `n_append_ops`.
 pub fn random_expr_append_ops<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
     n_features: usize,
     n_append_ops: usize,
     max_size: usize,
@@ -161,7 +161,7 @@ pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
     temperature: f64,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
 ) -> bool {
     let idxs = const_node_indices(&expr.nodes);
     if idxs.is_empty() {
@@ -190,7 +190,7 @@ pub(crate) fn mutate_constant_in_place<T: Float, Ops, const D: usize>(
 pub(crate) fn mutate_operator_in_place<T, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
 ) -> bool {
     let idxs = op_indices(&expr.nodes);
     if idxs.is_empty() {
@@ -497,7 +497,7 @@ fn rotate_tree_in_place_impl<T, Ops, const D: usize>(
 pub fn insert_random_op_in_place<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
     n_features: usize,
 ) -> bool {
     if expr.nodes.is_empty() {
@@ -535,7 +535,7 @@ pub fn insert_random_op_in_place<T: Float, Ops, const D: usize>(
 pub(crate) fn prepend_random_op_in_place<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
     n_features: usize,
 ) -> bool {
     if expr.nodes.is_empty() {
@@ -569,7 +569,7 @@ pub(crate) fn prepend_random_op_in_place<T: Float, Ops, const D: usize>(
 pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
     n_features: usize,
 ) -> bool {
     if expr.nodes.is_empty() {
@@ -610,7 +610,7 @@ pub(crate) fn append_random_op_in_place<T: Float, Ops, const D: usize>(
 pub(crate) fn add_node_in_place<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     expr: &mut PostfixExpr<T, Ops, D>,
-    operators: &Operators<D>,
+    operators: &Operators<Ops, D>,
     n_features: usize,
 ) -> bool {
     if rng.bool() {
