@@ -7,7 +7,7 @@ use crate::Options;
 #[test]
 fn constant_mutation_is_bounded_with_floor_at_zero_temperature() {
     let mut expr = PostfixExpr::<f64, (), 2>::new(vec![PNode::Const { idx: 0 }], vec![1.0], Metadata::default());
-    let options: Options<f64, 2> = Options {
+    let options: Options<f64, (), 2> = Options {
         probability_negate_constant: 1.0, // `rand() > 1.0` never, so no sign flip.
         perturbation_factor: 123.0,       // irrelevant at temperature=0.
         ..Default::default()
@@ -17,7 +17,10 @@ fn constant_mutation_is_bounded_with_floor_at_zero_temperature() {
     for _ in 0..256 {
         let before = expr.consts[0];
         assert!(crate::mutation_functions::mutate_constant_in_place(
-            &mut rng, &mut expr, 0.0, &options,
+            &mut rng,
+            &mut expr,
+            0.0,
+            options.constant_mutation(),
         ));
         let after = expr.consts[0];
         let ratio = after / before;
@@ -31,7 +34,7 @@ fn constant_mutation_is_bounded_with_floor_at_zero_temperature() {
 #[test]
 fn constant_mutation_uses_inverted_sign_flip_probability() {
     let mut expr = PostfixExpr::<f64, (), 2>::new(vec![PNode::Const { idx: 0 }], vec![1.0], Metadata::default());
-    let options: Options<f64, 2> = Options {
+    let options: Options<f64, (), 2> = Options {
         probability_negate_constant: 0.0, // `rand() > 0.0` should negate almost always.
         ..Default::default()
     };
@@ -40,7 +43,10 @@ fn constant_mutation_uses_inverted_sign_flip_probability() {
     let mut saw_negative = false;
     for _ in 0..32 {
         assert!(crate::mutation_functions::mutate_constant_in_place(
-            &mut rng, &mut expr, 0.0, &options,
+            &mut rng,
+            &mut expr,
+            0.0,
+            options.constant_mutation(),
         ));
         if expr.consts[0].is_sign_negative() {
             saw_negative = true;

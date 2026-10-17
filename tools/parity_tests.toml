@@ -1,0 +1,2311 @@
+# One entry per @testitem in SymbolicRegression.jl (test/unit and test/integration) at julia_commit.
+#
+#   status   "todo" (not ported yet) | "done" (ported) | "excluded" (will not be ported)
+#   pr       todo and done only: the feature PR that owns the testitem
+#   rust     done only: Rust tests, as "<crate>/<path>.rs::<test fn>"
+#   excluded excluded only: the reason
+#   note     optional: what the port does not carry over, and why
+#
+# `cargo xtask gen-parity` adds and refreshes entries; edit status/pr/rust/excluded/note by hand.
+# `cargo xtask parity` fails on structural errors: a testitem missing from this file, an entry that
+# is not a testitem, inconsistent fields, or a Rust test that does not exist (and, with --run, one
+# that fails). It prints done/todo/excluded counts per PR. "todo" entries fail only under
+# --require-done-through N, which rejects any todo whose pr <= N; CI raises N as each PR lands.
+
+julia_repo = "https://github.com/astroautomata/SymbolicRegression.jl"
+julia_commit = "f97764fb898a0279ca434a615d4e40f52fdb9469"
+
+[[testitem]]
+file = "test/integration/ad/forwarddiff/test_tree_construction.jl"
+line = 1
+name = "Test tree construction with AD"
+status = "excluded"
+excluded = "ForwardDiff (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/ad/mooncake/test_mooncake_autodiff.jl"
+line = 1
+name = "Expression constant optimization with Mooncake"
+status = "excluded"
+excluded = "Mooncake (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/ad/mooncakev1/test_mooncake_autodiff.jl"
+line = 1
+name = "Expression constant optimization with Mooncake"
+status = "excluded"
+excluded = "Mooncake (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/ad/zygote/test_derivatives.jl"
+line = 1
+name = "Test derivatives"
+status = "excluded"
+excluded = "Zygote (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/ad/zygote/test_expression_derivatives.jl"
+line = 1
+name = "Test derivatives"
+status = "excluded"
+excluded = "Zygote (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/ad/zygote/test_expression_derivatives.jl"
+line = 38
+name = "Test derivatives during optimization"
+status = "excluded"
+excluded = "Zygote (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/aqua/test_aqua.jl"
+line = 1
+name = "Aqua quality checks"
+status = "excluded"
+excluded = "Aqua (Julia package quality checks)"
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 1
+name = "Dimensional analysis"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::dimensional_analysis", "symbolic_regression/src/tests/test_units.rs::documented_unit_strings_match_dynamic_quantities"]
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 103
+name = "Search with dimensional constraints"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/tests/test_units_search.rs::search_with_dimensional_constraints"]
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 150
+name = "Operator compatibility"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::operator_compatibility", "symbolic_regression/src/tests/test_units.rs::operator_propagation_matches_symbolic_regression_jl"]
+note = "The port has no `Quantity`-valued evaluation, so the operators are checked on dimensional analysis values; the propagation table covers every operator against SymbolicRegression.jl's `degn_eval`."
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 193
+name = "Search with dimensional constraints on output"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/tests/test_units_search.rs::search_with_dimensional_constraints_on_output", "symbolic_regression/tests/test_units_search.rs::search_with_dimensional_constraints_on_output_through_roots"]
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 317
+name = "Should error on mismatched units"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::mismatched_units_are_rejected"]
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 326
+name = "Should print units"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::units_are_printed", "symbolic_regression/src/tests/test_jl_losses.rs::pareto_curve_prefixes_equations_with_the_target"]
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 390
+name = "Dimensionless constants"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::dimensionless_constants", "symbolic_regression/tests/test_units_search.rs::dimensionless_constants_only_picks_the_consistent_equation"]
+
+[[testitem]]
+file = "test/integration/ext/dynamicquantities_units/test_units.jl"
+line = 432
+name = "Miscellaneous tests of unit interface"
+pr = 4
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_units.rs::unit_interface"]
+note = "The MLJ unit extraction checks are excluded: MLJ is Julia-only. The `@maybe_return_call` checks are ported."
+
+[[testitem]]
+file = "test/integration/ext/json_tracing/test_tracing.jl"
+line = 1
+name = "Test JSON tracing"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_tracing_file.rs::tracing_file_follows_the_symbolic_regression_jl_schema", "symbolic_regression/src/tests/test_tracing.rs::step_traces_record_type_result_and_reason"]
+note = "The record appended through the internal write_trace is replaced by a unit check that non-finite losses are written as Infinity."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_mixed.jl"
+line = 1
+name = "Search with batching & weighted & serial & progress bar & warmup & BFGS"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_batched_weighted_serial_warmup_bfgs"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_mixed.jl"
+line = 6
+name = "Search with multiprocessing & batching & multi-output & use_frequency & string-specified parallelism"
+status = "excluded"
+excluded = "Distributed multiprocessing (not supported)"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_mixed.jl"
+line = 11
+name = "Search with multi-threading & default settings"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_multithreading_default_configuration"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_mixed.jl"
+line = 16
+name = "Search with multi-threading & weighted & crossover & use_frequency_in_tournament & bumper"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_multithreading_crossover_tournament_frequency"]
+note = "Bumper is Julia-only and omitted; the upstream i=3 scenario is unweighted despite the testitem title."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_mixed.jl"
+line = 21
+name = "Search with multi-threading & crossover & skip mutation failures & both frequencies options & Float16 type"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::mixed_multithreading_crossover_skip_failures_both_frequencies"]
+note = "Float32 replaces Julia Float16; all search settings and training/test residual assertions are preserved."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_mixed.jl"
+line = 26
+name = "Search with multiprocessing & default hyperparameters & Float64 type & turbo"
+status = "excluded"
+excluded = "Distributed multiprocessing (not supported)"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_nan_detection.jl"
+line = 1
+name = "Test NaN detection with LoopVectorization"
+status = "excluded"
+excluded = "LoopVectorization (Julia-only acceleration)"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 1
+name = "Generic operator tests"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::generic_operator_semantics"]
+note = "f32 and f64 only; Float16 and BigFloat are not Rust float types, and `@inferred` has no Rust counterpart."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 78
+name = "Built-in operators pass validation"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::builtin_operator_names_resolve_and_evaluate"]
+note = "Rust selects SymbolicRegression.jl's safe semantics by name; the port checks names, `^` resolving to pow, comparison display symbols, and that every selected operator evaluates without infinities on f32 and f64."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 146
+name = "Built-in operators pass validation for complex numbers"
+status = "excluded"
+excluded = "Rust engine requires T: Float"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 160
+name = "Incompatibilities are caught"
+status = "excluded"
+excluded = "Rust engine requires T: Float"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 173
+name = "Operators with wrong type fail"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::custom_operator_returning_bool_is_rejected"]
+note = "Rust generics make a wrong-float-type return impossible; the port checks the DSL's equivalent setup error for an operator that returns Bool."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 187
+name = "Turbo mode matches regular mode"
+status = "excluded"
+excluded = "LoopVectorization (Julia-only acceleration)"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 242
+name = "Safe operators are compatible with ForwardDiff"
+status = "excluded"
+excluded = "ForwardDiff (Julia autodiff backend)"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_operators.jl"
+line = 301
+name = "user_provided_operators applies safe operator mappings"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_operators.rs::selected_operators_use_safe_semantics"]
+note = "Rust has one log/sqrt/pow, with the safe semantics; the port checks that they return NaN where the unsafe versions return -Inf or Inf."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 1
+name = "Test ParamVector setindex!"
+status = "excluded"
+excluded = "ParamVector is SymbolicRegression.jl's read-only wrapper for parameter vectors; Rust stores parameters as a plain slice of the expression, so there is no wrapper to make read-only."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 8
+name = "Test deprecated num_features warning"
+status = "excluded"
+excluded = "tests a deprecation warning for TemplateStructure's positional num_features argument, an API Rust never exposed."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 19
+name = "Test invalid combiner functions"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::combine_formulas_that_do_not_match_the_declaration_fail_at_construction"]
+note = "Julia checks the combine closure's signature; a Rust combine formula is a string, so the port checks that names the formula cannot resolve (an undeclared parameter vector, feature, or subexpression) fail at construction and name the culprit."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 38
+name = "Test get_variable_names"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_reads_its_variable_names"]
+note = "Rust prints templates with `#i` arguments and never substitutes variable names, so the override argument has no counterpart."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 53
+name = "Test parameter handling in scalar constants"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::parameters_are_scalar_constants_after_tree_constants"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 77
+name = "Test get_tree with parameters error"
+status = "excluded"
+excluded = "Rust never flattens a template into a single tree, so there is no `get_tree` to reject parameters."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 99
+name = "Test interface for TemplateExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::nested_calls_infer_arities_and_print"]
+note = "`Interfaces.test` is Julia's interface checker; instead of printing the flattened `get_tree`, the port checks that the template evaluates to x1 - x1 * x1."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 123
+name = "Printing and evaluation of TemplateExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::printing_and_evaluation"]
+note = "Calling a ComposableExpression directly becomes a formula that calls the subexpression."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 165
+name = "Test nothing return and type inference for TemplateExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::invalid_evaluations_return_nothing"]
+note = "`@inferred` has no Rust counterpart; an invalid ValidVector argument becomes an argument whose computation is invalid."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 195
+name = "Test compatibility with power laws"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::power_of_negative_base_is_invalid"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 214
+name = "Test constraints checking in TemplateExpression"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::nested_constraints_apply_to_each_subexpression"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 239
+name = "Test feature constraints in TemplateExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_only_read_their_own_arguments"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 277
+name = "Test invalid structure"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::inconsistent_or_missing_calls_fail_at_construction"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 302
+name = "Test argument-less template structure"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::argument_less_subexpressions"]
+note = "A template formula that returns one value for every row fails with `TemplateEvalError::ScalarReturn`, so the lone zero-argument call is checked as `f() * x1`."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 326
+name = "Test TemplateExpression with differential operator"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::derivative_operator"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 348
+name = "Test literal_pow with ValidVector"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::literal_powers"]
+note = "`Base.literal_pow` is Julia lowering; the port checks `x^2` and `x^3` in a formula and that an invalid input stays invalid."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 368
+name = "Test nan behavior with argument-less expressions"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::argument_less_nan_is_invalid"]
+note = "Rust trees are floating point only, so the integer-constant case has no counterpart; a NaN value makes the evaluation invalid."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 387
+name = "Test higher-order derivatives of safe_log with DynamicDiff"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::higher_order_derivatives_of_log"]
+note = "Complex inputs have no Rust counterpart; each value is its own formula because a formula returns one number per row."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 428
+name = "Test eval_context with turbo mode"
+status = "excluded"
+excluded = "LoopVectorization (Julia-only acceleration)"
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 454
+name = "loss_function_expression with expressions and templates"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::template_loss_on_the_dataset_and_a_batch"]
+note = "`loss_function_expression` takes a Julia function of the whole expression and has no Rust counterpart; the port checks the template part: the built-in loss of a template with parameters on the full dataset and on a batch."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 570
+name = "New batching syntax"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::template_loss_on_the_dataset_and_a_batch"]
+note = "The batch is a `TaggedDataset::for_batch` over selected rows rather than Julia's `SubDataset`, and the loss is the built-in one."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 618
+name = "warning for loss_function with TemplateExpression"
+status = "excluded"
+excluded = "warns about a Julia `loss_function` of the whole expression; Rust has no such option."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 631
+name = "TemplateExpression guess validation"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::template_expression_guess_validation"]
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 664
+name = "Template expression return validation"
+status = "excluded"
+excluded = "a combine formula is a scalar DSL string whose value is a number per row, so it cannot return a plain Vector."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_template_expression.jl"
+line = 699
+name = "Test Float32/Float64 type conversion in TemplateExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::float32_data_with_float64_literals", "symbolic_regression/src/tests/test_jl_templates.rs::float32_template_loss"]
+note = "`_match_input_eltype` is a Julia helper; Rust's element type is fixed at compile time."
+
+[[testitem]]
+file = "test/integration/ext/loopvectorization/test_turbo_nan.jl"
+line = 1
+name = "Test turbo NaN with LoopVectorization"
+status = "excluded"
+excluded = "LoopVectorization (Julia-only acceleration)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_logging.jl"
+line = 1
+name = "Test logging"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_logging.jl"
+line = 49
+name = "Test convex hull calculation"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 1
+name = "Variable names - single outputs"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 38
+name = "Variable names - multiple outputs"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 74
+name = "Variable names - named outputs"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 98
+name = "Good predictions"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 167
+name = "Helpful errors"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 192
+name = "Unfinished search"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/core/test_mlj_core.jl"
+line = 236
+name = "MLJ options caching fix"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/mti/test_mlj_mti.jl"
+line = 1
+name = "Generic interface tests"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/integration/ext/mlj/parametric_search/test_parametric_template_search.jl"
+line = 1
+name = "search with parametric template expressions"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/tests/test_template_search.rs::search_with_parametric_template_expression"]
+note = "`equation_search` replaces the MLJ machine; a seeded serial search reaches MSE < 1e-5 on the training data."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 1
+name = "creation & parameter counts"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::creation_and_parameter_counts"]
+note = "`sum(p)` is written `p[1] + p[2]`: the DSL has no arrays."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 23
+name = "error conditions"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::wrong_parameter_counts_are_rejected"]
+note = "Rust has no TemplateExpression constructor that zero-fills missing parameters; evaluation rejects a parameter vector of the wrong length."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 76
+name = "check_combiner_applicability errors"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::combine_formulas_that_do_not_match_the_declaration_fail_at_construction"]
+note = "Julia checks the combine closure's signature; a Rust combine formula is a string, so the port checks that names the formula cannot resolve (an undeclared parameter vector, feature, or subexpression) fail at construction and name the culprit."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 96
+name = "basic evaluation"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::basic_parameter_evaluation"]
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 123
+name = "indexed evaluation"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::indexed_parameter_evaluation"]
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 163
+name = "parameters get mutated"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::constant_mutation_changes_parameters"]
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 201
+name = "Preallocated copying with parameters"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::copying_carries_current_parameters"]
+note = "`allocate_container`/`copy_into!` become `Clone::clone_from`."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 242
+name = "Zero-parameter edge case"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::zero_parameter_template"]
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 263
+name = "Non-Float64 parameter types"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::float32_parameters"]
+note = "Rust has no complex trees; Float32 parameters stand in for ComplexF32."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 290
+name = "multi-parameter expressions"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::multi_parameter_evaluation", "symbolic_regression/src/tests/test_jl_templates.rs::multi_parameter_constants_mutation_and_copying"]
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 365
+name = "printing"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::printing_parameters"]
+note = "Rust prints whole-number floats without `.0` (`[1, 2]`), as its tree printing does."
+
+[[testitem]]
+file = "test/integration/ext/mlj/templates/test_parametric_template_expressions.jl"
+line = 391
+name = "indexed multi-parameter expressions"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::indexed_multi_parameter_evaluation"]
+
+[[testitem]]
+file = "test/integration/ext/symbolicutils/test_simplification.jl"
+line = 1
+name = "Test simplification"
+status = "excluded"
+excluded = "SymbolicUtils (Julia-only symbolic algebra)"
+
+[[testitem]]
+file = "test/integration/ext/symbolicutils/test_symbolic_utils.jl"
+line = 1
+name = "Test SymbolicUtils integration"
+status = "excluded"
+excluded = "SymbolicUtils (Julia-only symbolic algebra)"
+
+[[testitem]]
+file = "test/integration/jet/test_jet.jl"
+line = 1
+name = "JET static analysis"
+status = "excluded"
+excluded = "JET (Julia static analysis)"
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 1
+name = "STLSQ algorithm basic functionality"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::stlsq_algorithm_basic_functionality"]
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 64
+name = "Tree combination with weighted sum"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::tree_combination_with_weighted_sum"]
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 128
+name = "Fit sparse expression full pipeline"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::fit_sparse_expression_full_pipeline"]
+note = "The check that uses a custom matrix type, which turns non-finite during the final evaluation, is not carried over because Rust datasets are plain arrays."
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 180
+name = "build_basis_library"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::build_basis_library_terms"]
+note = "`BasisLibrary` stores each term together with its values, so a term/column mismatch cannot be constructed; the duck-typed population case uses a one-member population."
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 273
+name = "fit_sparse_expression with population_for_backsolve"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::fit_sparse_expression_with_population_for_backsolve"]
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 313
+name = "Integration test: backsolve rewrite with sparse fit"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::integration_backsolve_rewrite_with_sparse_fit"]
+note = "Seeded with the crate's generator (seed 2) instead of MersenneTwister(42)."
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve.jl"
+line = 356
+name = "Edge cases and error handling"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::edge_cases_and_error_handling"]
+note = "The complex-valued and integer cases are not carried over: the port supports real floating-point scalars only, and integer inputs are rejected at compile time."
+
+[[testitem]]
+file = "test/unit/backsolve/test_backsolve_mutation.jl"
+line = 1
+name = "Test backsolve mutation"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::inverse_functions", "symbolic_regression/src/tests/test_backsolve.rs::evaluate_inverse_trees", "symbolic_regression/src/tests/test_backsolve.rs::operators_without_inverses_fail_gracefully", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_rewrite_random_node_cases", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_rewrite_random_node_ternary_tree", "symbolic_regression/src/tests/test_backsolve.rs::mutation_weights_backsolve_field", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_fires_in_next_generation", "symbolic_regression/src/tests/test_backsolve.rs::backsolve_failure_records_reject_reason", "symbolic_regression/tests/test_backsolve_search.rs::backsolve_search_fits_exactly"]
+note = "Julia-only checks are not carried over: evaluation-buffer reuse, shared-node (GraphNode) inputs, string, integer, and complex element types, and the template-wrapper error. The end-to-end search uses maxsize 20 and no constant optimization, so only backsolve can produce the exact fit."
+
+[[testitem]]
+file = "test/unit/basic/test_abstract_popmember.jl"
+line = 1
+name = "Custom AbstractPopMember implementation"
+status = "excluded"
+excluded = "Tests a user-defined Julia AbstractPopMember subtype"
+
+[[testitem]]
+file = "test/unit/basic/test_deprecation.jl"
+line = 1
+name = "Test deprecated options"
+status = "excluded"
+excluded = "Tests Julia deprecation shims for keywords and property aliases Rust never had."
+
+[[testitem]]
+file = "test/unit/basic/test_deprecation.jl"
+line = 64
+name = "Test deprecated evaluation context names"
+status = "excluded"
+excluded = "Tests Julia deprecation shims for evaluation-context keywords Rust never had."
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 1
+name = "MMI.fit/predict without MLJBase - matrix input"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 28
+name = "MMI.fit/predict without MLJBase - NamedTuple input"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 54
+name = "MMI.fit/predict without MLJBase - multitarget NamedTuple y"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 85
+name = "lite machine interface without MLJBase"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 127
+name = "lite machine interface - weights and NamedTuple"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 154
+name = "lite machine interface - row table (Vector of NamedTuples)"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 180
+name = "lite machine interface - force refit after incompatible change"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 209
+name = "lite machine interface - multitarget predict with row-table Xnew"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 237
+name = "lite machine interface - Tables extension"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 266
+name = "lite machine interface - multitarget with Tables.jl y"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_lite_interface.jl"
+line = 296
+name = "lite machine interface - row table with inconsistent field order"
+status = "excluded"
+excluded = "MLJ (Julia-only interface): MLJModelInterface machine API"
+
+[[testitem]]
+file = "test/unit/basic/test_logging.jl"
+line = 1
+name = "Logger receives terminal search state"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::logger_receives_terminal_search_state"]
+note = "Rust callbacks capture remaining cycles instead of Julia logger subtype dispatch."
+
+[[testitem]]
+file = "test/unit/basic/test_logging.jl"
+line = 52
+name = "SRLogger always emits normal terminal state"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::sr_logger_always_emits_normal_terminal_state", "symbolic_regression/tests/test_monitoring.rs::sr_logger_defaults_to_an_interval_of_one_hundred", "symbolic_regression/tests/test_monitoring.rs::sr_logger_keeps_its_cadence_when_reused_across_searches", "symbolic_regression/tests/test_monitoring.rs::logger_payload_matches_scalar_fields_and_evaluations"]
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 1
+name = "Test options"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::options_optimizer_and_loss_scale"]
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 30
+name = "Test versioned default profile selection"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::versioned_default_profiles"]
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 69
+name = "Test automatic batching options"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::automatic_batching_options"]
+note = "Julia type inference and dispatch on a user-defined unbatchable dataset are not applicable; every Rust Dataset supports batching."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 116
+name = "Test backsolve options"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_backsolve.rs::backsolve_options"]
+note = "The port checks the `BacksolveOptions` defaults and overrides, the zero default weight, and the `max_library_size >= 1 + nfeatures` check at search start."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 147
+name = "Mutation collections mirror plugin override semantics"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::mutation_collection_overrides", "symbolic_regression/src/tests/test_jl_evolution_core.rs::constant_mutation_collection_uses_the_selected_parameters"]
+note = "Built-in collection override semantics are covered; user-defined Julia ProbeMutation dispatch is outside the supported data-level mutations."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 173
+name = "Test operators parameter conflicts"
+pr = 7
+status = "done"
+rust = ["symbolic_regression_py/src/keywords.rs::tests::operators_parameter_conflicts", "symbolic_regression/src/tests/test_jl_options.rs::explicit_operators_are_valid_alone"]
+note = "The Python keyword converter rejects operators with binary_operators or unary_operators and rejects the Julia-only operator_enum_constructor; core Rust Options has a single explicit operator set field."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 189
+name = "Test operators stored globally"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_custom_operators.rs::operator_sets_are_values_not_globals"]
+note = "Rust keeps operator sets as values in Options, not in a global; the port checks that two sets with different definitions of the same name stay independent."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 199
+name = "Test with_max_degree_from_context"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::max_arity_follows_operator_set"]
+note = "The node degree D is a const generic in Rust; the port checks the highest arity of each operator selection and that default constraints are unlimited."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 219
+name = "Test operator appears in multiple degrees error"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::operator_in_two_arities_needs_an_arity"]
+note = "Rust keys constraints by arity and id, so the Julia error cannot occur; the port checks that `-` is ambiguous at lookup and that an arity-qualified constraint applies only to sub."
+
+[[testitem]]
+file = "test/unit/basic/test_options.jl"
+line = 235
+name = "Test build_constraints with pre-processed vector format"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::default_constraints_cover_every_arity"]
+note = "The tuple format is internal to Julia; the port checks the per-arity defaults it encodes through check_constraints."
+
+[[testitem]]
+file = "test/unit/basic/test_pretty_printing.jl"
+line = 1
+name = "pretty print member"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::pretty_print_member"]
+note = "Rust exposes an explicit formatting function instead of Julia MIME display dispatch."
+
+[[testitem]]
+file = "test/unit/basic/test_pretty_printing.jl"
+line = 26
+name = "pretty print hall of fame"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::pretty_print_hall_of_fame"]
+note = "Rust exposes an explicit formatting function instead of Julia MIME display dispatch."
+
+[[testitem]]
+file = "test/unit/basic/test_pretty_printing.jl"
+line = 71
+name = "pretty print expression"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_printing.rs::print_uses_the_given_operator_set"]
+note = "Rust expressions do not store their operators, so printing always takes the operator set; unnamed variables print as x0, x1 (0-based)."
+
+[[testitem]]
+file = "test/unit/basic/test_pretty_printing.jl"
+line = 109
+name = "printing utilities"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::printing_utilities"]
+
+[[testitem]]
+file = "test/unit/basic/test_pretty_printing.jl"
+line = 142
+name = "pretty print vs serialization for comparison operators"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_printing.rs::comparison_operators_pretty_vs_serialized"]
+
+[[testitem]]
+file = "test/unit/basic/test_print.jl"
+line = 1
+name = "Test printing"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_printing.rs::printing_nested_operators_with_variable_names"]
+note = "Constants print with Rust's float Display (`3`, not `3.0`); the global LATEST_OPERATORS check has no Rust counterpart."
+
+[[testitem]]
+file = "test/unit/basic/test_progress_display.jl"
+line = 1
+name = "print_search_state does not round partial iterations up"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_printing_outputs.rs::print_search_state_does_not_round_partial_iterations_up"]
+
+[[testitem]]
+file = "test/unit/basic/test_utils.jl"
+line = 1
+name = "Test utils"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::bottom_k_population_matches_stable_sort"]
+note = "Rust uses stable sorted population costs rather than Julia-specific findmin_fast and bottomk_fast helper names."
+
+[[testitem]]
+file = "test/unit/constraints/test_constraints.jl"
+line = 1
+name = "Test constraints interface"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_constraints.rs::constraints_interface"]
+
+[[testitem]]
+file = "test/unit/constraints/test_nested_constraints.jl"
+line = 1
+name = "Test nested constraint checking"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_constraints.rs::nested_constraint_checking"]
+
+[[testitem]]
+file = "test/unit/dataset/test_batched_dataset.jl"
+line = 1
+name = "SubDataset properties"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::sub_dataset_properties"]
+note = "A batch is a buffer the search refills from the full dataset; the port has no dataset without a target."
+
+[[testitem]]
+file = "test/unit/dataset/test_dataset.jl"
+line = 1
+name = "Dataset mismatched X/y dimensions"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::dataset_mismatched_x_y_dimensions"]
+note = "Mismatched shapes panic with SymbolicRegression.jl's message; the port has no dataset without a target."
+
+[[testitem]]
+file = "test/unit/dataset/test_dataset.jl"
+line = 12
+name = "Dataset construction"
+status = "excluded"
+excluded = "Rust `Dataset<T>` has one element type for `x`, `y`, and weights; mixed element types are Julia-only"
+
+[[testitem]]
+file = "test/unit/dataset/test_dataset.jl"
+line = 21
+name = "Dataset with deprecated kwarg"
+status = "excluded"
+excluded = "Julia's deprecated `loss_type` keyword with complex data (custom value types are not supported)"
+
+[[testitem]]
+file = "test/unit/dataset/test_dataset.jl"
+line = 30
+name = "Vector output dataset"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::vector_output_dataset"]
+note = "The port has no tuple-valued targets; a search takes several targets as one dataset per output (`Dataset::multi_output`), sharing `x`."
+
+[[testitem]]
+file = "test/unit/dataset/test_dataset.jl"
+line = 40
+name = "Large dataset warning"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_dataset.rs::large_dataset_warning"]
+note = "The warning is recorded once per search; there is no `verbosity` option."
+
+[[testitem]]
+file = "test/unit/evaluation/test_deterministic.jl"
+line = 1
+name = "Testing whether deterministic mode works."
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::deterministic_search_repeats_best_equation"]
+
+[[testitem]]
+file = "test/unit/evaluation/test_early_stop.jl"
+line = 1
+name = "Early stop condition"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::early_stop_condition"]
+note = "The condition is the same Julia function written as a DSL string; the search is seeded and deterministic, and the port also asserts that it stopped before its cycle budget."
+
+[[testitem]]
+file = "test/unit/evaluation/test_early_stop.jl"
+line = 24
+name = "State preservation with niterations=0"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/tests/test_warm_start.rs::state_preservation_with_niterations_0"]
+note = "The saved state comes from a search rather than hand-built populations, which the port does not expose."
+
+[[testitem]]
+file = "test/unit/evaluation/test_evaluation.jl"
+line = 1
+name = "Test validity of expression evaluation"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_evaluation.rs::fused_evaluation_paths_match_closures", "dynamic_expressions/tests/test_template_eval.rs::nonfinite_leaves_invalidate_the_trees_that_read_them"]
+note = "Inputs are uniform on [-2, 2] from a seeded RNG instead of randn. Any non-finite input that an output depends on makes it invalid, in every evaluator including D's compiled derivatives; the port does not mirror DynamicExpressions' fused-path or DynamicDiff leaf exceptions."
+
+[[testitem]]
+file = "test/unit/evaluation/test_fast_cycle.jl"
+line = 1
+name = "Testing fast-cycle and custom variable names"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_mixed.rs::custom_variable_names_and_resumed_losses"]
+note = "The deprecated fast_cycle keyword is omitted; constrained search, custom names, zero-iteration resumption, and changed-loss rescaling are covered."
+
+[[testitem]]
+file = "test/unit/evaluation/test_migration.jl"
+line = 1
+name = "Test migration"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::migration_inserts_candidate"]
+
+[[testitem]]
+file = "test/unit/evaluation/test_stdin_monitoring.jl"
+line = 1
+name = "stdin monitoring avoids blocking and parses quit commands"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::stdin_monitoring_is_nonblocking_and_parses_quit_commands", "symbolic_regression/tests/test_monitoring.rs::quit_monitor_ignores_non_quit_lines_and_stale_input"]
+note = "Julia stream dispatch is represented by nonblocking byte callbacks and channels; built-in stdin monitoring is available on Unix."
+
+[[testitem]]
+file = "test/unit/evaluation/test_stop_on_clock.jl"
+line = 1
+name = "Testing whether we can stop based on clock time."
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::stop_on_clock_time"]
+note = "Uses seeded Float32 normal data with five features and 100 samples, a cosine target, a warmup search, and the same 100-second upper bound."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_constants_for_optimization.jl"
+line = 1
+name = "Generic optimizable hooks aggregate constants and template parameters"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::optimizable_constants_include_template_parameters"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_constants_for_optimization.jl"
+line = 36
+name = "Template optimizable selection delegates through its combiner"
+status = "excluded"
+excluded = "Tests Julia dispatch on a user-defined combiner outside the supported Rust expression model."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_constants_for_optimization.jl"
+line = 68
+name = "Generic optimizable hooks are options- and refs-aware"
+status = "excluded"
+excluded = "Tests Julia dispatch on user-defined value and reference types outside the supported Rust expression model."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_constants_for_optimization.jl"
+line = 107
+name = "Default optimize_constants handles custom optimizable expression state"
+status = "excluded"
+excluded = "Tests Julia dispatch on user-defined expression and gradient types outside the supported Rust expression model."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_crossover.jl"
+line = 1
+name = "Test crossover mutation"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::crossover_conserves_nodes_and_swaps_both_operators"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_crossover.jl"
+line = 1
+name = "Custom crossover dispatch"
+status = "excluded"
+excluded = "User-defined Julia crossover types are outside the supported built-in crossover interface."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_crossover.jl"
+line = 41
+name = "Crossover retries and giving up"
+status = "excluded"
+excluded = "User-defined Julia crossover types are outside the supported built-in crossover interface."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_crossover.jl"
+line = 120
+name = "Crossover weighted sampling and Options merge"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_options.rs::mutation_collection_overrides"]
+note = "The built-in SubtreeCrossover default and replacement assertions are covered; user-defined TracingCrossover is outside the supported crossover interface."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_crossover.jl"
+line = 171
+name = "Default crossover matches crossover_trees"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::default_crossover_matches_direct_trees"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_mutation.jl"
+line = 1
+name = "Custom mutation dispatch"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::subnormal_mutation_weights_select_the_only_positive_entry"]
+note = "The built-in DoNothingMutation sampling assertions are covered; user-defined CustomMutation and MissingMutation dispatch is outside the supported mutation interface."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_type_constant_optimization.jl"
+line = 1
+name = "Constant optimization with custom types (Issue #568)"
+status = "excluded"
+excluded = "Tests Julia value interfaces and loss dispatch on a user-defined non-scalar Vec2 type."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_custom_type_constant_optimization.jl"
+line = 93
+name = "Constant mutation for discrete custom values"
+status = "excluded"
+excluded = "Tests Julia mutation dispatch on a user-defined discrete value type."
+
+[[testitem]]
+file = "test/unit/evolution-core/test_feature_mutation.jl"
+line = 1
+name = "Test feature mutation"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::feature_mutation_ranges_and_template_features"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_optimizer_mutation.jl"
+line = 1
+name = "Test optimization mutation"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::optimization_mutation_fits_sine_constants"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_plugin_signature_deprecations.jl"
+line = 1
+name = "Deprecated best_of_sample signature forwards to current method"
+status = "excluded"
+excluded = "Tests a Julia deprecation shim for a best_of_sample signature Rust never had"
+
+[[testitem]]
+file = "test/unit/evolution-core/test_prob_pick_first.jl"
+line = 1
+name = "Test tournament selection"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::tournament_selection_prefers_low_cost_in_both_orders"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_rotation.jl"
+line = 1
+name = "Basic `randomly_rotate_tree!`"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::basic_tree_rotation_outputs"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_rotation.jl"
+line = 31
+name = "Complex `randomly_rotate_tree!`"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::complex_tree_rotation_outputs"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_search_statistics.jl"
+line = 1
+name = "Test RunningSearchStatistics"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::search_statistics_window_and_normalization"]
+
+[[testitem]]
+file = "test/unit/evolution-core/test_simplify_mutation_cost.jl"
+line = 1
+name = "SimplifyMutation updates cost with complexity"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_evolution_core.rs::simplify_mutation_refreshes_cost"]
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 3
+name = "Test ComposableExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpression_reads_its_first_argument"]
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 16
+name = "Test interface for ComposableExpression"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_compose_with_themselves"]
+note = "Composition happens in the combine formula (`f(f(x1, x2), f(x1, x2))`), so the port checks the composed value; Rust neither builds nor prints the composed tree, and `Interfaces.test` is Julia's."
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 35
+name = "Cover other operators"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::comparison_operators_print_as_infix"]
+note = "`x1 > 1.0` prints as `x1 > 1`."
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 57
+name = "Test error handling"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::formula_operators_on_columns"]
+note = "ValidVector arithmetic becomes formula arithmetic, and invalid inputs are NaN columns; the String-input error and Float32/Float64 promotion have no Rust counterpart."
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 123
+name = "Test validity propagation with NaN"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::division_by_zero_invalidates_the_result"]
+note = "Julia fills the result with NaN; Rust reports the evaluation invalid."
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 145
+name = "ValidVector helpful error messages"
+status = "excluded"
+excluded = "tests Julia error messages for misusing the ValidVector type, which Rust does not have."
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 182
+name = "Test Number inputs"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::subexpressions_accept_number_arguments"]
+note = "A template formula that returns one value for every row fails with `TemplateEvalError::ScalarReturn`, so constant-argument calls are scaled by a feature."
+
+[[testitem]]
+file = "test/unit/expressions/test_composable_expression.jl"
+line = 198
+name = "ValidVector operations with Union{} return type"
+status = "excluded"
+excluded = "tests Julia type inference (`Union{}`) and element-type promotion of ValidVector."
+
+[[testitem]]
+file = "test/unit/expressions/test_expression_builder.jl"
+line = 2
+name = "NamedTuple support in parse_expression"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::named_tuple_support_in_parse_expression"]
+note = "Template guesses parse through `parse_guesses` with `Options::template`; the `expression_options` and `expression_spec` keyword variants have no separate counterpart."
+
+[[testitem]]
+file = "test/unit/expressions/test_template_inner_expression_type.jl"
+line = 1
+name = "TemplateExpressionSpec supports custom inner expression types"
+status = "excluded"
+excluded = "custom inner expression types are Julia types; Rust subexpressions are always PostfixExpr trees."
+
+[[testitem]]
+file = "test/unit/expressions/test_template_inner_expression_type.jl"
+line = 184
+name = "TemplateExpressionSpec initializes template parameters"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::new_candidates_copy_the_tree_and_draw_normal_parameters"]
+note = "`parameter_initializer` is a Julia callback with no Rust counterpart; the port checks the default standard-normal initialization."
+
+[[testitem]]
+file = "test/unit/expressions/test_template_inner_expression_type.jl"
+line = 240
+name = "TemplateExpressionSpec validates initialized template parameters"
+status = "excluded"
+excluded = "validates the output of a Julia `parameter_initializer` callback, which Rust does not have."
+
+[[testitem]]
+file = "test/unit/misc/test_custom_objectives.jl"
+line = 1
+name = "Test whether custom objectives work."
+status = "excluded"
+excluded = "Full-objective `loss_function` (not supported). `parse_loss` rejects full-objective definitions at setup by naming the construct: symbolic_regression/src/tests/test_loss.rs::dsl_loss_errors_name_the_construct."
+
+[[testitem]]
+file = "test/unit/misc/test_external_stop.jl"
+line = 1
+name = "ExternalStop drains and filters trigger bytes"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::external_stop_latches_direct_requests"]
+note = "Direct atomic requests are ported; descriptor polling and byte-trigger filtering are replaced by per-search atomic handles."
+
+[[testitem]]
+file = "test/unit/misc/test_external_stop.jl"
+line = 85
+name = "Teardown drains notifications queued for a finished search"
+status = "excluded"
+excluded = "File-descriptor notification draining (Rust uses per-search atomic stop handles)."
+
+[[testitem]]
+file = "test/unit/misc/test_external_stop.jl"
+line = 142
+name = "Custom AbstractRuntimeOptions default to no external stop"
+status = "excluded"
+excluded = "tests Julia dispatch on user-defined AbstractRuntimeOptions subtypes."
+
+[[testitem]]
+file = "test/unit/misc/test_external_stop.jl"
+line = 154
+name = "ExternalStop preserves requests queued before search entry"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::external_stop_preserves_requests_before_search_entry", "symbolic_regression/tests/test_monitoring.rs::logger_can_request_stop_after_its_completed_cycle"]
+note = "Queued descriptor notifications become latched atomic requests; requests present at entry stop after the first completed cycle."
+
+[[testitem]]
+file = "test/unit/misc/test_external_stop.jl"
+line = 216
+name = "overlapping serial searches stop independently"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_monitoring.rs::overlapping_searches_stop_independently"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 1
+name = "Single output, single guess"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::single_output_single_guess"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 28
+name = "Guesses violating constraints do not enter the Hall of Fame"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::guesses_violating_constraints_do_not_enter_the_hall_of_fame"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 44
+name = "parse_guesses with NamedTuple"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::parse_guesses_with_named_tuple"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 96
+name = "parse_guesses with NamedTuple and parameters"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::parse_guesses_with_named_tuple_and_parameters"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 126
+name = "NamedTuple guesses with different variable names"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::named_tuple_guesses_with_different_variable_names"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 162
+name = "Float32 dataset with Float64 guess literals"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::float32_dataset_with_float64_guess_literals"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 195
+name = "Custom operators in string guesses"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_in_string_guesses"]
+note = "`pythag_neg` is written with a ternary, since the DSL has no assignment inside an expression."
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 250
+name = "Custom operators in equation_search guesses"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_in_equation_search_guesses"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 286
+name = "Custom operators error handling in guesses"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_error_handling_in_guesses"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 313
+name = "Custom operators with NamedTuple guesses"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::custom_operators_with_named_tuple_guesses"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 352
+name = "Smoke test migration with multiple outputs and templates"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::smoke_test_migration_with_multiple_outputs_and_templates"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 381
+name = "parse_guesses with mix of strings and expression objects"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::parse_guesses_with_mix_of_strings_and_expression_objects"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 424
+name = "maxsize warning"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::maxsize_warning"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 456
+name = "Vector of vectors input for single output"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::vector_of_vectors_input_for_single_output"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 475
+name = "Multiple outputs guesses format validation"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::multiple_outputs_guesses_format_validation"]
+note = "`Options::guesses` always holds one list per output, so a flat list cannot be written; the port checks the error for a wrong number of lists."
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 491
+name = "File saving with niterations=0"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_output_files.rs::file_saving_with_zero_iterations"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 556
+name = "Hall of fame CSV escapes equation quotes"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_output_files.rs::hall_of_fame_csv_escapes_equation_quotes"]
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 582
+name = "parse_guesses evaluates custom constants in parse scope"
+status = "excluded"
+excluded = "Custom value types (`Vec2` constants in guesses) are not supported"
+
+[[testitem]]
+file = "test/unit/misc/test_guesses.jl"
+line = 637
+name = "Template guesses preserve supplied parameters"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::template_guesses_preserve_supplied_parameters"]
+note = "The guess owns its parameter vector, so SymbolicRegression.jl's aliasing checks have no counterpart."
+
+[[testitem]]
+file = "test/unit/misc/test_hash.jl"
+line = 1
+name = "Test hash of tree"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_evaluation.rs::hash_of_tree"]
+note = "Julia checks only the hash type; the port checks that the hash is stable across clones and differs for a different root operator."
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 1
+name = "loss_scale parameter validation"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_parameter_validation"]
+note = "Rust's `LossScale` enum makes an invalid scale unrepresentable; the port checks the string boundary (`\"invalid\".parse::<LossScale>()`) instead of an assertion in `Options`."
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 15
+name = "loss_scale score computation"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_score_computation"]
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 27
+name = "loss_scale in choose_best"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_in_choose_best"]
+note = "Indices are 0-based; `choose_best` returns `None` for an empty front where Julia's MLJ dispatch returns 0."
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 60
+name = "loss_scale in pareto_volume"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_in_pareto_volume"]
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 76
+name = "loss_scale in MLJ interface"
+status = "excluded"
+excluded = "MLJ (Julia-only interface)"
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 93
+name = "loss_scale error handling"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::loss_scale_error_handling"]
+note = "`HallOfFame::pareto_scores` returns the DomainError message as an `Err` instead of throwing."
+
+[[testitem]]
+file = "test/unit/misc/test_loss_scale.jl"
+line = 134
+name = "string_dominating_pareto_curve header display"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::pareto_curve_header_shows_score_only_for_log_scale"]
+note = "Checks the progress display's Pareto table, which is Rust's `string_dominating_pareto_curve`; the port also checks that the Equation column stays aligned."
+
+[[testitem]]
+file = "test/unit/misc/test_losses.jl"
+line = 1
+name = "Test custom losses"
+pr = 2
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_losses.rs::custom_losses_match_their_definitions"]
+note = "Julia's single `customloss` with 2- and 3-argument methods becomes two DSL strings. The batched `loss_function` objective is not supported, and mismatched element types cannot type-check in Rust."
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 1
+name = "Plugin interface: types and defaults"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 103
+name = "Plugin interface: operation defaults"
+status = "excluded"
+excluded = "Tests plugin-contributed user-defined mutations and crossovers (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 162
+name = "Plugin interface: lifecycle hooks called for each plugin"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 242
+name = "Plugin interface: multiple plugins all fire"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 285
+name = "Plugin interface: init_member hook"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 323
+name = "Plugin interface: init_member that returns a tree is consumed"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 365
+name = "Plugin interface: two init_member providers is an error"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 391
+name = "Plugin interface: on_mutation_end! fires with correct args"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_plugin_interface.jl"
+line = 466
+name = "Plugin interface: condition_mutation_weights! plugin-dispatched"
+status = "excluded"
+excluded = "Tests the user-defined plugin interface (custom plugins are not supported)"
+
+[[testitem]]
+file = "test/unit/misc/test_tracing.jl"
+line = 1
+name = "trace_optimization! seeds missing old ref"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_tracing.rs::trace_optimization_seeds_missing_old_ref"]
+
+[[testitem]]
+file = "test/unit/misc/test_tracing.jl"
+line = 32
+name = "trace_optimization! tolerates a reference held by several slots"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_tracing.rs::trace_optimization_tolerates_a_reference_held_by_several_slots"]
+
+[[testitem]]
+file = "test/unit/misc/test_tracing.jl"
+line = 60
+name = "Tracing worker pipeline smoke test"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_tracing.rs::tracing_search_pipeline_smoke_test"]
+note = "Runs a small traced search, because the Rust port has no separate worker pipeline entry point."
+
+[[testitem]]
+file = "test/unit/misc/test_tracing.jl"
+line = 75
+name = "Tracing requires JSON.jl"
+status = "excluded"
+excluded = "Tests the Julia package extension that loads JSON.jl (the Rust trace writer is built in)"
+
+[[testitem]]
+file = "test/unit/misc/test_tracing.jl"
+line = 90
+name = "Disabled tracing is allocation-free"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/tests/test_tracing_file.rs::tracing_changes_no_result_and_disabled_tracing_writes_nothing", "symbolic_regression/src/tests/test_tracing.rs::step_traces_record_type_result_and_reason"]
+note = "Julia's allocation counting is not ported. The tests check that a search with tracing off writes no file and gives bit-identical results, and that an enabled step trace records type, result, and reason."
+
+[[testitem]]
+file = "test/unit/operators-core/test_abstract_numbers.jl"
+line = 1
+name = "Abstract numbers"
+status = "excluded"
+excluded = "Rust engine requires T: Float"
+
+[[testitem]]
+file = "test/unit/operators-core/test_abstract_numbers.jl"
+line = 44
+name = "Testing error handling in InterfaceDataTypesModule"
+status = "excluded"
+excluded = "custom value types (not supported)"
+
+[[testitem]]
+file = "test/unit/operators-core/test_abstract_numbers.jl"
+line = 62
+name = "Custom value mutation receives the selected mutation"
+status = "excluded"
+excluded = "custom value types (not supported)"
+
+[[testitem]]
+file = "test/unit/operators-core/test_complexity.jl"
+line = 1
+name = "Test complexity evaluation"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/tests/test_jl_complexity.rs::complexity_with_operator_overrides"]
+
+[[testitem]]
+file = "test/unit/operators-core/test_complexity.jl"
+line = 27
+name = "Test other things about complexity"
+pr = 1
+status = "done"
+rust = ["symbolic_regression/tests/test_jl_complexity.rs::complexity_with_variable_and_constant_costs"]
+
+[[testitem]]
+file = "test/unit/operators-core/test_complexity.jl"
+line = 69
+name = "Custom complexity mapping"
+status = "excluded"
+excluded = "complexity_mapping (not supported)"
+
+[[testitem]]
+file = "test/unit/operators-core/test_custom_operators.jl"
+line = 1
+name = "Test custom operators"
+pr = 1
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_custom_operators.rs::custom_operators_print_and_evaluate"]
+note = "Julia's module-scoping cases map to separate CustomOps tables."
+
+[[testitem]]
+file = "test/unit/parallel/test_custom_operators_multiprocessing.jl"
+line = 1
+name = "Testing whether we can move operators to workers."
+status = "excluded"
+excluded = "Distributed multiprocessing (not supported)"
+
+[[testitem]]
+file = "test/unit/parallel/test_filtered_async.jl"
+line = 1
+name = "@filtered_async error forwarding tests"
+status = "excluded"
+excluded = "Distributed multiprocessing (not supported)"
+
+[[testitem]]
+file = "test/unit/parallel/test_loss_function_expression_multiprocessing.jl"
+line = 1
+name = "Testing whether we can move loss function expression to workers."
+status = "excluded"
+excluded = "Distributed multiprocessing (not supported)"
+
+[[testitem]]
+file = "test/unit/parallel/test_plugin_teardown.jl"
+line = 1
+name = "Plugin interface: teardown does not wait for unfinished multiprocessing cycles"
+status = "excluded"
+excluded = "Distributed multiprocessing (not supported)"
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 1
+name = "AdaptiveMutationWeightsPlugin: defaults + state"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_defaults_and_state"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 20
+name = "AdaptiveMutationWeightsPlugin updates sampled operator and normalizes"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_update_sampled_kind_and_normalize"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 48
+name = "AdaptiveMutationWeightsPlugin regularizes multipliers in log space"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_regularize_in_log_space"]
+note = "The zero-allocation check is not ported because the statistics live in fixed-size arrays."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 84
+name = "skipped mutation kinds stay out of adaptive-weights accounting"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::skipped_mutation_kinds_stay_out_of_adaptive_weights_accounting"]
+note = "Uses the built-in skipped kinds (simplify, do-nothing), since user-defined mutations are not supported."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 114
+name = "AdaptiveMutationWeightsPlugin rewards the configured objective"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_reward_the_configured_objective"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 135
+name = "Plugin constructors validate parameter domains"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::plugin_configurations_validate_parameter_domains"]
+note = "Settings are checked when a search starts. The BigFloat cases map to infinite and zero f64 values."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 157
+name = "SimulatedAnnealingPlugin uses the requested cycle count"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::annealing_temperature_follows_the_requested_cycle_count", "symbolic_regression/src/tests/test_jl_plugins.rs::annealing_temperature_scales_constant_perturbations"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 187
+name = "prepare_mutation_context / condition_mutation!"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::annealing_temperature_scales_constant_perturbations"]
+note = "The temperature passed to constant mutation plays the role of the context scale. Composing two conditioning plugins is not carried over."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 216
+name = "AdaptiveMutationWeightsPlugin attributes configured instances"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_attribute_the_sampled_kind"]
+note = "Rust has one instance per mutation kind, so attribution is by kind; allocation-free by construction."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 264
+name = "MutationBurstPlugin: retry portion retries until accepted"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_retries_until_accepted"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 282
+name = "MutationBurstPlugin: retry stops at budget when never accepted"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_retry_stops_at_budget"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 300
+name = "MutationBurstPlugin: compound portion chains on success"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_compound_chains_on_success"]
+note = "Also asserts that the selected attempt index is 2, which the Julia testitem does not check."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 321
+name = "MutationBurstPlugin: compound doesn't chain on rejection"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_compound_stops_on_rejection"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 339
+name = "MutationBurstPlugin traces every compound mutation"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_traces_every_compound_mutation", "symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_runs_every_compound_mutation"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 390
+name = "build_mutation_step composes type-stably"
+status = "excluded"
+excluded = "Tests Julia type inference of composed user-defined mutation middleware"
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 423
+name = "trace captures rejected retry branches"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::trace_captures_rejected_retry_branches", "symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_retries_rejected_mutations"]
+note = "Rejections come from a constraint violation (insert-node at maxsize 1), standing in for the user-defined always-reject plugin."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 490
+name = "trace captures accepted mutations"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::trace_captures_accepted_mutations", "symbolic_regression/src/tests/test_jl_plugins.rs::next_generation_accepts_valid_mutations_without_plugins"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 515
+name = "reg_evol_cycle owns middleware evaluation accounting"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::reg_evol_cycle_counts_every_burst_attempt"]
+note = "Mutation bursts are the only middleware, so the user-middleware error cases have no counterpart. The test checks that every attempt's evaluations are counted."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 647
+name = "MutationBurstPlugin preserves accepted intermediate Hall-of-Fame members"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::mutation_burst_keeps_accepted_intermediate_members_in_hall_of_fame"]
+note = "The custom cost-sequence mutation becomes two chained add-node steps: the intermediate complexity-3 member stays in the hall of fame after the population holds the complexity-5 one."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 694
+name = "mutation-cycle entry points require plugin state"
+status = "excluded"
+excluded = "Tests Julia keyword-argument requirements and a user-defined plugin"
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 753
+name = "worker plugin state persists across dispatches"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::population_weights_state_persists_across_dispatches"]
+note = "Uses the per-population adaptive-mutation-weights statistics in place of the user-defined plugin."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 819
+name = "worker plugin state may differ from head state"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::population_state_differs_from_output_state"]
+note = "Uses the built-in states. Each output keeps raw parsimony counts, each dispatch reads a normalized snapshot, and populations keep separate mutation-weight statistics."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_mutation_mechanisms.jl"
+line = 904
+name = "Integration: all three mechanisms enabled, search runs and returns a HoF"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::search_with_every_mutation_plugin_returns_a_hall_of_fame"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_parsimony.jl"
+line = 1
+name = "AdaptiveParsimonyPlugin: legacy kwargs auto-inject"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_options_toggle_each_hook"]
+note = "The two flags configure the hooks directly; a user-supplied plugin instance overriding them has no counterpart."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_parsimony.jl"
+line = 43
+name = "Plugin collections: vectors normalize and defaults are overridable"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_mutation_weights_stay_enabled_without_the_other_plugins"]
+note = "Only the built-in default merging carries over (adaptive mutation weights stay on when the other plugins are off); user-defined plugin collections are not supported."
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_parsimony.jl"
+line = 77
+name = "AdaptiveParsimonyPlugin: hook outputs match the legacy formula"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_hooks_match_the_legacy_formula"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_parsimony.jl"
+line = 155
+name = "AdaptiveParsimonyPlugin: end-to-end equation_search"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_search_runs_end_to_end"]
+
+[[testitem]]
+file = "test/unit/plugins/test_adaptive_parsimony.jl"
+line = 191
+name = "AdaptiveParsimonyPlugin: per-output state shape (single-output)"
+pr = 6
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_plugins.rs::adaptive_parsimony_state_is_per_output"]
+
+[[testitem]]
+file = "test/unit/precompile/test_graph_nodes.jl"
+line = 1
+name = "GraphNode evaluation"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
+
+[[testitem]]
+file = "test/unit/precompile/test_graph_nodes.jl"
+line = 23
+name = "GraphNode complexity"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
+
+[[testitem]]
+file = "test/unit/precompile/test_graph_nodes.jl"
+line = 38
+name = "GraphNode population"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
+
+[[testitem]]
+file = "test/unit/precompile/test_graph_nodes.jl"
+line = 63
+name = "GraphNode break connection mutation"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
+
+[[testitem]]
+file = "test/unit/precompile/test_graph_nodes.jl"
+line = 104
+name = "GraphNode form connection mutation"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
+
+[[testitem]]
+file = "test/unit/precompile/test_integer_evaluation.jl"
+line = 1
+name = "Test validity of integer expression evaluation"
+status = "excluded"
+excluded = "Rust engine requires T: Float"
+
+[[testitem]]
+file = "test/unit/precompile/test_precompilation.jl"
+line = 1
+name = "Test whether the precompilation script works."
+status = "excluded"
+excluded = "precompilation (Julia-only)"
+
+[[testitem]]
+file = "test/unit/templates/test_template_expression_buffer.jl"
+line = 1
+name = "TemplateExpression uses one call-time evaluation arena"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::one_workspace_serves_every_template"]
+note = "Julia's ArrayBuffer arena becomes a reused `TemplateWorkspace`; the port checks that its results match fresh evaluation and the expected values. The local alias `f2 = f` is written directly."
+
+[[testitem]]
+file = "test/unit/templates/test_template_expression_mutation.jl"
+line = 1
+name = "template expression parameter mutation"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::parameter_mutation_changes_one_vector_and_conditions_weights"]
+
+[[testitem]]
+file = "test/unit/templates/test_template_expression_mutation.jl"
+line = 110
+name = "template crossover isolates shared graph nodes"
+status = "excluded"
+excluded = "GraphNode shared subtrees have no Rust counterpart: Rust trees are owned postfix vectors, so children never alias parents."
+
+[[testitem]]
+file = "test/unit/templates/test_template_expression_mutation.jl"
+line = 180
+name = "template crossover isolates recipient candidate state"
+pr = 3
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_templates.rs::crossover_children_own_their_state"]
+note = "Rust ownership rules out aliasing, so the port checks values: parameters carried over, constants independent of the parents, and crossover accepted."
+
+[[testitem]]
+file = "test/unit/templates/test_template_expression_string.jl"
+line = 1
+name = "template expression color function"
+status = "excluded"
+excluded = "SymbolicRegression.jl colors each subexpression with StyledStrings; Rust prints plain text."
+
+[[testitem]]
+file = "test/unit/templates/test_template_expression_string.jl"
+line = 23
+name = "template expression string representation"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::compact_and_pretty_strings"]
+note = "Colors are not ported; whole-number floats print without `.0`."
+
+[[testitem]]
+file = "test/unit/templates/test_template_macro.jl"
+line = 1
+name = "Basic @template_spec macro functionality"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_with_parameters_and_category_indices"]
+note = "The macro's Rust counterpart is `TemplateStructure::new` with a combine string, as in PySR's TemplateExpressionSpec."
+
+[[testitem]]
+file = "test/unit/templates/test_template_macro.jl"
+line = 39
+name = "Template macro error handling"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_needs_a_subexpression"]
+note = "Only `expressions must be specified` has a Rust counterpart; the other errors check the macro's Julia syntax."
+
+[[testitem]]
+file = "test/unit/templates/test_template_macro.jl"
+line = 90
+name = "Template macro with complex structure"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_reusing_one_parameter_vector"]
+note = "The do-block's local assignments are inlined into the formula."
+
+[[testitem]]
+file = "test/unit/templates/test_template_macro.jl"
+line = 126
+name = "Template macro without parameters"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::template_without_parameters"]
+
+[[testitem]]
+file = "test/unit/templates/test_template_macro.jl"
+line = 158
+name = "Template macro additional error handling"
+status = "excluded"
+excluded = "checks the macro's keyword syntax (duplicate or unknown keywords, extra positional arguments); Rust takes typed arguments, so these cannot occur."
+
+[[testitem]]
+file = "test/unit/templates/test_template_macro.jl"
+line = 192
+name = "Template macro with num_features parameter"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::declared_num_features_override_inference"]
+note = "The port also evaluates the f=5 declaration: a tree that reads beyond the call's two arguments makes the result invalid."
+
+[[testitem]]
+file = "test/unit/templates/test_template_parameter_value_types.jl"
+line = 1
+name = "template parameters route through the value interface"
+status = "excluded"
+excluded = "custom parameter value types are Julia-only; Rust parameters are the search's float type."
+
+[[testitem]]
+file = "test/unit/templates/test_template_parameter_value_types.jl"
+line = 82
+name = "template parser splits and validates flat parameter entries"
+pr = 5
+status = "done"
+rust = ["symbolic_regression/src/tests/test_jl_guesses.rs::template_parser_splits_and_validates_flat_parameter_entries"]
+note = "The separate `parameters=` keyword of `parse_expression` has no counterpart: a guess gives its parameters by name. A scalar parameter cannot be written; an equation string in its place is rejected."
+
+[[testitem]]
+file = "test/unit/templates/test_template_parameter_value_types.jl"
+line = 123
+name = "template parser accepts custom value parameter vectors"
+status = "excluded"
+excluded = "custom parameter value types are Julia-only; Rust parameters are the search's float type."
+
+[[testitem]]
+file = "test/unit/templates/test_template_prototype.jl"
+line = 1
+name = "Prototype-based num_features inference for custom types"
+status = "excluded"
+excluded = "prototype inference serves custom Julia value types; Rust infers arities from the formula string."
+
+[[testitem]]
+file = "test/unit/templates/test_template_prototype.jl"
+line = 25
+name = "Prototype-based inference with zero-argument subexpression"
+status = "excluded"
+excluded = "prototype inference serves custom Julia value types; Rust infers arities from the formula string."
+
+[[testitem]]
+file = "test/unit/templates/test_template_prototype.jl"
+line = 44
+name = "Default Float64 inference is unchanged by prototype option"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::num_features_inference"]
+
+[[testitem]]
+file = "test/unit/templates/test_template_prototype.jl"
+line = 61
+name = "TemplateStructure keyword order is irrelevant"
+status = "excluded"
+excluded = "Rust takes num_features and parameters as slices in expression and parameter order, so there is no keyword order."
+
+[[testitem]]
+file = "test/unit/templates/test_template_prototype.jl"
+line = 72
+name = "TemplateStructure requires disjoint expression and parameter names"
+pr = 3
+status = "done"
+rust = ["dynamic_expressions/tests/test_jl_templates.rs::expression_and_parameter_names_are_disjoint"]

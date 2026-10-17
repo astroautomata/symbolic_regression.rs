@@ -219,6 +219,31 @@ export function EnterData(): React.ReactElement {
               </label>
             </div>
 
+            <div className="row">
+              <label className="field">
+                <div className="label">y units</div>
+                <input
+                  type="text"
+                  placeholder="m/s"
+                  value={options?.y_units ?? ""}
+                  onChange={(e) => setOptionsPatch({ y_units: e.target.value.trim() || null })}
+                />
+              </label>
+              <label className="field">
+                <div className="label">x units</div>
+                <input
+                  type="text"
+                  aria-label="x units"
+                  placeholder="kg, m/s^2"
+                  value={options?.x_units?.join(", ") ?? ""}
+                  onChange={(e) => setOptionsPatch({
+                    x_units: e.target.value.trim() === "" ? null : e.target.value.split(",").map((unit) => unit.trim())
+                  })}
+                />
+                <div className="muted">One comma-separated unit per selected X column; blank means none.</div>
+              </label>
+            </div>
+
             <div className="subTitle">X columns</div>
             <div className="checkboxGrid">
               {colOptions.map((c) => {

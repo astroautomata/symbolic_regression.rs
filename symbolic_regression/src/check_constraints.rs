@@ -6,6 +6,7 @@ use dynamic_expressions::{OpId, node_utils};
 use num_traits::Float;
 
 use crate::complexity;
+use crate::expression::Expression;
 use crate::options::Options;
 
 #[derive(Clone, Debug)]
@@ -41,21 +42,36 @@ impl NestedConstraints {
     }
 }
 
-pub fn check_constraints<T: Float, Ops, const D: usize>(
-    expr: &PostfixExpr<T, Ops, D>,
-    options: &Options<T, D>,
+/// Checks a candidate. A template must use only features within each subexpression's arity, its
+/// summed complexity must fit `curmaxsize`, and every tree must pass [`check_constraints`].
+pub fn check_expression<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    expr: &Expression<T, Ops, D>,
+    options: &Options<T, Ops, D>,
     curmaxsize: usize,
 ) -> bool {
-    let needs_depth_check = options.maxdepth < curmaxsize  // maxsize is much faster to check, so ideally we skip depth check
+    let Some(template) = &options.template else {
+        return check_constraints(&expr.trees[0], options, curmaxsize);
+    };
+    !template.has_invalid_variables(&expr.trees)
+        && options.complexity(expr) <= curmaxsize
+        && expr.trees.iter().all(|t| check_constraints(t, options, curmaxsize))
+}
+
+pub fn check_constraints<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    expr: &PostfixExpr<T, Ops, D>,
+    options: &Options<T, Ops, D>,
+    curmaxsize: usize,
+) -> bool {
+    let needs_depth_check = options.effective_maxdepth() < curmaxsize  // maxsize is much faster to check, so ideally we skip depth check
         || !options.uses_default_complexity(); // However, with a custom complexity, we have no idea if we can skip depth check
-    if needs_depth_check && node_utils::count_depth(&expr.nodes) > options.maxdepth {
+    if needs_depth_check && node_utils::count_depth(&expr.nodes) > options.effective_maxdepth() {
         return false;
     }
     if options.uses_default_complexity() {
         if expr.nodes.len() > curmaxsize {
             return false;
         }
-        if !check_default_op_arg_constraints::<T, D>(&expr.nodes, options) {
+        if !check_default_op_arg_constraints(&expr.nodes, options) {
             return false;
         }
     } else {
@@ -72,7 +88,10 @@ pub fn check_constraints<T: Float, Ops, const D: usize>(
     check_nested_constraints::<D>(&expr.nodes, &options.nested_constraints)
 }
 
-fn check_default_op_arg_constraints<T: Float, const D: usize>(nodes: &[PNode], options: &Options<T, D>) -> bool {
+fn check_default_op_arg_constraints<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    nodes: &[PNode],
+    options: &Options<T, Ops, D>,
+) -> bool {
     if options.op_constraints.limits.is_empty() {
         return true;
     }

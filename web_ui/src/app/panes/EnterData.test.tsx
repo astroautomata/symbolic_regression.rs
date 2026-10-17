@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { EnterData } from "./EnterData";
 import { useSessionStore } from "../../state/sessionStore";
 import { vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 function minimalOptions() {
   return {
@@ -11,8 +12,12 @@ function minimalOptions() {
     y_column: 1,
     weights_column: null,
     validation_fraction: 0,
-    loss_kind: "mse",
-    huber_delta: 1,
+    x_units: null,
+    y_units: null,
+    loss: "L2DistLoss()",
+    early_stop_condition: null,
+    template: null,
+    guesses: [],
 
     seed: 0,
     niterations: 100,
@@ -20,11 +25,11 @@ function minimalOptions() {
     population_size: 16,
     ncycles_per_iteration: 10,
     maxsize: 30,
-    maxdepth: 30,
+    maxdepth: null,
     warmup_maxsize_by: 0,
     parsimony: 0,
     adaptive_parsimony_scaling: 1040,
-    crossover_probability: 0.0259,
+    crossover_probability: 0.20,
     perturbation_factor: 0.129,
     probability_negate_constant: 0.00743,
     tournament_selection_n: 15,
@@ -36,8 +41,11 @@ function minimalOptions() {
     optimizer_f_calls_limit: 10_000,
     fraction_replaced: 0.00036,
     fraction_replaced_hof: 0.0614,
+    fraction_replaced_guesses: 0.001,
     topn: 12,
     print_precision: 5,
+    loss_scale: "log",
+    dimensional_constraint_penalty: 1000,
 
     use_frequency: true,
     use_frequency_in_tournament: true,
@@ -49,7 +57,20 @@ function minimalOptions() {
     use_baseline: true,
     progress: false,
     should_simplify: false,
+    dimensionless_constants_only: false,
 
+    optimizer_algorithm: "BFGS",
+    optimizer_g_abstol: 1e-8,
+    optimizer_x_abstol: 0,
+    optimizer_f_reltol: 0,
+    optimizer_g_calls_limit: 0,
+    parallelism: "multithreading",
+    batching: "auto",
+    batch_size: null,
+    mutations: [],
+    default_mutations: null,
+    crossovers: [],
+    default_crossovers: null,
     mutation_weights: {
       mutate_constant: 0.0346,
       mutate_operator: 0.293,
@@ -86,6 +107,19 @@ describe("EnterData", () => {
     });
   });
 
+  it("stores comma-separated x units and y units, and clears blank fields", async () => {
+    useSessionStore.setState({
+      parsed: { headers: ["a", "b", "y"], rows: [[1, 2, 3]], nRows: 1, nCols: 3 } as any
+    });
+    render(<EnterData />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("x units"), "m, s");
+    await user.type(screen.getByLabelText("y units"), "m/s");
+    expect(useSessionStore.getState().options).toMatchObject({ x_units: ["m", "s"], y_units: "m/s" });
+    fireEvent.change(screen.getByLabelText("x units"), { target: { value: " " } });
+    fireEvent.change(screen.getByLabelText("y units"), { target: { value: " " } });
+    expect(useSessionStore.getState().options).toMatchObject({ x_units: null, y_units: null });
+  });
   it("accepts drag/drop CSV and updates store csvText", async () => {
     const parseSpy = vi.fn();
     useSessionStore.setState({ parseCsv: parseSpy as any });

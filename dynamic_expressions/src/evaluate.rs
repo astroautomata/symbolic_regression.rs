@@ -22,6 +22,44 @@ impl Default for EvalOptions {
     }
 }
 
+/// Feature columns to evaluate on: one row per feature, one column per data row.
+///
+/// Evaluation rejects an expression that reads a non-finite feature, so it scans each feature
+/// column the expression reads. [`XColumns::checked`] scans the whole matrix once instead, letting
+/// repeated evaluations on the same borrowed data skip that scan. A plain `ArrayView2` converts
+/// unscanned. The columns must be contiguous in standard layout.
+#[derive(Copy, Clone, Debug)]
+pub struct XColumns<'a, T> {
+    pub(crate) data: &'a [T],
+    pub(crate) n_features: usize,
+    pub(crate) n_rows: usize,
+    known_finite: bool,
+}
+
+impl<'a, T: Float> XColumns<'a, T> {
+    pub fn checked(view: ArrayView2<'a, T>) -> Self {
+        let mut x = Self::from(view);
+        x.known_finite = kernels::__all_finite(x.data);
+        x
+    }
+
+    pub fn view(&self) -> ArrayView2<'a, T> {
+        ArrayView2::from_shape((self.n_features, self.n_rows), self.data).expect("shape matches the data")
+    }
+}
+
+impl<'a, T> From<ArrayView2<'a, T>> for XColumns<'a, T> {
+    fn from(view: ArrayView2<'a, T>) -> Self {
+        let (n_features, n_rows) = view.dim();
+        Self {
+            data: view.to_slice().expect("X columns must be contiguous"),
+            n_features,
+            n_rows,
+            known_finite: false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct EvalContext<T: Float, const D: usize> {
     pub scratch: Option<Array2<T>>,
@@ -80,6 +118,25 @@ impl<T: Float, const D: usize> EvalContext<T, D> {
     }
 }
 
+/// Whether every feature column and constant `plan` reads is finite. SymbolicRegression.jl rejects
+/// an expression that reads a non-finite leaf, even where an operator such as `relu` maps it to a
+/// finite value: DynamicExpressions checks each operator's arguments, leaves included.
+pub(crate) fn leaves_finite<T: Float, const D: usize>(plan: &EvalPlan<D>, x: XColumns<'_, T>, consts: &[T]) -> bool {
+    let (x_data, n_rows) = (x.data, x.n_rows);
+    let finite = |src: Src| match src {
+        Src::Var(f) => x.known_finite || kernels::__all_finite(&x_data[f as usize * n_rows..(f as usize + 1) * n_rows]),
+        Src::Const(c) => consts[c as usize].is_finite(),
+        Src::Slot(_) => true,
+    };
+    plan.instrs.iter().all(|instr| {
+        instr
+            .args
+            .iter()
+            .zip(&instr.leaf_args)
+            .all(|(&src, &first)| !first || finite(src))
+    }) && finite(plan.root)
+}
+
 pub(crate) fn resolve_val_src<'a, T: Float>(
     src: Src,
     x_columns: &'a [T],
@@ -111,38 +168,39 @@ pub(crate) fn resolve_val_src<'a, T: Float>(
     }
 }
 
-pub fn eval_tree_array<T, Ops, const D: usize>(
+pub fn eval_tree_array<'a, T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
-    x_columns: ArrayView2<'_, T>,
+    ops: &Ops,
+    x_columns: impl Into<XColumns<'a, T>>,
     opts: &EvalOptions,
 ) -> (Vec<T>, bool)
 where
-    T: Float,
+    T: Float + 'a,
     Ops: OperatorSet<T = T>,
 {
-    assert!(x_columns.is_standard_layout(), "X must be contiguous");
-    let n_rows = x_columns.ncols();
+    let x_columns = x_columns.into();
+    let n_rows = x_columns.n_rows;
     let mut ctx = EvalContext::<T, D>::new(n_rows);
     let mut out = vec![T::zero(); n_rows];
-    let complete = eval_tree_array_into::<T, Ops, D>(&mut out, expr, x_columns, &mut ctx, opts);
+    let complete = eval_tree_array_into::<T, Ops, D>(&mut out, expr, ops, x_columns, &mut ctx, opts);
     (out, complete)
 }
 
-pub fn eval_plan_array_into<T, Ops, const D: usize>(
+pub fn eval_plan_array_into<'a, T, Ops, const D: usize>(
     out: &mut [T],
     plan: &EvalPlan<D>,
     expr: &PostfixExpr<T, Ops, D>,
-    x_columns: ArrayView2<'_, T>,
+    ops: &Ops,
+    x_columns: impl Into<XColumns<'a, T>>,
     scratch: &mut Array2<T>,
     opts: &EvalOptions,
 ) -> bool
 where
-    T: Float,
+    T: Float + 'a,
     Ops: OperatorSet<T = T>,
 {
-    assert!(x_columns.is_standard_layout(), "X columns must be contiguous");
-    let x_data = x_columns.as_slice().expect("X columns must be contiguous in memory");
-    let n_rows = x_columns.ncols();
+    let x = x_columns.into();
+    let (x_data, n_rows) = (x.data, x.n_rows);
     assert_eq!(out.len(), n_rows);
 
     if scratch.nrows() != plan.n_slots || scratch.ncols() != n_rows {
@@ -150,7 +208,10 @@ where
     }
     let scratch_data = scratch.as_slice_mut().expect("scratch buffer must stay contiguous");
 
-    let mut complete = true;
+    let mut complete = !opts.check_finite || leaves_finite(plan, x, &expr.consts);
+    if opts.early_exit && !complete {
+        return false;
+    }
     let slot_stride = n_rows;
 
     for instr in plan.instrs.iter().copied() {
@@ -165,7 +226,7 @@ where
             *dst = resolve_val_src(instr.args[j], x_data, n_rows, &expr.consts, dst_slot, before, after);
         }
 
-        let ok = Ops::eval(
+        let ok = ops.eval(
             OpId {
                 arity: instr.arity,
                 id: instr.op,
@@ -204,26 +265,28 @@ where
 
     complete
 }
-pub fn eval_tree_array_into<T, Ops, const D: usize>(
+pub fn eval_tree_array_into<'a, T, Ops, const D: usize>(
     out: &mut [T],
     expr: &PostfixExpr<T, Ops, D>,
-    x_columns: ArrayView2<'_, T>,
+    ops: &Ops,
+    x_columns: impl Into<XColumns<'a, T>>,
     ctx: &mut EvalContext<T, D>,
     opts: &EvalOptions,
 ) -> bool
 where
-    T: Float,
+    T: Float + 'a,
     Ops: OperatorSet<T = T>,
 {
-    assert_eq!(out.len(), x_columns.ncols());
-    assert_eq!(ctx.n_rows, x_columns.ncols());
+    let x_columns = x_columns.into();
+    assert_eq!(out.len(), x_columns.n_rows);
+    assert_eq!(ctx.n_rows, x_columns.n_rows);
 
-    ctx.setup(expr, x_columns);
+    ctx.setup(expr, x_columns.view());
 
     let plan = ctx.plan.as_ref().unwrap();
     let scratch = ctx.scratch.as_mut().unwrap();
 
-    eval_plan_array_into::<T, Ops, D>(out, plan, expr, x_columns, scratch, opts)
+    eval_plan_array_into::<T, Ops, D>(out, plan, expr, ops, x_columns, scratch, opts)
 }
 
 #[doc(hidden)]
@@ -243,7 +306,7 @@ pub mod kernels {
     }
 
     #[inline]
-    fn __all_finite<T: Float>(out: &[T]) -> bool {
+    pub(crate) fn __all_finite<T: Float>(out: &[T]) -> bool {
         let mut ok = true;
         for v in out {
             ok &= v.is_finite();
@@ -498,6 +561,32 @@ pub mod kernels {
         }
 
         complete
+    }
+
+    /// Writes `Op::partial(args, idx)` per row. No finiteness check: callers combine partials
+    /// with argument derivatives and check the combined result.
+    pub fn partial_nary<const A: usize, T: Float, Op: crate::traits::Operator<T, A>>(
+        out: &mut [T],
+        args: &[SrcRef<'_, T>],
+        idx: usize,
+    ) {
+        debug_assert_eq!(args.len(), A);
+        let arg_views: [ArgView<'_, T>; A] = make_arg_views(args);
+        if A == 1 {
+            eval_unary_loop(out, arg_views[0], move |a| Op::partial(&vals1(a), idx));
+        } else if A == 2 {
+            eval_binary_loop(out, arg_views[0], arg_views[1], move |a, b| {
+                Op::partial(&vals2(a, b), idx)
+            });
+        } else {
+            let mut vals: [T; A] = [T::zero(); A];
+            for (row, outv) in out.iter_mut().enumerate() {
+                for (v, view) in vals.iter_mut().zip_eq(arg_views) {
+                    *v = view.get(row);
+                }
+                *outv = Op::partial(&vals, idx);
+            }
+        }
     }
 
     pub fn diff_nary<const A: usize, T: Float + core::ops::AddAssign, Op: crate::traits::Operator<T, A>>(

@@ -2,8 +2,21 @@ use num_traits::Float;
 
 use crate::pop_member::PopMember;
 
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(serialize = "T: serde::Serialize", deserialize = "T: serde::Deserialize<'de>"))
+)]
 pub struct Population<T: Float, Ops, const D: usize> {
     pub members: Vec<PopMember<T, Ops, D>>,
+}
+
+impl<T: Float, Ops, const D: usize> Clone for Population<T, Ops, D> {
+    fn clone(&self) -> Self {
+        Self {
+            members: self.members.clone(),
+        }
+    }
 }
 
 impl<T: Float, Ops, const D: usize> Population<T, Ops, D> {
