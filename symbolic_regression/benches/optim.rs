@@ -305,16 +305,17 @@ fn bench_utils(c: &mut Criterion) {
 
     // compute_complexity_x10 (Rust uses fixed u16 complexity types)
     {
-        let options = make_utils_options();
+        let options = std::hint::black_box(make_utils_options());
         let mut rng = StdRng::seed_from_u64(7);
         let trees: Vec<_> = (0..10)
             .map(|_| random_expr::<Ops, D, _>(&mut rng, &options.operators, 3, 20))
             .collect();
+        let trees = std::hint::black_box(trees);
 
         group.bench_function(BenchmarkId::new("compute_complexity_x10", "u16"), |b| {
             b.iter(|| {
                 for tree in &trees {
-                    let _ = symbolic_regression::compute_complexity(&tree.nodes, &options);
+                    std::hint::black_box(symbolic_regression::compute_complexity(&tree.nodes, &options));
                 }
             })
         });
