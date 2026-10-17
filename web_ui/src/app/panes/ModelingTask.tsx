@@ -1,6 +1,32 @@
 import React, { useMemo } from "react";
 import { useSessionStore } from "../../state/sessionStore";
-import type { WasmOpInfo } from "../../types/srTypes";
+import type { LossScale, WasmOpInfo } from "../../types/srTypes";
+
+/** Built-in losses, written as PySR's `elementwise_loss` takes them. Any definition such as
+ * `f(x, y) = abs(x - y)^1.5` also works. */
+const BUILTIN_LOSSES = [
+  "L2DistLoss()",
+  "L1DistLoss()",
+  "LPDistLoss{3}()",
+  "HuberLoss(1.0)",
+  "L1EpsilonInsLoss(0.1)",
+  "L2EpsilonInsLoss(0.1)",
+  "LogitDistLoss()",
+  "QuantileLoss(0.5)",
+  "LogCoshLoss()",
+  "PeriodicLoss(1.0)",
+  "ZeroOneLoss()",
+  "PerceptronLoss()",
+  "LogitMarginLoss()",
+  "L1HingeLoss()",
+  "L2HingeLoss()",
+  "SmoothedL1HingeLoss(1.0)",
+  "ModifiedHuberLoss()",
+  "L2MarginLoss()",
+  "ExpLoss()",
+  "SigmoidLoss()",
+  "DWDMarginLoss(1.0)"
+];
 
 function groupByArity(ops: WasmOpInfo[]): Record<number, WasmOpInfo[]> {
   const out: Record<number, WasmOpInfo[]> = {};
@@ -123,20 +149,30 @@ export function ModelingTask(): React.ReactElement {
         <div className="cardTitle">Loss</div>
         <div className="row">
           <label className="field">
-            <div className="label">loss_kind</div>
-            <select value={options.loss_kind} onChange={(e) => setOptionsPatch({ loss_kind: e.target.value })}>
-              <option value="mse">MSE</option>
-              <option value="mae">MAE</option>
-              <option value="rmse">RMSE</option>
-              <option value="huber">Huber</option>
+            <div className="label">loss</div>
+            <input type="text" list="builtin-losses" value={options.loss} onChange={(e) => setOptionsPatch({ loss: e.target.value })} />
+            <datalist id="builtin-losses">
+              {BUILTIN_LOSSES.map((loss) => (
+                <option key={loss} value={loss} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field">
+            <div className="label">loss_scale</div>
+            <select value={options.loss_scale} onChange={(e) => setOptionsPatch({ loss_scale: e.target.value as LossScale })}>
+              <option value="log">log</option>
+              <option value="linear">linear</option>
             </select>
           </label>
-          {options.loss_kind === "huber" && (
-            <label className="field">
-              <div className="label">huber_delta</div>
-              <input type="number" min={1e-6} step={0.1} value={options.huber_delta} onChange={(e) => setOptionsPatch({ huber_delta: Number(e.target.value) })} />
-            </label>
-          )}
+          <label className="field">
+            <div className="label">early_stop_condition</div>
+            <input
+              type="text"
+              placeholder="1e-6 or f(loss, complexity) = loss < 1e-6 && complexity < 10"
+              value={options.early_stop_condition ?? ""}
+              onChange={(e) => setOptionsPatch({ early_stop_condition: e.target.value.trim() === "" ? null : e.target.value })}
+            />
+          </label>
         </div>
       </div>
 

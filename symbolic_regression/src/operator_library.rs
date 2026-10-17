@@ -4,11 +4,16 @@ use dynamic_expressions::{HasOp, OperatorSet, Operators};
 pub struct OperatorLibrary;
 
 impl OperatorLibrary {
-    pub fn sr_default<Ops, const D: usize>() -> Operators<D>
+    pub fn sr_default<Ops, const D: usize>() -> Operators<Ops, D>
     where
-        Ops: HasOp<builtin::Add> + HasOp<builtin::Sub> + HasOp<builtin::Mul> + HasOp<builtin::Div> + OperatorSet,
+        Ops: HasOp<builtin::Add>
+            + HasOp<builtin::Sub>
+            + HasOp<builtin::Mul>
+            + HasOp<builtin::Div>
+            + OperatorSet
+            + Default,
     {
-        let mut ops = Operators::<D>::new();
+        let mut ops = Operators::<Ops, D>::default();
         if D >= 2 {
             for op in [
                 <Ops as HasOp<builtin::Add>>::op_id(),

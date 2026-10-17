@@ -70,14 +70,17 @@ impl<T: Float> Dataset<T> {
         avg_y: Option<T>,
     ) -> Self {
         let x = x.as_standard_layout().to_owned();
+        let y = contiguous(y);
+        let weights = weights.map(contiguous);
         let (n_features, n_rows) = x.dim();
         assert_eq!(y.len(), n_rows);
         if let Some(ref w) = weights {
             assert_eq!(w.len(), n_rows);
         }
 
-        let avg_y = avg_y
-            .unwrap_or_else(|| Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().and_then(|w| w.as_slice())));
+        let avg_y = avg_y.unwrap_or_else(|| {
+            Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().map(|w| w.as_slice().unwrap()))
+        });
 
         Self {
             x,
@@ -108,7 +111,9 @@ impl<T: Float> Dataset<T> {
     }
 
     pub fn weights_slice(&self) -> Option<&[T]> {
-        self.weights.as_ref().and_then(|w| w.as_slice())
+        self.weights
+            .as_ref()
+            .map(|w| w.as_slice().expect("weights are contiguous"))
     }
 
     pub fn compute_avg_y(y: &[T], weights: Option<&[T]>) -> T {
@@ -165,5 +170,14 @@ impl<T: Float> Dataset<T> {
                 dst[dst_col] = src[src_idx];
             }
         }
+    }
+}
+
+/// `a`, copied into a contiguous array only if it is not one already, so it has a slice view.
+fn contiguous<T: Clone>(a: Array1<T>) -> Array1<T> {
+    if a.is_standard_layout() {
+        a
+    } else {
+        a.as_standard_layout().into_owned()
     }
 }

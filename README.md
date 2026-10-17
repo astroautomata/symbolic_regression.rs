@@ -64,21 +64,22 @@ fn main() {
 
     let dataset = Dataset::new(x, y);
 
-    let operators = BuiltinOpsF32::from_names(["cos", "exp", "sin", "+", "sub", "*", "/"]).unwrap();
+    let operators = BuiltinOpsF32::new().from_names(["cos", "exp", "sin", "+", "sub", "*", "/"]).unwrap();
 
-    let options = Options::<f32, D> {
+    let options = Options::<f32, BuiltinOpsF32, D> {
         operators,
         niterations: 200,
         ..Default::default()
     };
 
-    let result = equation_search::<f32, BuiltinOpsF32, D>(&dataset, &options);
+    let result = equation_search::<f32, BuiltinOpsF32, D>(&dataset, &options).unwrap();
     let dominating = result.hall_of_fame.pareto_front();
 
     println!("Final Pareto front:");
     println!("Complexity\tMSE\tEquation");
     for member in dominating {
-        println!("{}\t{}\t{}", member.complexity, member.loss, member.expr);
+        let equation = string_tree(&member.expr, &options.operators.set, Default::default());
+        println!("{}\t{}\t{}", member.complexity, member.loss, equation);
     }
     // To evaluate the expression, use:
     /*
@@ -89,6 +90,7 @@ fn main() {
             .clone();
         let _ = eval_tree_array::<f32, BuiltinOpsF32, D>(
             &tree,
+            &options.operators.set,
             dataset.x.view(),
             &EvalOptions::default(),
         );
@@ -129,7 +131,7 @@ op!(Sub for f64 {
 });
 
 opset! {
-    pub CustomOps for f64 {
+    pub MyOps for f64 {
         Square,
         Exp,
         Add,
@@ -137,9 +139,41 @@ opset! {
     }
 }
 
-let operators = CustomOps::from_names(["square", "exp", "add", "sub"]).unwrap();
-let options = Options::<f64, _> { operators, ..Default::default() };
+let operators = MyOps::new().from_names(["square", "exp", "add", "sub"]).unwrap();
+let options = Options::<f64, MyOps, _> { operators, ..Default::default() };
 ```
+
+Operators can also be written as strings in the Julia syntax that PySR uses, such as `"inv(x) = 1/x"` or `"f(x, y) = x * exp(-y^2)"`. They are parsed, differentiated, and compiled once, when the operator set is built; errors such as unknown functions are reported then. `parse_operator_tokens` accepts built-in names and definitions together, and the definitions become the `custom` table of the operator set:
+
+```rust
+use symbolic_regression::prelude::*;
+
+let (custom, names) = parse_operator_tokens::<f64, _>(["+", "*", "cos", "inv(x) = 1/x"]).unwrap();
+let operator_set = BuiltinOpsF64::new().with_custom(custom);
+let options = Options::<f64, _, 2> {
+    operators: operator_set.from_names(&names).unwrap(),
+    ..Default::default()
+};
+```
+
+The WASM binding (`WasmSearch`) accepts the same definitions in its operator lists.
+
+## Losses and early stopping
+
+`Options::loss` defaults to `L2DistLoss()`. `parse_loss` reads PySR's `elementwise_loss` strings: a built-in loss from SymbolicRegression.jl by its constructor, such as `"L1DistLoss()"`, `"HuberLoss(1.5)"`, `"LPDistLoss{3}()"`, or a classification loss such as `"L1HingeLoss()"` (see `BuiltinLoss`; `BuiltinLoss::into_loss` builds the same loss without a string), or a definition taking `(prediction, target)`, or `(prediction, target, weight)` for datasets with weights. Definitions are differentiated once for constant optimization. `parse_early_stop` reads `early_stop_condition`: a loss threshold such as `"1e-6"`, or a definition of `(loss, complexity)` that returns Bool. `loss_scale` sets how the Pareto front is scored: `LossScale::Log` (the default) needs non-negative losses, and `LossScale::Linear` allows negative ones. As in SymbolicRegression.jl, a negative loss on the Pareto front under `LossScale::Log` is an error: `SearchEngine::step`, `equation_search`, and `SearchEngine::best` return it. `SearchResult::best` and `SearchEngine::best` are the equation `choose_best` picks under `loss_scale`.
+
+```rust
+use symbolic_regression::prelude::*;
+
+let options = Options::<f64, BuiltinOpsF64, 2> {
+    loss: parse_loss("myloss(x, y, w) = w * abs(x - y)").unwrap(),
+    early_stop_condition: Some(parse_early_stop("stop_if(loss, complexity) = loss < 1e-6 && complexity < 10").unwrap()),
+    loss_scale: LossScale::Linear,
+    ..Default::default()
+};
+```
+
+`WasmSearch` takes the same strings as its `loss` and `early_stop_condition` options, and `loss_scale` as `"log"` or `"linear"`.
 
 ## WASM
 

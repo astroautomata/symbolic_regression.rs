@@ -32,8 +32,8 @@ struct CombineCfg {
     sub_id: Option<u16>,
 }
 
-fn lookup_id_with_arity<Ops: OperatorSet>(token: &str, arity: u8) -> Option<u16> {
-    Ops::lookup_with_arity(token, arity).ok().map(|op| op.id)
+fn lookup_id_with_arity<Ops: OperatorSet>(ops: &Ops, token: &str, arity: u8) -> Option<u16> {
+    ops.lookup_with_arity(token, arity).ok().map(|op| op.id)
 }
 
 fn is_const<const D: usize>(arena: &[ArenaNode<D>], id: usize) -> Option<u16> {
@@ -372,6 +372,7 @@ where
 
 pub fn simplify_tree_in_place<T, Ops, const D: usize>(
     expr: &mut PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     eval_opts: &EvalOptions,
 ) -> bool
 where
@@ -448,7 +449,7 @@ where
                     args[j] = SrcRef::Const(vals[j]);
                 }
 
-                let ok = Ops::eval(
+                let ok = ops.eval(
                     OpId { arity, id: op },
                     EvalKernelCtx {
                         out: &mut out,
@@ -487,26 +488,30 @@ where
     changed
 }
 
-pub fn combine_operators_in_place<T, Ops, const D: usize>(expr: &mut PostfixExpr<T, Ops, D>) -> bool
+pub fn combine_operators_in_place<T, Ops, const D: usize>(expr: &mut PostfixExpr<T, Ops, D>, ops: &Ops) -> bool
 where
     T: Float,
     Ops: OperatorSet,
 {
     let cfg = CombineCfg {
-        add_id: lookup_id_with_arity::<Ops>("+", 2),
-        mul_id: lookup_id_with_arity::<Ops>("*", 2),
-        sub_id: lookup_id_with_arity::<Ops>("-", 2),
+        add_id: lookup_id_with_arity(ops, "+", 2),
+        mul_id: lookup_id_with_arity(ops, "*", 2),
+        sub_id: lookup_id_with_arity(ops, "-", 2),
     };
     combine_operators_in_place_with_cfg(expr, cfg)
 }
 
-pub fn simplify_in_place<T, Ops, const D: usize>(expr: &mut PostfixExpr<T, Ops, D>, eval_opts: &EvalOptions) -> bool
+pub fn simplify_in_place<T, Ops, const D: usize>(
+    expr: &mut PostfixExpr<T, Ops, D>,
+    ops: &Ops,
+    eval_opts: &EvalOptions,
+) -> bool
 where
     T: Float,
     Ops: OperatorSet<T = T>,
 {
-    let c1 = simplify_tree_in_place(expr, eval_opts);
-    let c2 = combine_operators_in_place(expr);
+    let c1 = simplify_tree_in_place(expr, ops, eval_opts);
+    let c2 = combine_operators_in_place(expr, ops);
     let c3 = crate::utils::compress_constants(expr);
     c1 || c2 || c3
 }
