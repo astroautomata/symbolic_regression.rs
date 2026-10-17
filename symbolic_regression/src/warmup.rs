@@ -2,8 +2,8 @@ use num_traits::Float;
 
 use crate::options::Options;
 
-pub fn get_cur_maxsize<T: Float, const D: usize>(
-    options: &Options<T, D>,
+pub fn get_cur_maxsize<T: Float, Ops, const D: usize>(
+    options: &Options<T, Ops, D>,
     total_cycles: usize,
     cycles_remaining: usize,
 ) -> usize {

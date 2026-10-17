@@ -133,7 +133,16 @@ fn strip_outer_parens(mut s: &str) -> &str {
     }
 }
 
-pub fn string_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>, opts: StringTreeOptions<'_>) -> String
+/// Tokens that read as names (`greater`, `atan2`) print as calls; symbols (`+`, `>`) print infix.
+fn is_identifier(token: &str) -> bool {
+    token.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_')
+}
+
+pub fn string_tree<T, Ops, const D: usize>(
+    expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
+    opts: StringTreeOptions<'_>,
+) -> String
 where
     T: fmt::Display + ToPrimitive,
     Ops: OperatorSet,
@@ -159,14 +168,13 @@ where
         },
         |op, children| {
             debug_assert_eq!(children.len(), op.arity as usize);
-            let has_infix = Ops::infix(op).is_some();
             let op_display = if opts.pretty {
-                Ops::display(op)
+                ops.display(op)
             } else {
-                Ops::infix(op).unwrap_or(Ops::name(op))
+                ops.infix(op).unwrap_or(ops.name(op))
             };
             let args = children.iter().map(|s| s.as_str());
-            if has_infix && op.arity > 1 {
+            if op.arity > 1 && !is_identifier(op_display) {
                 // Infix form, like {c1} {op} {c2} {op} {c3} ...
                 let joined = args.collect::<Vec<_>>().join(format!(" {op_display} ").as_str());
                 format!("({joined})")
@@ -179,22 +187,12 @@ where
     strip_outer_parens(&out).to_string()
 }
 
-pub fn print_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>)
+pub fn print_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>, ops: &Ops)
 where
     T: fmt::Display + ToPrimitive,
     Ops: OperatorSet,
 {
-    println!("{}", string_tree(expr, StringTreeOptions::default()));
-}
-
-impl<T, Ops, const D: usize> fmt::Display for PostfixExpr<T, Ops, D>
-where
-    T: fmt::Display + ToPrimitive,
-    Ops: OperatorSet,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&string_tree(self, StringTreeOptions::default()))
-    }
+    println!("{}", string_tree(expr, ops, StringTreeOptions::default()));
 }
 
 #[cfg(test)]

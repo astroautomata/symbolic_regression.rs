@@ -19,16 +19,16 @@ pub struct OpId {
     pub id: u16,
 }
 
-/// Each operator-set implementation generates a `&'static [OpMeta]` per arity and does
-/// `META.get(op.id as usize)`.
+/// Operator sets build `OpMeta<'static>` tables for built-ins; runtime operators borrow their
+/// tokens from the operator-set value.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct OpMeta {
+pub struct OpMeta<'a> {
     pub arity: u8,
     pub id: u16,
-    pub name: &'static str,
-    pub display: &'static str,
-    pub infix: Option<&'static str>,
-    pub aliases: &'static [&'static str],
+    pub name: &'a str,
+    pub display: &'a str,
+    pub infix: Option<&'a str>,
+    pub aliases: &'a [&'a str],
     pub commutative: bool,
     pub associative: bool,
     pub complexity: u16,
@@ -56,10 +56,7 @@ pub trait HasOp<Tag: OpTag> {
 #[derive(Debug, Clone)]
 pub enum LookupError {
     Unknown(String),
-    Ambiguous {
-        token: String,
-        candidates: Vec<&'static str>,
-    },
+    Ambiguous { token: String, candidates: Vec<String> },
 }
 
 /// Operator-set abstraction.
@@ -70,57 +67,63 @@ pub enum LookupError {
 pub trait OperatorSet: Sized {
     type T: Float;
 
-    const MAX_ARITY: u8;
+    /// Guarantees unit complexity for every registered operator, including runtime operators.
+    const UNIT_COMPLEXITY: bool = false;
 
-    fn ops_with_arity(arity: u8) -> &'static [u16];
+    fn max_arity(&self) -> u8;
+
+    fn ops_with_arity(&self, arity: u8) -> impl Iterator<Item = u16> + '_;
 
     /// The only required metadata entrypoint.
-    fn meta(op: OpId) -> Option<&'static OpMeta>;
+    fn meta(&self, op: OpId) -> Option<OpMeta<'_>>;
+
+    /// Operators defined at runtime. They shadow built-ins with the same token in `lookup`.
+    fn is_custom(&self, op: OpId) -> bool;
 
     // ---- Convenience defaults derived from meta() ----
 
     #[inline]
-    fn name(op: OpId) -> &'static str {
-        Self::meta(op).map(|m| m.name).unwrap_or("unknown_op")
+    fn name(&self, op: OpId) -> &str {
+        self.meta(op).map(|m| m.name).unwrap_or("unknown_op")
     }
 
     #[inline]
-    fn display(op: OpId) -> &'static str {
-        Self::meta(op).map(|m| m.display).unwrap_or("unknown_op")
+    fn display(&self, op: OpId) -> &str {
+        self.meta(op).map(|m| m.display).unwrap_or("unknown_op")
     }
 
     #[inline]
-    fn infix(op: OpId) -> Option<&'static str> {
-        Self::meta(op).and_then(|m| m.infix)
+    fn infix(&self, op: OpId) -> Option<&str> {
+        self.meta(op).and_then(|m| m.infix)
     }
 
     #[inline]
-    fn commutative(op: OpId) -> bool {
-        Self::meta(op).is_some_and(|m| m.commutative)
+    fn commutative(&self, op: OpId) -> bool {
+        self.meta(op).is_some_and(|m| m.commutative)
     }
 
     #[inline]
-    fn associative(op: OpId) -> bool {
-        Self::meta(op).is_some_and(|m| m.associative)
+    fn associative(&self, op: OpId) -> bool {
+        self.meta(op).is_some_and(|m| m.associative)
     }
 
     #[inline]
-    fn complexity(op: OpId) -> u16 {
-        Self::meta(op).map(|m| m.complexity).unwrap_or(0)
+    fn complexity(&self, op: OpId) -> u16 {
+        self.meta(op).map(|m| m.complexity).unwrap_or(0)
     }
 
     // ---- Kernel dispatch ----
 
-    fn eval(op: OpId, ctx: crate::dispatch::EvalKernelCtx<'_, '_, Self::T>) -> bool;
-    fn diff(op: OpId, ctx: crate::dispatch::DiffKernelCtx<'_, '_, Self::T>) -> bool;
-    fn grad(op: OpId, ctx: crate::dispatch::GradKernelCtx<'_, '_, Self::T>) -> bool;
+    fn eval(&self, op: OpId, ctx: crate::dispatch::EvalKernelCtx<'_, '_, Self::T>) -> bool;
+    fn diff(&self, op: OpId, ctx: crate::dispatch::DiffKernelCtx<'_, '_, Self::T>) -> bool;
+    fn grad(&self, op: OpId, ctx: crate::dispatch::GradKernelCtx<'_, '_, Self::T>) -> bool;
 
     // ---- Token lookup ----
 
     #[inline]
-    fn matches_token(op: OpId, tok: &str) -> bool {
+    fn matches_token(&self, op: OpId, tok: &str) -> bool {
         let t = tok.trim();
-        let Some(meta) = Self::meta(op) else {
+        let Some(meta) = self.meta(op) else {
             return false;
         };
 
@@ -131,51 +134,48 @@ pub trait OperatorSet: Sized {
     }
 
     #[inline]
-    fn for_each_op(mut f: impl FnMut(OpId)) {
-        for arity in 1..=Self::MAX_ARITY {
-            for &id in Self::ops_with_arity(arity) {
+    fn for_each_op(&self, mut f: impl FnMut(OpId)) {
+        for arity in 1..=self.max_arity() {
+            for id in self.ops_with_arity(arity) {
                 f(OpId { arity, id });
             }
         }
     }
 
-    fn lookup_all(token: &str) -> Vec<OpId> {
+    fn lookup_all(&self, token: &str) -> Vec<OpId> {
         let mut out = Vec::new();
-        Self::for_each_op(|op| {
-            if Self::matches_token(op, token) {
+        self.for_each_op(|op| {
+            if self.matches_token(op, token) {
                 out.push(op);
             }
         });
         out
     }
 
-    fn lookup(token: &str) -> Result<OpId, LookupError> {
-        let matches = Self::lookup_all(token);
-        match matches.as_slice() {
-            [] => Err(LookupError::Unknown(token.trim().to_string())),
-            [single] => Ok(*single),
-            _ => Err(LookupError::Ambiguous {
-                token: token.trim().to_string(),
-                candidates: matches.iter().map(|op| Self::name(*op)).collect(),
-            }),
-        }
+    fn lookup(&self, token: &str) -> Result<OpId, LookupError> {
+        resolve_lookup(self, token, self.lookup_all(token))
     }
 
-    fn lookup_with_arity(token: &str, arity: u8) -> Result<OpId, LookupError> {
-        let mut matches = Vec::new();
-        for &id in Self::ops_with_arity(arity) {
-            let op = OpId { arity, id };
-            if Self::matches_token(op, token) {
-                matches.push(op);
-            }
-        }
-        match matches.as_slice() {
-            [] => Err(LookupError::Unknown(token.trim().to_string())),
-            [single] => Ok(*single),
-            _ => Err(LookupError::Ambiguous {
-                token: token.trim().to_string(),
-                candidates: matches.iter().map(|op| Self::name(*op)).collect(),
-            }),
-        }
+    fn lookup_with_arity(&self, token: &str, arity: u8) -> Result<OpId, LookupError> {
+        let matches = self
+            .ops_with_arity(arity)
+            .map(|id| OpId { arity, id })
+            .filter(|&op| self.matches_token(op, token))
+            .collect();
+        resolve_lookup(self, token, matches)
+    }
+}
+
+fn resolve_lookup<Ops: OperatorSet>(ops: &Ops, token: &str, mut matches: Vec<OpId>) -> Result<OpId, LookupError> {
+    if matches.len() > 1 && matches.iter().any(|&op| ops.is_custom(op)) {
+        matches.retain(|&op| ops.is_custom(op));
+    }
+    match matches.as_slice() {
+        [] => Err(LookupError::Unknown(token.trim().to_string())),
+        [single] => Ok(*single),
+        _ => Err(LookupError::Ambiguous {
+            token: token.trim().to_string(),
+            candidates: matches.iter().map(|&op| ops.name(op).to_string()).collect(),
+        }),
     }
 }

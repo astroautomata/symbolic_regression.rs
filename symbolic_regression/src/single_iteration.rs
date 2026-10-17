@@ -18,7 +18,7 @@ pub struct IterationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub full_dataset: TaggedDataset<'a, T>,
     pub curmaxsize: usize,
     pub stats: &'a RunningSearchStatistics,
-    pub options: &'a Options<T, D>,
+    pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut dynamic_expressions::GradContext<T, D>,
     pub controller: &'a StopController,
@@ -85,7 +85,11 @@ where
             if ctx.controller.is_cancelled() {
                 return num_evals;
             }
-            let changed = dynamic_expressions::simplify_in_place(&mut m.expr, &ctx.evaluator.eval_opts);
+            let changed = dynamic_expressions::simplify_in_place(
+                &mut m.expr,
+                &ctx.options.operators.set,
+                &ctx.evaluator.eval_opts,
+            );
             if changed {
                 m.rebuild_plan(ctx.full_dataset.n_features);
             }

@@ -19,13 +19,17 @@ fn population_replaces_by_oldest_birth() {
         Array2::from_shape_vec((1, 1), vec![0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         ..Default::default()
     };
     let mut evaluator = Evaluator::<T, D>::new(1);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
