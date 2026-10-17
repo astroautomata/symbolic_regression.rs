@@ -14,7 +14,7 @@ fn search_terminates_when_early_stop_condition_satisfied() {
         Array1::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         use_baseline: false,
         niterations: 100,

@@ -3,8 +3,11 @@ use std::fmt;
 
 use crate::traits::{LookupError, OpId, OperatorSet};
 
+/// An operator set together with the operators selected from it. Keeping both in one value means
+/// the selected ids always refer to the set that evaluates and prints them.
 #[derive(Clone, Debug)]
-pub struct Operators<const D: usize> {
+pub struct Operators<Ops, const D: usize> {
+    pub set: Ops,
     pub ops_by_arity: [Vec<OpId>; D],
 }
 
@@ -36,9 +39,11 @@ impl fmt::Display for OperatorSelectError {
 
 impl std::error::Error for OperatorSelectError {}
 
-impl<const D: usize> Operators<D> {
-    pub fn new() -> Self {
+impl<Ops, const D: usize> Operators<Ops, D> {
+    /// No operators selected yet from `set`.
+    pub fn new(set: Ops) -> Self {
         Self {
+            set,
             ops_by_arity: std::array::from_fn(|_| Vec::new()),
         }
     }
@@ -53,7 +58,7 @@ impl<const D: usize> Operators<D> {
         self.ops_by_arity[arity - 1].len()
     }
 
-    pub fn from_names<Ops, I>(names: I) -> Result<Self, OperatorSelectError>
+    pub fn from_names<I>(set: Ops, names: I) -> Result<Self, OperatorSelectError>
     where
         Ops: OperatorSet,
         I: IntoIterator,
@@ -64,12 +69,12 @@ impl<const D: usize> Operators<D> {
             return Err(OperatorSelectError::Empty);
         }
 
-        let mut out = Self::new();
+        let mut out = Self::new(set);
         let mut seen: HashSet<(u8, u16)> = HashSet::new();
 
         for tok in iter {
             let tok = tok.as_ref();
-            let op = Ops::lookup(tok).map_err(OperatorSelectError::Lookup)?;
+            let op = out.set.lookup(tok).map_err(OperatorSelectError::Lookup)?;
             if (op.arity as usize) > D {
                 return Err(OperatorSelectError::ArityTooLarge {
                     token: tok.to_string(),
@@ -88,9 +93,9 @@ impl<const D: usize> Operators<D> {
     }
 }
 
-impl<const D: usize> Default for Operators<D> {
+impl<Ops: Default, const D: usize> Default for Operators<Ops, D> {
     fn default() -> Self {
-        Self::new()
+        Self::new(Ops::default())
     }
 }
 
@@ -111,10 +116,10 @@ mod tests {
 
     #[test]
     fn from_names_requires_disambiguation_for_dash() {
-        let ops: Result<Operators<3>, _> = BuiltinOpsF64::from_names(["-"]);
+        let ops: Result<Operators<_, 3>, _> = BuiltinOpsF64::new().from_names(["-"]);
         assert!(ops.is_err());
 
-        let ops: Operators<3> = BuiltinOpsF64::from_names(["neg", "sub"]).unwrap();
+        let ops: Operators<_, 3> = BuiltinOpsF64::new().from_names(["neg", "sub"]).unwrap();
         assert_eq!(ops.nops(1), 1);
         assert_eq!(ops.ops_by_arity[0][0], <BuiltinOpsF64 as HasOp<builtin::Neg>>::op_id());
         assert_eq!(ops.nops(2), 1);
@@ -123,7 +128,7 @@ mod tests {
 
     #[test]
     fn v2_opset_dsl_builds_operator_set() {
-        let ops: Operators<3> = V2Ops::from_names(["square"]).unwrap();
+        let ops: Operators<_, 3> = V2Ops::new().from_names(["square"]).unwrap();
         assert_eq!(ops.nops(1), 1);
     }
 }

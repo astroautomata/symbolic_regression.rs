@@ -9,7 +9,7 @@ pub trait OperatorsSampling {
     fn sample_op(&self, rng: &mut Rng, arity: usize) -> OpId;
 }
 
-impl<const D: usize> OperatorsSampling for Operators<D> {
+impl<Ops, const D: usize> OperatorsSampling for Operators<Ops, D> {
     fn total_ops_up_to(&self, max_arity: usize) -> usize {
         let max_arity = max_arity.min(D);
         (1..=max_arity).map(|a| self.nops(a)).sum()
