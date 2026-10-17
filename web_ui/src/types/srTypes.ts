@@ -25,14 +25,34 @@ export type WasmMutationWeights = {
   break_connection: number;
 };
 
+export type LossScale = "log" | "linear";
+
+/** A template expression, as PySR's `TemplateExpressionSpec`. */
+export type WasmTemplateOptions = {
+  /** The formula combining the subexpressions, such as "f(x1, x2) + p[x3]". */
+  combine: string;
+  /** Subexpression names, such as ["f", "g"]. */
+  expressions: string[];
+  /** Each subexpression's number of arguments; null infers them from `combine`. */
+  num_features: number[] | null;
+  /** The names `combine` uses for the features; null uses the selected columns' CSV headers. */
+  variable_names: string[] | null;
+  /** Parameter vectors as [name, length], in declaration order. */
+  parameters: [string, number][];
+};
+
 export type WasmSearchOptions = {
   has_headers: boolean;
   x_columns: number[] | null;
   y_column: number | null;
   weights_column: number | null;
   validation_fraction: number;
-  loss_kind: string;
-  huber_delta: number;
+  /** PySR `elementwise_loss`: a built-in such as "L1DistLoss()" or a definition such as "f(x, y) = abs(x - y)". */
+  loss: string;
+  /** PySR `early_stop_condition`: a loss threshold such as "1e-6", or a definition of (loss, complexity). */
+  early_stop_condition: string | null;
+  /** A template expression; null searches plain expressions. */
+  template: WasmTemplateOptions | null;
 
   seed: number;
   niterations: number;
@@ -58,6 +78,7 @@ export type WasmSearchOptions = {
   fraction_replaced_hof: number;
   topn: number;
   print_precision: number;
+  loss_scale: LossScale;
 
   use_frequency: boolean;
   use_frequency_in_tournament: boolean;
@@ -78,6 +99,8 @@ export type EquationPoint = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
 };
 
 export type EquationSummary = {
@@ -85,6 +108,8 @@ export type EquationSummary = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
   /** Display-precision equation (matches `print_precision`, default 5 significant digits). */
   equation: string;
   /** Full-precision equation, suitable for copy-to-clipboard. */
@@ -95,7 +120,8 @@ export type SearchSnapshot = {
   total_cycles: number;
   cycles_completed: number;
   total_evals: number;
-  best: EquationSummary;
+  /** The equation SymbolicRegression.jl reports as best (`choose_best` under `loss_scale`). */
+  best: EquationSummary | null;
   pareto_points: EquationPoint[];
 };
 

@@ -1,25 +1,35 @@
 use std::fmt::Display;
 use std::ops::AddAssign;
 
+use dynamic_expressions::dsl::TemplateEvalError;
+use dynamic_expressions::expression::PostfixExpr;
 use fastrand::Rng;
 use num_traits::Float;
 
 use crate::adaptive_parsimony::RunningSearchStatistics;
-use crate::check_constraints::check_constraints;
 use crate::dataset::{Dataset, TaggedDataset};
+use crate::expression::Expression;
 use crate::hall_of_fame::HallOfFame;
 use crate::loss_functions::baseline_loss_from_zero_expression;
 use crate::options::Options;
 use crate::pop_member::{Evaluator, PopMember};
 use crate::population::Population;
 use crate::progress_bars::SearchProgress;
-use crate::random::shuffle;
+use crate::random::{shuffle, standard_normal};
 use crate::stop_controller::StopController;
 use crate::{migration, single_iteration, warmup};
 
 pub struct SearchResult<T: Float + AddAssign, Ops, const D: usize> {
     pub hall_of_fame: HallOfFame<T, Ops, D>,
-    pub best: PopMember<T, Ops, D>,
+    /// The equation SymbolicRegression.jl reports as best: see [`HallOfFame::best`].
+    pub best: Option<PopMember<T, Ops, D>>,
+}
+
+impl<T: Float + AddAssign, Ops, const D: usize> SearchResult<T, Ops, D> {
+    fn new(hall_of_fame: HallOfFame<T, Ops, D>, options: &Options<T, Ops, D>) -> Result<Self, String> {
+        let best = hall_of_fame.best(options.loss_scale)?;
+        Ok(Self { hall_of_fame, best })
+    }
 }
 
 fn usable_rayon_threads() -> usize {
@@ -57,7 +67,6 @@ impl SearchCounters {
 
 struct SearchTaskResult<T: Float + AddAssign, Ops, const D: usize> {
     pop_idx: usize,
-    curmaxsize: usize,
     evals: f64,
     best_seen: HallOfFame<T, Ops, D>,
     best_sub_pop: Vec<PopMember<T, Ops, D>>,
@@ -77,7 +86,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
         &'a mut self,
         f: F,
         full_dataset: TaggedDataset<'a, T>,
-        options: &'a Options<T, D>,
+        options: &'a Options<T, Ops, D>,
         curmaxsize: usize,
         stats: &'a RunningSearchStatistics,
         controller: &'a StopController,
@@ -90,7 +99,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
         ) -> Ret,
     {
         let phase_dataset = if options.batching {
-            let full_data = full_dataset.data;
+            let full_data = full_dataset.data();
             if full_data.n_rows == 0 {
                 panic!("Cannot batch from an empty dataset (n_rows = 0).");
             }
@@ -128,17 +137,33 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
 struct PopPools<T: Float + AddAssign, Ops, const D: usize> {
     pops: Vec<Option<PopState<T, Ops, D>>>,
     best_sub_pops: Vec<Vec<PopMember<T, Ops, D>>>,
-    best: PopMember<T, Ops, D>,
     total_evals: f64,
 }
 
-pub fn equation_search<T, Ops, const D: usize>(dataset: &Dataset<T>, options: &Options<T, D>) -> SearchResult<T, Ops, D>
+/// Rejects options that cannot search `dataset` (see [`Options::check_dataset`]), before the
+/// search starts.
+fn check_dataset<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize>(
+    dataset: &Dataset<T>,
+    options: &Options<T, Ops, D>,
+) {
+    if let Err(message) = options.check_dataset(dataset) {
+        panic!("{message}");
+    }
+}
+
+/// Runs the whole search. Fails when the Pareto front cannot be scored under
+/// `Options::loss_scale` (see [`HallOfFame::check_loss_scale`]).
+pub fn equation_search<T, Ops, const D: usize>(
+    dataset: &Dataset<T>,
+    options: &Options<T, Ops, D>,
+) -> Result<SearchResult<T, Ops, D>, String>
 where
     T: Float + AddAssign + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + Send + Sync,
     Ops: dynamic_expressions::OperatorSet<T = T> + Send + Sync,
 {
+    check_dataset(dataset, options);
     let baseline_loss = if options.use_baseline {
-        baseline_loss_from_zero_expression::<T, Ops, D>(dataset, options.loss.as_ref())
+        baseline_loss_from_zero_expression::<T, Ops, D>(dataset, &options.operators.set, options.loss.as_ref())
     } else {
         None
     };
@@ -149,7 +174,7 @@ where
     let stats = RunningSearchStatistics::new(options.maxsize, 100_000);
     let mut hall = HallOfFame::new(options.maxsize);
 
-    let pools = init_populations(full_dataset, options, &controller, &mut hall);
+    let pools = init_populations(full_dataset, options, &controller, &mut hall).map_err(|e| e.to_string())?;
     let counters = SearchCounters {
         total_cycles: options.niterations * pools.pops.len(),
         cycles_started: 0,
@@ -172,14 +197,10 @@ where
         progress_finished: false,
     };
 
-    let _ = core.step(dataset, baseline_loss, options, &controller, usize::MAX);
+    let stepped = core.step(dataset, baseline_loss, options, &controller, usize::MAX);
     core.finish_progress_if_needed();
-
-    let SearchCore { hall, pools, .. } = core;
-    SearchResult {
-        hall_of_fame: hall,
-        best: pools.best,
-    }
+    stepped?;
+    SearchResult::new(core.hall, options)
 }
 
 struct SearchCore<T: Float + AddAssign, Ops, const D: usize> {
@@ -232,30 +253,31 @@ where
         &mut self,
         dataset: &Dataset<T>,
         baseline_loss: Option<T>,
-        options: &Options<T, D>,
+        options: &Options<T, Ops, D>,
         controller: &StopController,
         n_cycles: usize,
-    ) -> usize {
+    ) -> Result<usize, String> {
         if n_cycles == 0 {
-            return 0;
+            return Ok(0);
         }
 
         let is_finished = |counters: &SearchCounters| counters.cycles_remaining() == 0 || controller.is_cancelled();
 
         if is_finished(&self.counters) {
             self.finish_progress_if_needed();
-            return 0;
+            return Ok(0);
         }
 
         let usable_threads = usable_rayon_threads();
         let need_inline = usable_threads == 0;
         let n_workers = usable_threads.min(self.pools.pops.len()).max(1);
 
-        let completed_total = rayon::in_place_scope(|scope| {
+        let (completed_total, error) = rayon::in_place_scope(|scope| {
             let (result_tx, result_rx) = std::sync::mpsc::channel::<SearchTaskResult<T, Ops, D>>();
             let mut in_flight = 0usize;
             let mut completed_total = 0usize;
             let mut stop_dispatching = false;
+            let mut error: Option<String> = None;
 
             while completed_total < n_cycles && (!stop_dispatching || in_flight > 0) {
                 if is_finished(&self.counters) {
@@ -345,7 +367,7 @@ where
 
                 let res = result_rx.recv().expect("worker result channel closed early");
                 in_flight -= 1;
-                apply_task_result(
+                let applied = apply_task_result(
                     options,
                     &mut self.counters,
                     &mut self.stats,
@@ -356,6 +378,10 @@ where
                     controller,
                 );
                 completed_total += 1;
+                if let Err(message) = applied {
+                    error.get_or_insert(message);
+                    stop_dispatching = true;
+                }
 
                 if controller.should_stop(self.pools.total_evals) {
                     stop_dispatching = true;
@@ -363,21 +389,21 @@ where
                 }
             }
 
-            completed_total
+            (completed_total, error)
         });
 
-        if is_finished(&self.counters) {
+        if error.is_some() || is_finished(&self.counters) {
             self.finish_progress_if_needed();
         }
 
-        completed_total
+        error.map_or(Ok(completed_total), Err)
     }
 }
 
 pub struct SearchEngine<T: Float + AddAssign, Ops, const D: usize> {
     dataset: Dataset<T>,
     baseline_loss: Option<T>,
-    options: Options<T, D>,
+    options: Options<T, Ops, D>,
     controller: StopController,
     core: SearchCore<T, Ops, D>,
 }
@@ -387,9 +413,11 @@ where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    pub fn new(dataset: Dataset<T>, options: Options<T, D>) -> Self {
+    /// Builds the initial populations. Fails when the template cannot be evaluated.
+    pub fn new(dataset: Dataset<T>, options: Options<T, Ops, D>) -> Result<Self, String> {
+        check_dataset(&dataset, &options);
         let baseline_loss = if options.use_baseline {
-            baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, options.loss.as_ref())
+            baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, &options.operators.set, options.loss.as_ref())
         } else {
             None
         };
@@ -400,7 +428,7 @@ where
         let mut hall = HallOfFame::new(options.maxsize);
 
         let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
-        let pools = init_populations(full_dataset, &options, &controller, &mut hall);
+        let pools = init_populations(full_dataset, &options, &controller, &mut hall).map_err(|e| e.to_string())?;
         let counters = SearchCounters {
             total_cycles: options.niterations * pools.pops.len(),
             cycles_started: 0,
@@ -425,13 +453,13 @@ where
             progress_finished: false,
         };
 
-        Self {
+        Ok(Self {
             dataset,
             baseline_loss,
             options,
             controller,
             core,
-        }
+        })
     }
 
     pub fn total_cycles(&self) -> usize {
@@ -454,19 +482,23 @@ where
         &self.core.hall
     }
 
-    pub fn best(&self) -> &PopMember<T, Ops, D> {
-        &self.core.pools.best
+    /// See [`HallOfFame::best`].
+    pub fn best(&self) -> Result<Option<PopMember<T, Ops, D>>, String> {
+        self.core.hall.best(self.options.loss_scale)
     }
 
     pub fn dataset(&self) -> &Dataset<T> {
         &self.dataset
     }
 
-    pub fn options(&self) -> &Options<T, D> {
+    pub fn options(&self) -> &Options<T, Ops, D> {
         &self.options
     }
 
-    pub fn step(&mut self, n_cycles: usize) -> usize
+    /// Runs up to `n_cycles` more cycles and returns how many completed. Fails, after the cycles
+    /// already running finish, once the Pareto front cannot be scored under `Options::loss_scale`
+    /// (see [`HallOfFame::check_loss_scale`]).
+    pub fn step(&mut self, n_cycles: usize) -> Result<usize, String>
     where
         T: Send + Sync,
         Ops: Send + Sync,
@@ -480,24 +512,19 @@ where
         )
     }
 
-    pub fn run_to_completion(mut self) -> SearchResult<T, Ops, D>
+    pub fn run_to_completion(mut self) -> Result<SearchResult<T, Ops, D>, String>
     where
         T: Send + Sync,
         Ops: Send + Sync,
     {
-        while self.step(usize::MAX) > 0 {}
-
-        let SearchCore { hall, pools, .. } = self.core;
-        SearchResult {
-            hall_of_fame: hall,
-            best: pools.best,
-        }
+        while self.step(usize::MAX)? > 0 {}
+        SearchResult::new(self.core.hall, &self.options)
     }
 }
 
 fn execute_task<T, Ops, const D: usize>(
     full_dataset: TaggedDataset<'_, T>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     pop_idx: usize,
     curmaxsize: usize,
     stats: RunningSearchStatistics,
@@ -511,7 +538,6 @@ where
     if controller.is_cancelled() {
         return SearchTaskResult {
             pop_idx,
-            curmaxsize,
             evals: 0.0,
             best_seen: HallOfFame::new(options.maxsize),
             best_sub_pop: migration::best_sub_pop(&pop_state.pop, options.topn),
@@ -541,7 +567,6 @@ where
 
     SearchTaskResult {
         pop_idx,
-        curmaxsize,
         evals,
         best_seen,
         best_sub_pop,
@@ -549,9 +574,11 @@ where
     }
 }
 
+/// Folds a finished cycle into the search. Fails once the Pareto front cannot be scored under
+/// `Options::loss_scale`, where SymbolicRegression.jl's `format_hall_of_fame` throws.
 #[allow(clippy::too_many_arguments)]
 fn apply_task_result<T, Ops, const D: usize>(
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     counters: &mut SearchCounters,
     stats: &mut RunningSearchStatistics,
     hall: &mut HallOfFame<T, Ops, D>,
@@ -559,14 +586,14 @@ fn apply_task_result<T, Ops, const D: usize>(
     pools: &mut PopPools<T, Ops, D>,
     res: SearchTaskResult<T, Ops, D>,
     controller: &StopController,
-) where
+) -> Result<(), String>
+where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
     pools.total_evals += res.evals;
 
     let pop_idx = res.pop_idx;
-    let curmaxsize = res.curmaxsize;
     pools.best_sub_pops[pop_idx] = res.best_sub_pop;
     pools.pops[pop_idx] = Some(res.pop_state);
 
@@ -580,9 +607,6 @@ fn apply_task_result<T, Ops, const D: usize>(
     }
     for m in &st.pop.members {
         hall.consider(m, options);
-        if check_constraints(&m.expr, options, curmaxsize) && m.loss < pools.best.loss {
-            pools.best = m.clone();
-        }
     }
 
     if options.migration {
@@ -621,25 +645,29 @@ fn apply_task_result<T, Ops, const D: usize>(
     }
 
     let cycles_remaining = counters.mark_completed();
+    hall.check_loss_scale(options.loss_scale)?;
     progress.on_cycle_complete(
         hall,
+        options,
         pools.total_evals as u64,
         cycles_remaining,
         options.print_precision,
-    );
+    )
 }
 
+/// Builds and scores the initial populations. Fails when the template cannot be evaluated,
+/// which the first member's evaluation finds.
 fn init_populations<T, Ops, const D: usize>(
     full_dataset: TaggedDataset<'_, T>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     controller: &StopController,
     hall: &mut HallOfFame<T, Ops, D>,
-) -> PopPools<T, Ops, D>
+) -> Result<PopPools<T, Ops, D>, TemplateEvalError>
 where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    let dataset = full_dataset.data;
+    let dataset = full_dataset.data();
     let mut total_evals: f64 = 0.0;
     let mut pops: Vec<Option<PopState<T, Ops, D>>> = Vec::with_capacity(options.populations);
 
@@ -656,14 +684,17 @@ where
             if controller.is_cancelled() {
                 break;
             }
-            let expr = crate::mutation_functions::random_expr_append_ops(
+            let tree = crate::mutation_functions::random_expr_append_ops(
                 &mut rng,
                 &options.operators,
-                dataset.n_features,
+                options.max_features(dataset.n_features),
                 nlength,
                 options.maxsize,
             );
-            let mut m = PopMember::from_expr(expr, dataset.n_features, options);
+            let mut m = PopMember::from_expr(new_expression(tree, options, &mut rng), dataset.n_features, options);
+            if options.template.is_some() && pops.is_empty() && members.is_empty() {
+                evaluator.eval_checked(&m.expr, &m.plans, options, dataset.x.view())?;
+            }
             let _ = m.evaluate(&full_dataset, options, &mut evaluator);
             total_evals += full_dataset.dataset_fraction();
             hall.consider(&m, options);
@@ -682,43 +713,34 @@ where
         }));
     }
 
-    let mut best: Option<PopMember<T, Ops, D>> = None;
-    for st in pops.iter().flatten() {
-        for m in &st.pop.members {
-            if !check_constraints(&m.expr, options, options.maxsize) {
-                continue;
-            }
-            match &best {
-                None => best = Some(m.clone()),
-                Some(cur) => {
-                    if m.loss < cur.loss {
-                        best = Some(m.clone());
-                    }
-                }
-            }
-        }
-    }
-    let best = best.unwrap_or_else(|| {
-        pops.iter()
-            .flatten()
-            .next()
-            .expect("at least one population member exists")
-            .pop
-            .members[0]
-            .clone()
-    });
-
     let mut best_sub_pops: Vec<Vec<PopMember<T, Ops, D>>> = vec![Vec::new(); pops.len()];
     for i in 0..pops.len() {
         let st = pops[i].as_ref().expect("population exists");
         best_sub_pops[i] = migration::best_sub_pop(&st.pop, options.topn);
     }
 
-    PopPools {
+    Ok(PopPools {
         pops,
         best_sub_pops,
-        best,
         total_evals,
+    })
+}
+
+/// SymbolicRegression.jl's `create_expression`: a template starts with a copy of `tree` in every
+/// subexpression and parameters drawn from a standard normal.
+pub(crate) fn new_expression<T: Float, Ops, const D: usize>(
+    tree: PostfixExpr<T, Ops, D>,
+    options: &Options<T, Ops, D>,
+    rng: &mut Rng,
+) -> Expression<T, Ops, D> {
+    let Some(template) = &options.template else {
+        return tree.into();
+    };
+    Expression {
+        trees: std::iter::repeat_n(tree, template.expressions().len()).collect(),
+        params: (0..template.n_parameters())
+            .map(|_| T::from(standard_normal(rng)).expect("a float converts to T"))
+            .collect(),
     }
 }
 
@@ -747,8 +769,8 @@ mod batching_search_tests {
         let y = Array1::from_iter((0..n_rows).map(|i| i as T));
         let dataset = Dataset::new(x, y);
 
-        let operators = Ops::from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
-        let options: Options<T, D> = Options {
+        let operators = Ops::new().from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
+        let options: Options<T, Ops, D> = Options {
             operators,
             batching: true,
             batch_size: 5,
@@ -763,7 +785,7 @@ mod batching_search_tests {
             ..Default::default()
         };
 
-        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options.clone());
+        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options.clone()).unwrap();
         assert!(
             engine.core.pools.pops[0]
                 .as_ref()
@@ -797,8 +819,8 @@ mod batching_search_tests {
         let y = Array1::from_iter((0..n_rows).map(|i| i as T));
         let dataset = Dataset::new(x, y);
 
-        let operators = Ops::from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
-        let options: Options<T, D> = Options {
+        let operators = Ops::new().from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
+        let options: Options<T, Ops, D> = Options {
             operators,
             batching: false,
             batch_size: 5,
@@ -813,7 +835,7 @@ mod batching_search_tests {
             ..Default::default()
         };
 
-        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options);
+        let mut engine = SearchEngine::<T, Ops, D>::new(dataset, options).unwrap();
         let _ = engine.step(1);
 
         let pop_state = engine.core.pools.pops[0].as_ref().expect("pop exists");

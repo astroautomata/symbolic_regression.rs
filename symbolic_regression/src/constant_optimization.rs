@@ -1,29 +1,31 @@
 use std::ops::AddAssign;
 
 use dynamic_expressions::utils::ZipEq;
-use dynamic_expressions::{EvalOptions, GradContext, OperatorSet};
+use dynamic_expressions::{EvalOptions, EvalPlan, GradContext, OperatorSet, XColumns};
 use fastrand::Rng;
 use num_traits::{Float, FromPrimitive, ToPrimitive};
 
 use crate::dataset::{Dataset, TaggedDataset};
+use crate::expression::Expression;
 use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize, newton_1d_minimize};
 use crate::options::Options;
 use crate::pop_member::{Evaluator, PopMember, get_birth_order};
 use crate::random::standard_normal;
 
-struct EvalWorkspace<'a, T: Float + AddAssign, const D: usize> {
+struct EvalWorkspace<'a, T: Float + AddAssign, Ops, const D: usize> {
     dataset: &'a Dataset<T>,
-    options: &'a Options<T, D>,
+    x_columns: XColumns<'a, T>,
+    options: &'a Options<T, Ops, D>,
     evaluator: &'a mut Evaluator<T, D>,
     grad_ctx: &'a mut GradContext<T, D>,
     eval_opts: EvalOptions,
     dloss_dyhat: Vec<T>,
 }
 
-impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
+impl<'a, T: Float + FromPrimitive + AddAssign, Ops: OperatorSet<T = T>, const D: usize> EvalWorkspace<'a, T, Ops, D> {
     fn new(
-        dataset: &'a Dataset<T>,
-        options: &'a Options<T, D>,
+        dataset: TaggedDataset<'a, T>,
+        options: &'a Options<T, Ops, D>,
         evaluator: &'a mut Evaluator<T, D>,
         grad_ctx: &'a mut GradContext<T, D>,
     ) -> Self {
@@ -33,7 +35,8 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
         };
 
         Self {
-            dataset,
+            dataset: dataset.data(),
+            x_columns: dataset.x_columns(),
             options,
             evaluator,
             grad_ctx,
@@ -42,30 +45,15 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
         }
     }
 
-    fn loss_only<Ops>(
-        &mut self,
-        plan: &dynamic_expressions::EvalPlan<D>,
-        expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
-    ) -> Option<f64>
-    where
-        Ops: OperatorSet<T = T>,
-    {
-        let ok = dynamic_expressions::eval_plan_array_into(
-            &mut self.evaluator.yhat,
-            plan,
-            expr,
-            self.dataset.x.view(),
-            &mut self.evaluator.scratch,
-            &self.eval_opts,
-        );
-        if !ok {
+    fn loss_only(&mut self, plans: &[EvalPlan<D>], expr: &Expression<T, Ops, D>) -> Option<f64> {
+        if !self.evaluator.eval(expr, plans, self.options, self.x_columns) {
             return None;
         }
 
         let loss = self.options.loss.loss(
             &self.evaluator.yhat,
             self.dataset.y.as_slice().unwrap(),
-            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+            self.dataset.weights_slice(),
         );
         if !loss.is_finite() {
             return None;
@@ -74,23 +62,32 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
         Some(loss.to_f64().unwrap_or(f64::INFINITY))
     }
 
-    fn loss_and_grad<Ops>(
+    /// The loss and its gradient in `grad_out`. A single tree is differentiated exactly; a
+    /// template uses central finite differences, as SymbolicRegression.jl's default
+    /// (`autodiff_backend=nothing`) optimizer does.
+    fn loss_and_grad(
         &mut self,
-        _plan: &dynamic_expressions::EvalPlan<D>,
-        expr: &dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
+        plans: &[EvalPlan<D>],
+        expr: &mut Expression<T, Ops, D>,
         grad_out: &mut [f64],
-    ) -> Option<f64>
-    where
-        Ops: OperatorSet<T = T>,
-    {
-        let n_params = expr.consts.len();
+    ) -> Option<f64> {
+        if self.options.template.is_some() {
+            return self.loss_and_finite_difference_grad(plans, expr, grad_out);
+        }
+        let tree = &expr.trees[0];
+        let n_params = tree.consts.len();
         let n_rows = self.dataset.n_rows;
         debug_assert_eq!(grad_out.len(), n_params);
         debug_assert_eq!(self.dloss_dyhat.len(), n_rows);
 
-        let x = self.dataset.x.view();
-        let (yhat, dy_dc, ok) =
-            dynamic_expressions::eval_grad_tree_array(expr, x, false, self.grad_ctx, &self.eval_opts);
+        let (yhat, dy_dc, ok) = dynamic_expressions::eval_grad_tree_array(
+            tree,
+            &self.options.operators.set,
+            self.x_columns,
+            false,
+            self.grad_ctx,
+            &self.eval_opts,
+        );
         if !ok {
             return None;
         }
@@ -98,11 +95,10 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
             return None;
         }
 
-        let loss = self.options.loss.loss(
-            &yhat,
-            self.dataset.y.as_slice().unwrap(),
-            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
-        );
+        let loss = self
+            .options
+            .loss
+            .loss(&yhat, self.dataset.y.as_slice().unwrap(), self.dataset.weights_slice());
         if !loss.is_finite() {
             return None;
         }
@@ -110,7 +106,7 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
         self.options.loss.dloss_dyhat(
             &yhat,
             self.dataset.y.as_slice().unwrap(),
-            self.dataset.weights.as_ref().and_then(|w| w.as_slice()),
+            self.dataset.weights_slice(),
             &mut self.dloss_dyhat,
         );
 
@@ -131,20 +127,42 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
         Some(loss.to_f64().unwrap_or(f64::INFINITY))
     }
 
-    fn optimize_from_start<Ops>(
+    fn loss_and_finite_difference_grad(
+        &mut self,
+        plans: &[EvalPlan<D>],
+        expr: &mut Expression<T, Ops, D>,
+        grad_out: &mut [f64],
+    ) -> Option<f64> {
+        let loss = self.loss_only(plans, expr)?;
+        let mut values = expr.constants();
+        // FiniteDiff.jl's central-difference step for the element type.
+        let rel_step = T::epsilon().to_f64()?.cbrt();
+        for (i, g) in grad_out.iter_mut().enumerate() {
+            let x = values[i];
+            let h = rel_step * x.to_f64()?.abs().max(1.0);
+            values[i] = x + T::from_f64(h)?;
+            expr.set_constants(&values);
+            let up = self.loss_only(plans, expr);
+            values[i] = x - T::from_f64(h)?;
+            expr.set_constants(&values);
+            let down = self.loss_only(plans, expr);
+            values[i] = x;
+            expr.set_constants(&values);
+            *g = (up? - down?) / (2.0 * h);
+        }
+        Some(loss)
+    }
+
+    fn optimize_from_start(
         &mut self,
         start: &[f64],
         n_params: usize,
         member: &mut PopMember<T, Ops, D>,
         optim_opts: OptimOptions,
         ls: BackTracking,
-    ) -> Option<crate::optim::OptimResult>
-    where
-        T: FromPrimitive,
-        Ops: OperatorSet<T = T>,
-    {
+    ) -> Option<crate::optim::OptimResult> {
         let mut obj = ConstObjective {
-            plan: &member.plan,
+            plans: &member.plans,
             expr: &mut member.expr,
             workspace: self,
         };
@@ -158,37 +176,48 @@ impl<'a, T: Float + AddAssign, const D: usize> EvalWorkspace<'a, T, D> {
 }
 
 struct ConstObjective<'plan, 'expr, 'work, 'data, T: Float + AddAssign, Ops, const D: usize> {
-    plan: &'plan dynamic_expressions::EvalPlan<D>,
-    expr: &'expr mut dynamic_expressions::expression::PostfixExpr<T, Ops, D>,
-    workspace: &'work mut EvalWorkspace<'data, T, D>,
+    plans: &'plan [EvalPlan<D>],
+    expr: &'expr mut Expression<T, Ops, D>,
+    workspace: &'work mut EvalWorkspace<'data, T, Ops, D>,
 }
 
-impl<'plan, 'expr, 'work, 'data, T: Float + FromPrimitive + AddAssign, Ops, const D: usize> Objective
-    for ConstObjective<'plan, 'expr, 'work, 'data, T, Ops, D>
+impl<T: Float + FromPrimitive + AddAssign, Ops, const D: usize> ConstObjective<'_, '_, '_, '_, T, Ops, D> {
+    fn set(&mut self, x: &[f64]) -> Option<()> {
+        let expr = &mut *self.expr;
+        debug_assert_eq!(x.len(), expr.n_constants());
+        let slots = expr
+            .trees
+            .iter_mut()
+            .flat_map(|t| t.consts.iter_mut())
+            .chain(expr.params.iter_mut());
+        for (dst, &src) in slots.zip(x) {
+            *dst = T::from_f64(src)?;
+        }
+        Some(())
+    }
+}
+
+impl<T: Float + FromPrimitive + AddAssign, Ops, const D: usize> Objective for ConstObjective<'_, '_, '_, '_, T, Ops, D>
 where
     Ops: OperatorSet<T = T>,
 {
     fn f_only(&mut self, x: &[f64], budget: &mut crate::optim::EvalBudget) -> Option<f64> {
         budget.f_calls += 1;
-        for (dst, &src) in self.expr.consts.iter_mut().zip_eq(x) {
-            *dst = T::from_f64(src)?;
-        }
-        self.workspace.loss_only::<Ops>(self.plan, self.expr)
+        self.set(x)?;
+        self.workspace.loss_only(self.plans, self.expr)
     }
 
     fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut crate::optim::EvalBudget) -> Option<f64> {
         budget.f_calls += 1;
-        for (dst, &src) in self.expr.consts.iter_mut().zip_eq(x) {
-            *dst = T::from_f64(src)?;
-        }
-        self.workspace.loss_and_grad::<Ops>(self.plan, self.expr, g_out)
+        self.set(x)?;
+        self.workspace.loss_and_grad(self.plans, self.expr, g_out)
     }
 }
 
 pub fn optimize_constants<T: Float + FromPrimitive + ToPrimitive + AddAssign, Ops, const D: usize>(
     rng: &mut Rng,
     member: &mut PopMember<T, Ops, D>,
-    ctx: OptimizeConstantsCtx<'_, '_, T, D>,
+    ctx: OptimizeConstantsCtx<'_, '_, T, Ops, D>,
 ) -> (bool, f64)
 where
     Ops: OperatorSet<T = T>,
@@ -199,27 +228,26 @@ where
         evaluator,
         grad_ctx,
     } = ctx;
-    let dataset_ref: &Dataset<T> = dataset.data;
     evaluator.ensure_n_rows(dataset.n_rows);
     grad_ctx.n_rows = dataset.n_rows;
-    let n_params = member.expr.consts.len();
+    let n_params = member.expr.n_constants();
     if n_params == 0 {
         return (false, 0.0);
     }
 
-    let orig_consts = member.expr.consts.clone();
+    let orig_consts = member.expr.constants();
     let orig_birth = member.birth;
     let orig_loss = member.loss;
     let orig_cost = member.cost;
 
-    let mut workspace = EvalWorkspace::new(dataset_ref, options, evaluator, grad_ctx);
+    let mut workspace = EvalWorkspace::new(dataset, options, evaluator, grad_ctx);
 
-    let baseline = match workspace.loss_only::<Ops>(&member.plan, &member.expr) {
+    let baseline = match workspace.loss_only(&member.plans, &member.expr) {
         Some(v) => v,
         None => return (false, 0.0),
     };
 
-    let x0: Vec<f64> = member.expr.consts.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+    let x0: Vec<f64> = orig_consts.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
 
     let mut best_x = x0.clone();
     let mut best_f = baseline;
@@ -266,12 +294,11 @@ where
     }
 
     if best_f < baseline {
-        for (dst, &src) in member.expr.consts.iter_mut().zip_eq(&best_x) {
-            *dst = T::from_f64(src).unwrap_or_else(T::zero);
-        }
+        let best: Vec<T> = best_x.iter().map(|&v| T::from_f64(v).unwrap_or_else(T::zero)).collect();
+        member.expr.set_constants(&best);
         let ok = member.evaluate(&dataset, options, evaluator);
         if !ok {
-            member.expr.consts = orig_consts;
+            member.expr.set_constants(&orig_consts);
             member.birth = orig_birth;
             member.loss = orig_loss;
             member.cost = orig_cost;
@@ -281,7 +308,7 @@ where
         member.birth = get_birth_order(options.deterministic);
         (true, n_evals)
     } else {
-        member.expr.consts = orig_consts;
+        member.expr.set_constants(&orig_consts);
         member.birth = orig_birth;
         member.loss = orig_loss;
         member.cost = orig_cost;
@@ -289,9 +316,9 @@ where
     }
 }
 
-pub struct OptimizeConstantsCtx<'a, 'd, T: Float, const D: usize> {
+pub struct OptimizeConstantsCtx<'a, 'd, T: Float, Ops, const D: usize> {
     pub dataset: TaggedDataset<'d, T>,
-    pub options: &'a Options<T, D>,
+    pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub grad_ctx: &'a mut GradContext<T, D>,
 }
