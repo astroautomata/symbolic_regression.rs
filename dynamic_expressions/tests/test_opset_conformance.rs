@@ -65,7 +65,7 @@ where
     PostfixExpr::new(nodes, consts, Default::default())
 }
 
-fn run_opset_conformance<Opset, const D: usize>()
+fn run_opset_conformance<Opset, const D: usize>(ops: &Opset)
 where
     Opset: OperatorSet<T = f64>,
 {
@@ -82,28 +82,28 @@ where
     let mut gctx = GradContext::<f64, D>::new(n_rows);
     let mut dctx = DiffContext::<f64, D>::new(n_rows);
 
-    Opset::for_each_op(|op| {
-        assert!(Opset::meta(op).is_some());
+    ops.for_each_op(|op| {
+        assert!(ops.meta(op).is_some());
 
-        let name = Opset::name(op);
-        let display = Opset::display(op);
+        let name = ops.name(op);
+        let display = ops.display(op);
         assert!(!name.is_empty());
         assert!(!display.is_empty());
 
         let expr_v = expr_for_op_vars::<Opset, D>(op);
 
-        let (y, ok_eval) = eval_tree_array::<f64, Opset, D>(&expr_v, x_view, &opts);
+        let (y, ok_eval) = eval_tree_array::<f64, Opset, D>(&expr_v, ops, x_view, &opts);
 
         let mut out = vec![f64::NAN; n_rows];
-        let ok_into = eval_tree_array_into::<f64, Opset, D>(&mut out, &expr_v, x_view, &mut ectx, &opts);
+        let ok_into = eval_tree_array_into::<f64, Opset, D>(&mut out, &expr_v, ops, x_view, &mut ectx, &opts);
         assert_eq!(ok_eval, ok_into);
         assert_eq_nan_ok(&y, &out);
 
-        let (_yv, grad, ok_grad) = eval_grad_tree_array::<f64, Opset, D>(&expr_v, x_view, true, &mut gctx, &opts);
+        let (_yv, grad, ok_grad) = eval_grad_tree_array::<f64, Opset, D>(&expr_v, ops, x_view, true, &mut gctx, &opts);
         assert_eq!(ok_grad, ok_eval);
 
         for dir in 0..x.nrows() {
-            let (_yd, d, ok_diff) = eval_diff_tree_array::<f64, Opset, D>(&expr_v, x_view, dir, &mut dctx, &opts);
+            let (_yd, d, ok_diff) = eval_diff_tree_array::<f64, Opset, D>(&expr_v, ops, x_view, dir, &mut dctx, &opts);
             assert_eq!(ok_diff, ok_eval);
             let gdir = &grad.data[dir * n_rows..(dir + 1) * n_rows];
             assert_eq_nan_ok(&d, gdir);
@@ -111,17 +111,18 @@ where
 
         let expr_c = expr_for_op_consts::<Opset, D>(op);
 
-        let (_yc, gconst, _ok_const) = eval_grad_tree_array::<f64, Opset, D>(&expr_c, x_view, false, &mut gctx, &opts);
+        let (_yc, gconst, _ok_const) =
+            eval_grad_tree_array::<f64, Opset, D>(&expr_c, ops, x_view, false, &mut gctx, &opts);
         assert_eq!(gconst.n_dir, op.arity as usize);
 
-        let s = string_tree(&expr_v, StringTreeOptions::default());
+        let s = string_tree(&expr_v, ops, StringTreeOptions::default());
         assert!(!s.is_empty());
     });
 }
 
 #[test]
 fn builtin_ops_f64_conformance() {
-    run_opset_conformance::<Ops, DMAX>();
+    run_opset_conformance::<Ops, DMAX>(&Ops::new());
 }
 
 #[test]
@@ -141,17 +142,19 @@ fn root_var_and_root_const_branches_are_exercised() {
 
     let expr_var: PostfixExpr<f64, Ops, DMAX> =
         PostfixExpr::new(vec![PNode::Var { feature: 0 }], vec![], Default::default());
-    let (y, ok_eval) = eval_tree_array::<f64, Ops, DMAX>(&expr_var, x_view, &opts);
+    let (y, ok_eval) = eval_tree_array::<f64, Ops, DMAX>(&expr_var, &Ops::new(), x_view, &opts);
     assert!(ok_eval);
     let mut out = vec![f64::NAN; n_rows];
-    let ok_into = eval_tree_array_into::<f64, Ops, DMAX>(&mut out, &expr_var, x_view, &mut ectx, &opts);
+    let ok_into = eval_tree_array_into::<f64, Ops, DMAX>(&mut out, &expr_var, &Ops::new(), x_view, &mut ectx, &opts);
     assert!(ok_into);
     assert_eq_nan_ok(&y, &out);
 
-    let (_y, grad, ok_grad) = eval_grad_tree_array::<f64, Ops, DMAX>(&expr_var, x_view, true, &mut gctx, &opts);
+    let (_y, grad, ok_grad) =
+        eval_grad_tree_array::<f64, Ops, DMAX>(&expr_var, &Ops::new(), x_view, true, &mut gctx, &opts);
     assert!(ok_grad);
     for dir in 0..x.nrows() {
-        let (_y, d, ok_diff) = eval_diff_tree_array::<f64, Ops, DMAX>(&expr_var, x_view, dir, &mut dctx, &opts);
+        let (_y, d, ok_diff) =
+            eval_diff_tree_array::<f64, Ops, DMAX>(&expr_var, &Ops::new(), x_view, dir, &mut dctx, &opts);
         assert!(ok_diff);
         let gdir = &grad.data[dir * n_rows..(dir + 1) * n_rows];
         assert_eq_nan_ok(&d, gdir);
@@ -159,11 +162,11 @@ fn root_var_and_root_const_branches_are_exercised() {
 
     let expr_const: PostfixExpr<f64, Ops, DMAX> =
         PostfixExpr::new(vec![PNode::Const { idx: 0 }], vec![f64::NAN], Default::default());
-    let (y, ok_eval) = eval_tree_array::<f64, Ops, DMAX>(&expr_const, x_view, &opts);
+    let (y, ok_eval) = eval_tree_array::<f64, Ops, DMAX>(&expr_const, &Ops::new(), x_view, &opts);
     assert!(!ok_eval);
     assert!(y.iter().all(|v| v.is_nan()));
     let mut out = vec![0.0f64; n_rows];
-    let ok_into = eval_tree_array_into::<f64, Ops, DMAX>(&mut out, &expr_const, x_view, &mut ectx, &opts);
+    let ok_into = eval_tree_array_into::<f64, Ops, DMAX>(&mut out, &expr_const, &Ops::new(), x_view, &mut ectx, &opts);
     assert!(!ok_into);
     assert!(out.iter().all(|v| v.is_nan()));
 }

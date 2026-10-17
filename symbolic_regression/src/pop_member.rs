@@ -94,7 +94,7 @@ impl<T: Float, Ops, const D: usize> PopMember<T, Ops, D>
 where
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    pub fn from_expr(expr: PostfixExpr<T, Ops, D>, n_features: usize, options: &Options<T, D>) -> Self {
+    pub fn from_expr(expr: PostfixExpr<T, Ops, D>, n_features: usize, options: &Options<T, Ops, D>) -> Self {
         let plan = dynamic_expressions::compile_plan(&expr.nodes, n_features, expr.consts.len());
         Self {
             birth: get_birth_order(options.deterministic),
@@ -125,7 +125,7 @@ where
     pub fn evaluate(
         &mut self,
         dataset: &TaggedDataset<'_, T>,
-        options: &Options<T, D>,
+        options: &Options<T, Ops, D>,
         evaluator: &mut Evaluator<T, D>,
     ) -> bool {
         evaluator.ensure_n_rows(dataset.n_rows);
@@ -133,6 +133,7 @@ where
             &mut evaluator.yhat,
             &self.plan,
             &self.expr,
+            &options.operators.set,
             dataset.x.view(),
             &mut evaluator.scratch,
             &evaluator.eval_opts,
