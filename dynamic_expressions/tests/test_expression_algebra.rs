@@ -18,11 +18,11 @@ fn build_expr_with_algebra_and_eval() {
         check_finite: true,
         early_exit: true,
     };
-    let (y, ok) = eval_tree_array::<f64, TestOps, 3>(&ex, x_view, &opts);
+    let (y, ok) = eval_tree_array::<f64, TestOps, 3>(&ex, &TestOps::new(), x_view, &opts);
     assert!(ok);
 
     let ref_ex = expr_readme_like();
-    let (y2, ok2) = eval_tree_array::<f64, TestOps, 3>(&ref_ex, x_view, &opts);
+    let (y2, ok2) = eval_tree_array::<f64, TestOps, 3>(&ref_ex, &TestOps::new(), x_view, &opts);
     assert!(ok2);
 
     assert_close_vec(&y, &y2, 1e-12);
@@ -38,7 +38,7 @@ fn lit_left_mul_works() {
         check_finite: true,
         early_exit: true,
     };
-    let (y, ok) = eval_tree_array::<f64, TestOps, 3>(&ex, x_view, &opts);
+    let (y, ok) = eval_tree_array::<f64, TestOps, 3>(&ex, &TestOps::new(), x_view, &opts);
     assert!(ok);
 
     for (i, &v) in y.iter().enumerate() {

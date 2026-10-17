@@ -20,7 +20,7 @@ fn equation_search_runs() {
         Array1::from_vec(y),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         seed: 123,
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         populations: 2,
