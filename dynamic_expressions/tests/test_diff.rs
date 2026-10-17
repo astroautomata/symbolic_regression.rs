@@ -16,8 +16,14 @@ fn diff_matches_finite_difference_readme_like() {
     };
 
     let mut dctx = DiffContext::<f64, 3>::new(x_view.ncols());
-    let (_eval, d, ok) =
-        dynamic_expressions::eval_diff_tree_array::<f64, TestOps, 3>(&expr, x_view, 1, &mut dctx, &opts);
+    let (_eval, d, ok) = dynamic_expressions::eval_diff_tree_array::<f64, TestOps, 3>(
+        &expr,
+        &TestOps::new(),
+        x_view,
+        1,
+        &mut dctx,
+        &opts,
+    );
     assert!(ok);
 
     let fd = finite_diff_dir(&expr, &x_data, n_features, n_rows, 1, 1e-6);

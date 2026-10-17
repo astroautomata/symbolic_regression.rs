@@ -126,7 +126,10 @@ self.onmessage = async (e: MessageEvent<WorkerToWorkerMsg>) => {
         return;
       }
       if (!running) {
-        void runLoop();
+        runLoop().catch((err) => {
+          running = false;
+          post({ type: "error", error: String(err) });
+        });
       }
       return;
     }

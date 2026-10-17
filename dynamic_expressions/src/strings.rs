@@ -14,6 +14,11 @@ pub struct StringTreeOptions<'a> {
     /// each value's `Display` impl (full precision). `Some(n)` formats via a `%.<n>g`-style
     /// emulation that matches SymbolicRegression.jl's `print_precision` behavior.
     pub print_precision: Option<usize>,
+    /// Text appended to each variable, by feature, such as SymbolicRegression.jl's unit labels
+    /// (`x1[m s⁻¹]`).
+    pub variable_suffixes: Option<&'a [String]>,
+    /// Text appended to each constant, such as SymbolicRegression.jl's free-unit marker `[?]`.
+    pub constant_suffix: &'a str,
 }
 
 pub fn default_string_variable(feature: u16, names: Option<&[String]>) -> String {
@@ -133,7 +138,16 @@ fn strip_outer_parens(mut s: &str) -> &str {
     }
 }
 
-pub fn string_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>, opts: StringTreeOptions<'_>) -> String
+/// Tokens that read as names (`greater`, `atan2`) print as calls; symbols (`+`, `>`) print infix.
+fn is_identifier(token: &str) -> bool {
+    token.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_')
+}
+
+pub fn string_tree<T, Ops, const D: usize>(
+    expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
+    opts: StringTreeOptions<'_>,
+) -> String
 where
     T: fmt::Display + ToPrimitive,
     Ops: OperatorSet,
@@ -149,8 +163,13 @@ where
     let out = crate::node_utils::tree_mapreduce(
         &expr.nodes,
         |n| match *n {
-            PNode::Var { feature } => default_string_variable(feature, names),
-            PNode::Const { idx } => format_constant(&expr.consts[usize::from(idx)], opts.print_precision),
+            PNode::Var { feature } => {
+                let suffix = opts.variable_suffixes.and_then(|s| s.get(usize::from(feature)));
+                default_string_variable(feature, names) + suffix.map_or("", String::as_str)
+            }
+            PNode::Const { idx } => {
+                format_constant(&expr.consts[usize::from(idx)], opts.print_precision) + opts.constant_suffix
+            }
             _ => unreachable!("branch node in leaf mapper"),
         },
         |n| match *n {
@@ -159,14 +178,13 @@ where
         },
         |op, children| {
             debug_assert_eq!(children.len(), op.arity as usize);
-            let has_infix = Ops::infix(op).is_some();
             let op_display = if opts.pretty {
-                Ops::display(op)
+                ops.display(op)
             } else {
-                Ops::infix(op).unwrap_or(Ops::name(op))
+                ops.infix(op).unwrap_or(ops.name(op))
             };
             let args = children.iter().map(|s| s.as_str());
-            if has_infix && op.arity > 1 {
+            if op.arity > 1 && !is_identifier(op_display) {
                 // Infix form, like {c1} {op} {c2} {op} {c3} ...
                 let joined = args.collect::<Vec<_>>().join(format!(" {op_display} ").as_str());
                 format!("({joined})")
@@ -179,22 +197,12 @@ where
     strip_outer_parens(&out).to_string()
 }
 
-pub fn print_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>)
+pub fn print_tree<T, Ops, const D: usize>(expr: &PostfixExpr<T, Ops, D>, ops: &Ops)
 where
     T: fmt::Display + ToPrimitive,
     Ops: OperatorSet,
 {
-    println!("{}", string_tree(expr, StringTreeOptions::default()));
-}
-
-impl<T, Ops, const D: usize> fmt::Display for PostfixExpr<T, Ops, D>
-where
-    T: fmt::Display + ToPrimitive,
-    Ops: OperatorSet,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&string_tree(self, StringTreeOptions::default()))
-    }
+    println!("{}", string_tree(expr, ops, StringTreeOptions::default()));
 }
 
 #[cfg(test)]

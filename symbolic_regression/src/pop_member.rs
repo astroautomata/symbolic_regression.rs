@@ -3,22 +3,24 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dynamic_expressions::expression::PostfixExpr;
-use dynamic_expressions::{EvalOptions, EvalPlan};
+use dynamic_expressions::dsl::{TemplateEvalError, TemplateWorkspace};
+use dynamic_expressions::{EvalOptions, EvalPlan, XColumns};
 use num_traits::Float;
 #[cfg(target_arch = "wasm32")]
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use crate::complexity::compute_complexity;
 use crate::dataset::TaggedDataset;
+use crate::dimensional_analysis::violates_dimensional_constraints;
+use crate::expression::{Expression, OneOrMany};
 use crate::loss_functions::loss_to_cost;
 use crate::options::Options;
 
 #[derive(Debug)]
 pub struct PopMember<T: Float, Ops, const D: usize> {
     pub birth: u64,
-    pub expr: PostfixExpr<T, Ops, D>,
-    pub plan: EvalPlan<D>,
+    pub expr: Expression<T, Ops, D>,
+    /// One evaluation plan per tree of `expr`, with a single plan stored inline.
+    pub plans: OneOrMany<EvalPlan<D>>,
     pub complexity: usize,
     pub loss: T,
     pub cost: T,
@@ -57,7 +59,7 @@ impl<T: Float, Ops, const D: usize> Clone for PopMember<T, Ops, D> {
         Self {
             birth: self.birth,
             expr: self.expr.clone(),
-            plan: self.plan.clone(),
+            plans: self.plans.clone(),
             complexity: self.complexity,
             loss: self.loss,
             cost: self.cost,
@@ -69,6 +71,7 @@ pub struct Evaluator<T: Float, const D: usize> {
     pub eval_opts: EvalOptions,
     pub yhat: Vec<T>,
     pub scratch: ndarray::Array2<T>,
+    pub template: TemplateWorkspace<T>,
 }
 
 impl<T: Float, const D: usize> Evaluator<T, D> {
@@ -80,6 +83,7 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
             },
             yhat: vec![T::zero(); n_rows],
             scratch: ndarray::Array2::zeros((0, 0)),
+            template: TemplateWorkspace::default(),
         }
     }
 
@@ -88,57 +92,100 @@ impl<T: Float, const D: usize> Evaluator<T, D> {
             self.yhat.resize(n_rows, T::zero());
         }
     }
+
+    /// Evaluates `expr` on `x` into `yhat`; `false` when the result is invalid. The search calls
+    /// [`Self::eval_checked`] once before any other evaluation, so a template cannot fail here.
+    pub fn eval<'a, Ops>(
+        &mut self,
+        expr: &Expression<T, Ops, D>,
+        plans: &[EvalPlan<D>],
+        options: &Options<T, Ops, D>,
+        x: impl Into<XColumns<'a, T>>,
+    ) -> bool
+    where
+        T: 'a,
+        Ops: dynamic_expressions::OperatorSet<T = T>,
+    {
+        self.eval_checked(expr, plans, options, x)
+            .expect("the search checks that the template can be evaluated before it starts")
+    }
+
+    /// [`Self::eval`], failing when the template cannot be evaluated at all.
+    pub fn eval_checked<'a, Ops>(
+        &mut self,
+        expr: &Expression<T, Ops, D>,
+        plans: &[EvalPlan<D>],
+        options: &Options<T, Ops, D>,
+        x: impl Into<XColumns<'a, T>>,
+    ) -> Result<bool, TemplateEvalError>
+    where
+        T: 'a,
+        Ops: dynamic_expressions::OperatorSet<T = T>,
+    {
+        let x = x.into();
+        match &options.template {
+            None => Ok(dynamic_expressions::eval_plan_array_into(
+                &mut self.yhat,
+                &plans[0],
+                &expr.trees[0],
+                &options.operators.set,
+                x,
+                &mut self.scratch,
+                &self.eval_opts,
+            )),
+            Some(template) => template.eval_into(
+                &mut self.yhat,
+                &expr.trees,
+                plans,
+                &expr.params,
+                &options.operators.set,
+                x.view(),
+                &mut self.template,
+            ),
+        }
+    }
 }
 
 impl<T: Float, Ops, const D: usize> PopMember<T, Ops, D>
 where
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    pub fn from_expr(expr: PostfixExpr<T, Ops, D>, n_features: usize, options: &Options<T, D>) -> Self {
-        let plan = dynamic_expressions::compile_plan(&expr.nodes, n_features, expr.consts.len());
-        Self {
-            birth: get_birth_order(options.deterministic),
-            expr,
-            plan,
-            complexity: 0,
-            loss: T::infinity(),
-            cost: T::infinity(),
-        }
+    pub fn from_expr(expr: impl Into<Expression<T, Ops, D>>, n_features: usize, options: &Options<T, Ops, D>) -> Self {
+        Self::from_expr_with_birth(get_birth_order(options.deterministic), expr, n_features, options)
     }
 
-    pub fn from_expr_with_birth(birth: u64, expr: PostfixExpr<T, Ops, D>, n_features: usize) -> Self {
-        let plan = dynamic_expressions::compile_plan(&expr.nodes, n_features, expr.consts.len());
+    pub fn from_expr_with_birth(
+        birth: u64,
+        expr: impl Into<Expression<T, Ops, D>>,
+        n_features: usize,
+        options: &Options<T, Ops, D>,
+    ) -> Self {
+        let expr = expr.into();
+        let plans = expr.compile_plans(options.max_features(n_features));
         Self {
             birth,
             expr,
-            plan,
+            plans,
             complexity: 0,
             loss: T::infinity(),
             cost: T::infinity(),
         }
     }
 
-    pub fn rebuild_plan(&mut self, n_features: usize) {
-        self.plan = dynamic_expressions::compile_plan(&self.expr.nodes, n_features, self.expr.consts.len());
+    pub fn rebuild_plans(&mut self, n_features: usize, options: &Options<T, Ops, D>) {
+        self.plans = self.expr.compile_plans(options.max_features(n_features));
     }
 
     pub fn evaluate(
         &mut self,
         dataset: &TaggedDataset<'_, T>,
-        options: &Options<T, D>,
+        options: &Options<T, Ops, D>,
         evaluator: &mut Evaluator<T, D>,
     ) -> bool {
         evaluator.ensure_n_rows(dataset.n_rows);
-        let ok = dynamic_expressions::eval_plan_array_into(
-            &mut evaluator.yhat,
-            &self.plan,
-            &self.expr,
-            dataset.x.view(),
-            &mut evaluator.scratch,
-            &evaluator.eval_opts,
-        );
+        let ok = evaluator.eval(&self.expr, &self.plans, options, dataset.x_columns());
 
-        self.complexity = compute_complexity(&self.expr.nodes, options);
+        self.complexity = options.complexity(&self.expr);
 
         if !ok {
             self.loss = T::infinity();
@@ -146,11 +193,20 @@ where
             return false;
         }
 
-        let loss = options.loss.loss(
-            &evaluator.yhat,
-            dataset.y.as_slice().unwrap(),
-            dataset.weights.as_ref().and_then(|w| w.as_slice()),
-        );
+        let mut loss = options
+            .loss
+            .loss(&evaluator.yhat, dataset.y.as_slice().unwrap(), dataset.weights_slice());
+        if let Some(units) = &dataset.units {
+            if violates_dimensional_constraints(
+                &self.expr.trees[0],
+                units,
+                dataset.x.view(),
+                &options.operators.set,
+                options.dimensionless_constants_only,
+            ) {
+                loss = loss + T::from(options.dimensional_constraint_penalty).unwrap();
+            }
+        }
         if loss.is_nan() {
             self.loss = loss;
             self.cost = T::nan();

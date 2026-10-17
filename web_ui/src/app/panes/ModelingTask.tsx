@@ -1,6 +1,32 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useSessionStore } from "../../state/sessionStore";
-import type { WasmOpInfo } from "../../types/srTypes";
+import type { LossScale, WasmOpInfo, WasmTemplateOptions } from "../../types/srTypes";
+
+/** Built-in losses, written as PySR's `elementwise_loss` takes them. Any definition such as
+ * `f(x, y) = abs(x - y)^1.5` also works. */
+const BUILTIN_LOSSES = [
+  "L2DistLoss()",
+  "L1DistLoss()",
+  "LPDistLoss{3}()",
+  "HuberLoss(1.0)",
+  "L1EpsilonInsLoss(0.1)",
+  "L2EpsilonInsLoss(0.1)",
+  "LogitDistLoss()",
+  "QuantileLoss(0.5)",
+  "LogCoshLoss()",
+  "PeriodicLoss(1.0)",
+  "ZeroOneLoss()",
+  "PerceptronLoss()",
+  "LogitMarginLoss()",
+  "L1HingeLoss()",
+  "L2HingeLoss()",
+  "SmoothedL1HingeLoss(1.0)",
+  "ModifiedHuberLoss()",
+  "L2MarginLoss()",
+  "ExpLoss()",
+  "SigmoidLoss()",
+  "DWDMarginLoss(1.0)"
+];
 
 function groupByArity(ops: WasmOpInfo[]): Record<number, WasmOpInfo[]> {
   const out: Record<number, WasmOpInfo[]> = {};
@@ -59,6 +85,127 @@ function OperatorsGroup(props: {
           <summary>More {props.title.toLowerCase()} operators</summary>
           {renderList(more)}
         </details>
+      )}
+    </div>
+  );
+}
+
+function splitList(text: string): string[] {
+  return text
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+}
+
+/** Comma-separated subexpression arities; blank infers them. A non-integer entry stays NaN, so the
+ * search setup reports it. */
+function parseArities(text: string): number[] | null {
+  const parts = splitList(text);
+  return parts.length === 0 ? null : parts.map((s) => (/^\d+$/.test(s) ? Number(s) : NaN));
+}
+
+function TemplateCard(props: {
+  template: WasmTemplateOptions | null;
+  setTemplate: (template: WasmTemplateOptions | null) => void;
+}): React.ReactElement {
+  const { template, setTemplate } = props;
+  // The list fields keep their raw text, so typing "f, " does not drop the trailing comma.
+  const [expressionsText, setExpressionsText] = useState(template?.expressions.join(", ") ?? "");
+  const [aritiesText, setAritiesText] = useState(template?.num_features?.join(", ") ?? "");
+  const patch = (p: Partial<WasmTemplateOptions>) => template && setTemplate({ ...template, ...p });
+  const parameters = template?.parameters ?? [];
+  const aritiesValid = (parseArities(aritiesText) ?? []).every(Number.isInteger);
+
+  return (
+    <div className="card">
+      <div className="cardTitle">Template expression</div>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={template !== null}
+          onChange={(e) =>
+            setTemplate(
+              e.target.checked
+                ? {
+                    combine: "",
+                    expressions: splitList(expressionsText),
+                    num_features: parseArities(aritiesText),
+                    variable_names: null,
+                    parameters: []
+                  }
+                : null
+            )
+          }
+        />
+        search a template expression
+      </label>
+      {template && (
+        <>
+          <div className="row">
+            <label className="field">
+              <div className="label">combine</div>
+              <input
+                type="text"
+                placeholder="f(x1, x2) + g(x3) * p[x4]"
+                value={template.combine}
+                onChange={(e) => patch({ combine: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <div className="label">expressions</div>
+              <input
+                type="text"
+                placeholder="f, g"
+                value={expressionsText}
+                onChange={(e) => {
+                  setExpressionsText(e.target.value);
+                  patch({ expressions: splitList(e.target.value) });
+                }}
+              />
+            </label>
+            <label className="field">
+              <div className="label">arities</div>
+              <input
+                type="text"
+                placeholder="blank infers them, or 2, 1"
+                value={aritiesText}
+                onChange={(e) => {
+                  setAritiesText(e.target.value);
+                  patch({ num_features: parseArities(e.target.value) });
+                }}
+              />
+            </label>
+          </div>
+          {!aritiesValid && <div className="errorText">arities must be comma-separated whole numbers</div>}
+          <div className="subTitle">Parameters</div>
+          {parameters.map(([name, size], i) => (
+            <div className="row" key={i}>
+              <label className="field">
+                <div className="label">parameter name</div>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => patch({ parameters: parameters.map<[string, number]>((p, j) => (j === i ? [e.target.value, size] : p)) })}
+                />
+              </label>
+              <label className="field">
+                <div className="label">parameter size</div>
+                <input
+                  type="number"
+                  min={1}
+                  value={size}
+                  onChange={(e) => patch({ parameters: parameters.map<[string, number]>((p, j) => (j === i ? [name, Number(e.target.value)] : p)) })}
+                />
+              </label>
+              <button type="button" onClick={() => patch({ parameters: parameters.filter((_, j) => j !== i) })}>
+                remove
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => patch({ parameters: [...parameters, ["p", 1]] })}>
+            add parameter
+          </button>
+        </>
       )}
     </div>
   );
@@ -123,22 +270,34 @@ export function ModelingTask(): React.ReactElement {
         <div className="cardTitle">Loss</div>
         <div className="row">
           <label className="field">
-            <div className="label">loss_kind</div>
-            <select value={options.loss_kind} onChange={(e) => setOptionsPatch({ loss_kind: e.target.value })}>
-              <option value="mse">MSE</option>
-              <option value="mae">MAE</option>
-              <option value="rmse">RMSE</option>
-              <option value="huber">Huber</option>
+            <div className="label">loss</div>
+            <input type="text" list="builtin-losses" value={options.loss} onChange={(e) => setOptionsPatch({ loss: e.target.value })} />
+            <datalist id="builtin-losses">
+              {BUILTIN_LOSSES.map((loss) => (
+                <option key={loss} value={loss} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field">
+            <div className="label">loss_scale</div>
+            <select value={options.loss_scale} onChange={(e) => setOptionsPatch({ loss_scale: e.target.value as LossScale })}>
+              <option value="log">log</option>
+              <option value="linear">linear</option>
             </select>
           </label>
-          {options.loss_kind === "huber" && (
-            <label className="field">
-              <div className="label">huber_delta</div>
-              <input type="number" min={1e-6} step={0.1} value={options.huber_delta} onChange={(e) => setOptionsPatch({ huber_delta: Number(e.target.value) })} />
-            </label>
-          )}
+          <label className="field">
+            <div className="label">early_stop_condition</div>
+            <input
+              type="text"
+              placeholder="1e-6 or f(loss, complexity) = loss < 1e-6 && complexity < 10"
+              value={options.early_stop_condition ?? ""}
+              onChange={(e) => setOptionsPatch({ early_stop_condition: e.target.value.trim() === "" ? null : e.target.value })}
+            />
+          </label>
         </div>
       </div>
+
+      <TemplateCard template={options.template ?? null} setTemplate={(template) => setOptionsPatch({ template })} />
 
       <div className="card">
         <div className="cardTitle">Hyperparameters</div>
@@ -205,6 +364,22 @@ export function ModelingTask(): React.ReactElement {
               <label className="field">
                 <div className="label">topn</div>
                 <input type="number" min={1} value={options.topn} onChange={(e) => setOptionsPatch({ topn: Number(e.target.value) })} />
+              </label>
+              <label className="field">
+                <div className="label">dimensional_constraint_penalty</div>
+                <input
+                  type="number"
+                  value={options.dimensional_constraint_penalty}
+                  onChange={(e) => setOptionsPatch({ dimensional_constraint_penalty: Number(e.target.value) })}
+                />
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.dimensionless_constants_only}
+                  onChange={(e) => setOptionsPatch({ dimensionless_constants_only: e.target.checked })}
+                />
+                dimensionless_constants_only
               </label>
             </section>
 

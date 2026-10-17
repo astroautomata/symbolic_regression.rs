@@ -39,7 +39,7 @@ fn next_generation_fails_constraints_after_retries() {
         break_connection: 0.0,
     };
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         mutation_weights: weights,
         maxsize: 1,
@@ -52,9 +52,13 @@ fn next_generation_fails_constraints_after_retries() {
     };
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
-    let mut member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features);
+    let mut member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features, &options);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
@@ -104,7 +108,7 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         break_connection: 0.0,
     };
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         mutation_weights: weights,
         maxsize: 1,
@@ -119,12 +123,16 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
-    let member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features);
+    let member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features, &options);
     let mut pop = Population::new(vec![member]);
 
     let mut rng = Rng::with_seed(0);

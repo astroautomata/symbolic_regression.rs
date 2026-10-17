@@ -10,6 +10,8 @@ on:
       - .cargo/**
       - Cargo.toml
       - codecov.yml
+      - xtask/**
+      - tools/**
       - .github/workflows/ci-symbolic-regression.yml
   push:
     branches:
@@ -20,6 +22,8 @@ on:
       - .cargo/**
       - Cargo.toml
       - codecov.yml
+      - xtask/**
+      - tools/**
       - .github/workflows/ci-symbolic-regression.yml
   workflow_dispatch:
 
@@ -98,6 +102,30 @@ jobs:
 
       - name: cargo test
         run: cargo test -p symbolic_regression --all-targets --all-features
+
+  parity:
+    name: test-suite parity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: SymbolicRegression.jl at the pinned commit
+        run: |
+          git clone --filter=blob:none https://github.com/astroautomata/SymbolicRegression.jl "$RUNNER_TEMP/SymbolicRegression.jl"
+          git -C "$RUNNER_TEMP/SymbolicRegression.jl" checkout --detach f97764fb898a0279ca434a615d4e40f52fdb9469
+
+      - name: Checker tests
+        run: cargo test -p xtask
+
+      - name: Parity check
+        run: cargo xtask parity --julia-repo "$RUNNER_TEMP/SymbolicRegression.jl" --require-done-through 4 --run
 
   coverage:
     name: coverage (codecov)

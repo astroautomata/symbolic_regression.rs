@@ -20,7 +20,7 @@ fn equation_search_runs() {
         Array1::from_vec(y),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         seed: 123,
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         populations: 2,
@@ -35,6 +35,6 @@ fn equation_search_runs() {
         ..Default::default()
     };
 
-    let result = equation_search::<T, TestOps, D>(&dataset, &options);
-    assert!(result.best.loss.is_finite());
+    let result = equation_search::<T, TestOps, D>(&dataset, &options).unwrap();
+    assert!(result.best.unwrap().loss.is_finite());
 }
