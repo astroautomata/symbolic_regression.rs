@@ -32,10 +32,10 @@ fn opset_can_mix_builtin_and_user_defined_ops() {
             id: <UserOps as HasOp<Square>>::ID
         }
     );
-    assert_eq!(UserOps::lookup("square").unwrap(), square_op);
+    assert_eq!(UserOps::new().lookup("square").unwrap(), square_op);
 
     let sin = <UserOps as HasOp<builtin::Sin>>::op_id();
-    assert_eq!(UserOps::lookup("sin").unwrap(), sin);
+    assert_eq!(UserOps::new().lookup("sin").unwrap(), sin);
 
     let x = Array2::from_shape_vec((1, 4), vec![-2.0, -1.0, 0.5, 3.0]).unwrap();
     let expr = square(var(0));
@@ -44,7 +44,7 @@ fn opset_can_mix_builtin_and_user_defined_ops() {
         check_finite: true,
         early_exit: true,
     };
-    let (out, ok) = eval_tree_array::<f64, UserOps, 2>(&expr, x.view(), &opts);
+    let (out, ok) = eval_tree_array::<f64, UserOps, 2>(&expr, &UserOps::new(), x.view(), &opts);
     assert!(ok);
     assert_eq!(out, vec![4.0, 1.0, 0.25, 9.0]);
 }

@@ -35,7 +35,7 @@ pub fn best_of_sample<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     pop: &Population<T, Ops, D>,
     stats: &RunningSearchStatistics,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
 ) -> PopMember<T, Ops, D> {
     let n = options.tournament_selection_n.min(pop.len());
     let indices = sample_indices(rng, pop.len(), n);
