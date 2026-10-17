@@ -50,19 +50,19 @@ fn search_finishes_outside_a_one_thread_pool() {
     let x: Vec<f64> = (0..32).map(|i| i as f64 * 0.1).collect();
     let y = x.iter().map(|v| v * v).collect();
     let dataset = Dataset::new(Array2::from_shape_vec((1, 32), x).unwrap(), Array1::from_vec(y));
-    let options = Options::<f64, 1> {
+    let options = Options::<f64, SquareOps, 1> {
         niterations: 2,
         populations: 2,
         population_size: 20,
         ncycles_per_iteration: 10,
         progress: false,
-        operators: SquareOps::from_names(["square"]).unwrap(),
+        operators: SquareOps::new().from_names(["square"]).unwrap(),
         ..Default::default()
     };
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = equation_search::<f64, SquareOps, 1>(&dataset, &options);
-        tx.send(result.best.loss).unwrap();
+        let result = equation_search::<f64, SquareOps, 1>(std::slice::from_ref(&dataset), &options).unwrap();
+        tx.send(result.best[0].as_ref().unwrap().loss).unwrap();
     });
     let loss = rx
         .recv_timeout(Duration::from_secs(60))
@@ -88,7 +88,7 @@ fn concurrent_searches_finish_outside_a_two_thread_pool() {
                 let dataset = Dataset::new(Array2::from_shape_vec((1, 8), x).unwrap(), Array1::from_vec(y));
                 let reached_first_cycle = Arc::new(AtomicBool::new(false));
                 let reached = Arc::clone(&reached_first_cycle);
-                let options = Options::<f64, 1> {
+                let options = Options::<f64, SquareOps, 1> {
                     niterations: 2,
                     populations: 1,
                     population_size: 20,
@@ -96,7 +96,7 @@ fn concurrent_searches_finish_outside_a_two_thread_pool() {
                     progress: false,
                     should_optimize_constants: false,
                     should_simplify: false,
-                    operators: SquareOps::from_names(["square"]).unwrap(),
+                    operators: SquareOps::new().from_names(["square"]).unwrap(),
                     early_stop_condition: Some(Arc::new(move |_, _| {
                         // The callback runs on the coordinator. Neither search can finish its
                         // first cycle until the other coordinator is also running.
@@ -109,9 +109,9 @@ fn concurrent_searches_finish_outside_a_two_thread_pool() {
                 };
                 start.wait();
                 assert!(rayon::current_thread_index().is_none());
-                let result = equation_search::<f64, SquareOps, 1>(&dataset, &options);
+                let result = equation_search::<f64, SquareOps, 1>(std::slice::from_ref(&dataset), &options).unwrap();
                 assert!(reached_first_cycle.load(Ordering::Relaxed));
-                assert!(result.best.loss.is_finite());
+                assert!(result.best[0].as_ref().unwrap().loss.is_finite());
             })
         })
         .collect();
