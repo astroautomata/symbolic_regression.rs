@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/astroautomata/symbolic_regression.rs/compare/symbolic_regression-v0.12.2...symbolic_regression-v0.12.3) (2026-10-17)
+
+
+### Bug Fixes
+
+* keep coordinators off rayon worker threads ([#56](https://github.com/astroautomata/symbolic_regression.rs/issues/56)) ([a6c4613](https://github.com/astroautomata/symbolic_regression.rs/commit/a6c4613691ef1a8e1d61944e3dd5c6b3ac8d1bb2))
+
 ## [0.12.2](https://github.com/astroautomata/symbolic_regression.rs/compare/symbolic_regression-v0.12.1...symbolic_regression-v0.12.2) (2026-05-22)
 
 
