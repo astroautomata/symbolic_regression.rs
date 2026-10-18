@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use csv::ReaderBuilder;
+use dynamic_expressions::dsl::{CustomOps, parse_operator_tokens};
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
 use dynamic_expressions::strings::{StringTreeOptions, string_tree};
 use dynamic_expressions::utils::ZipEq;
@@ -9,8 +10,47 @@ use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
-use symbolic_regression::{Dataset, LossKind, Options, SearchEngine, WasmOptionsShim};
+use symbolic_regression::{Dataset, Options, SearchEngine, WasmOptionsShim, choose_best, parse_early_stop, parse_loss};
 use wasm_bindgen::prelude::*;
+
+type WasmOps = BuiltinOpsF64<CustomOps<f64>>;
+
+/// Operator tokens from the web UI, one list per arity. A token is a built-in name or symbol
+/// (`"cos"`, `"+"`) or a custom operator definition (`"inv(x) = 1/x"`); each operator must take as
+/// many arguments as its list says.
+fn operators_from_tokens(
+    unary: &[String],
+    binary: &[String],
+    ternary: &[String],
+) -> Result<Operators<WasmOps, 3>, String> {
+    let tokens: Vec<(u8, &str)> = (1u8..)
+        .zip([unary, binary, ternary])
+        .flat_map(|(arity, list)| {
+            list.iter().map(move |s| match (arity, s.as_str()) {
+                (1, "-") => (arity, "neg"),
+                (2, "-") => (arity, "sub"),
+                (_, s) => (arity, s),
+            })
+        })
+        .collect();
+    let (custom, names) = parse_operator_tokens::<f64, _>(tokens.iter().map(|&(_, t)| t)).map_err(|e| e.to_string())?;
+    let operators = BuiltinOpsF64::new()
+        .with_custom(custom)
+        .from_names(&names)
+        .map_err(|e| e.to_string())?;
+    for (&(arity, _), name) in tokens.iter().zip(&names) {
+        let op = operators.set.lookup(name).expect("from_names resolved every name");
+        if op.arity != arity {
+            let list = ["unary", "binary", "ternary"][usize::from(arity) - 1];
+            let plural = if op.arity == 1 { "" } else { "s" };
+            return Err(format!(
+                "operator `{name}` takes {} argument{plural}, but it is in the {list} operator list",
+                op.arity
+            ));
+        }
+    }
+    Ok(operators)
+}
 
 type FullDatasetParts = (Dataset<f64>, Vec<String>, Option<Array1<f64>>);
 type SelectedRows = (Array2<f64>, Array1<f64>, Option<Array1<f64>>);
@@ -42,18 +82,19 @@ pub struct WasmOpInfo {
 
 #[wasm_bindgen]
 pub fn builtin_operator_registry() -> Result<JsValue, JsValue> {
+    let opset = BuiltinOpsF64::new();
     let mut ops = Vec::new();
-    for arity in 1..=BuiltinOpsF64::MAX_ARITY {
-        for &id in BuiltinOpsF64::ops_with_arity(arity) {
+    for arity in 1..=opset.max_arity() {
+        for id in opset.ops_with_arity(arity) {
             let op = OpId { arity, id };
             ops.push(WasmOpInfo {
                 arity,
-                name: BuiltinOpsF64::name(op).to_string(),
-                display: BuiltinOpsF64::display(op).to_string(),
-                infix: BuiltinOpsF64::infix(op).map(|s| s.to_string()),
-                commutative: BuiltinOpsF64::commutative(op),
-                associative: BuiltinOpsF64::associative(op),
-                complexity: BuiltinOpsF64::complexity(op),
+                name: opset.name(op).to_string(),
+                display: opset.display(op).to_string(),
+                infix: opset.infix(op).map(|s| s.to_string()),
+                commutative: opset.commutative(op),
+                associative: opset.associative(op),
+                complexity: opset.complexity(op),
             });
         }
     }
@@ -91,12 +132,13 @@ pub struct WasmSearchOptions {
     pub weights_column: Option<usize>,
     pub validation_fraction: f64,
 
-    // Loss
-    pub loss_kind: String,
-    pub huber_delta: f64,
-    pub lp_p: f64,
-    pub quantile_tau: f64,
-    pub epsilon_insensitive_eps: f64,
+    /// PySR's `elementwise_loss`: a built-in such as `"L1DistLoss()"` or `"HuberLoss(1.5)"`, or a
+    /// definition such as `"f(x, y) = abs(x - y)^1.5"` (with a third weight argument when the data
+    /// has a weights column).
+    pub loss: String,
+    /// PySR's `early_stop_condition`: a loss threshold such as `"1e-6"`, or a definition taking
+    /// `(loss, complexity)` such as `"f(loss, complexity) = loss < 1e-6 && complexity < 10"`.
+    pub early_stop_condition: Option<String>,
 
     #[serde(flatten)]
     pub core: WasmOptionsShim,
@@ -111,11 +153,8 @@ impl Default for WasmSearchOptions {
             weights_column: None,
             validation_fraction: 0.0,
 
-            loss_kind: "mse".to_string(),
-            huber_delta: 1.0,
-            lp_p: 2.0,
-            quantile_tau: 0.5,
-            epsilon_insensitive_eps: 0.1,
+            loss: "L2DistLoss()".to_string(),
+            early_stop_condition: None,
             core: WasmOptionsShim::default(),
         }
     }
@@ -127,6 +166,8 @@ pub struct EquationPoint {
     pub complexity: usize,
     pub loss: f64,
     pub cost: f64,
+    /// The Pareto score, as in SymbolicRegression.jl's hall-of-fame table.
+    pub score: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -135,6 +176,8 @@ pub struct EquationSummary {
     pub complexity: usize,
     pub loss: f64,
     pub cost: f64,
+    /// The Pareto score, as in SymbolicRegression.jl's hall-of-fame table.
+    pub score: f64,
     /// Display-precision equation (matches SymbolicRegression.jl `print_precision`, default 5
     /// significant digits). Use this for tables / inline rendering.
     pub equation: String,
@@ -147,7 +190,8 @@ pub struct SearchSnapshot {
     pub total_cycles: usize,
     pub cycles_completed: usize,
     pub total_evals: u64,
-    pub best: EquationSummary,
+    /// The equation SymbolicRegression.jl reports as best (`choose_best` under `loss_scale`).
+    pub best: Option<EquationSummary>,
     pub pareto_points: Vec<EquationPoint>,
 }
 
@@ -177,7 +221,7 @@ pub struct WasmSplitIndices {
 
 #[wasm_bindgen]
 pub struct WasmSearch {
-    engine: SearchEngine<f64, BuiltinOpsF64, 3>,
+    engine: SearchEngine<f64, WasmOps, 3>,
     val_dataset: Option<Dataset<f64>>,
     split: WasmSplitIndices,
     pareto_k: usize,
@@ -193,26 +237,17 @@ impl WasmSearch {
         binary_tokens: JsValue,
         ternary_tokens: JsValue,
     ) -> Result<WasmSearch, JsValue> {
-        let opts: WasmSearchOptions = from_value(opts)
-            .or_else(|_| Ok::<WasmSearchOptions, serde_wasm_bindgen::Error>(WasmSearchOptions::default()))
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let opts: WasmSearchOptions = if opts.is_undefined() || opts.is_null() {
+            WasmSearchOptions::default()
+        } else {
+            from_value(opts).map_err(|e| JsValue::from_str(&e.to_string()))?
+        };
 
         let unary: Vec<String> = from_value(unary_tokens).unwrap_or_default();
         let binary: Vec<String> = from_value(binary_tokens).unwrap_or_default();
         let ternary: Vec<String> = from_value(ternary_tokens).unwrap_or_default();
 
-        let mut toks: Vec<&str> = Vec::with_capacity(unary.len() + binary.len() + ternary.len());
-        for s in &unary {
-            toks.push(if s == "-" { "neg" } else { s.as_str() });
-        }
-        for s in &binary {
-            toks.push(if s == "-" { "sub" } else { s.as_str() });
-        }
-        for s in &ternary {
-            toks.push(s.as_str());
-        }
-
-        let operators: Operators<3> = BuiltinOpsF64::from_names(toks).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let operators = operators_from_tokens(&unary, &binary, &ternary).map_err(|e| JsValue::from_str(&e))?;
 
         let (headers, rows) = parse_csv_to_rows(&csv_text, opts.has_headers).map_err(|e| JsValue::from_str(&e))?;
 
@@ -224,8 +259,12 @@ impl WasmSearch {
             .map_err(|e| JsValue::from_str(&e))?;
 
         let options = options_from_wasm(&opts, operators)?;
+        options
+            .loss
+            .check_weights(train.weights.is_some())
+            .map_err(|e| JsValue::from_str(&e))?;
 
-        let engine = SearchEngine::<f64, BuiltinOpsF64, 3>::new(train, options);
+        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options);
 
         Ok(WasmSearch {
             engine,
@@ -248,19 +287,16 @@ impl WasmSearch {
     }
 
     pub fn step(&mut self, n_cycles: usize) -> Result<JsValue, JsValue> {
-        let _ = self.engine.step(n_cycles);
-        let snap = snapshot(&self.engine, self.pareto_k);
+        self.engine.step(n_cycles).map_err(|e| JsValue::from_str(&e))?;
+        let snap = snapshot(&self.engine, self.pareto_k).map_err(|e| JsValue::from_str(&e))?;
         to_value(&snap).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     pub fn best_equations(&self, k: usize) -> Result<JsValue, JsValue> {
-        let mut pareto = self.engine.hall_of_fame().pareto_front();
-        if pareto.len() > k {
-            pareto.drain(0..(pareto.len() - k));
-        }
-        let out: Vec<EquationSummary> = pareto
-            .into_iter()
-            .map(|m| summary_from_member(&self.engine, &m))
+        let (front, _) = scored_front(&self.engine).map_err(|e| JsValue::from_str(&e))?;
+        let out: Vec<EquationSummary> = front[front.len().saturating_sub(k)..]
+            .iter()
+            .map(|(m, score)| summary_from_member(&self.engine, m, *score))
             .collect();
         to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
     }
@@ -280,37 +316,27 @@ impl WasmSearch {
 
         let m = find_member_by_id(&self.engine, member_id).ok_or_else(|| JsValue::from_str("member not found"))?;
 
-        let yhat = eval_member_on_dataset(dataset, &m)?;
+        let yhat = eval_member_on_dataset(dataset, &self.engine.options().operators.set, &m)?;
         let metrics = compute_metrics(&yhat, dataset);
         let out = WasmEvalResult { metrics, yhat };
         to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 
-fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Result<Options<f64, 3>, JsValue> {
-    let loss_kind = match opts.loss_kind.trim().to_ascii_lowercase().as_str() {
-        "mse" => LossKind::Mse,
-        "mae" => LossKind::Mae,
-        "rmse" => LossKind::Rmse,
-        "huber" => LossKind::Huber {
-            delta: opts.huber_delta,
-        },
-        "logcosh" => LossKind::LogCosh,
-        "lp" => LossKind::Lp { p: opts.lp_p },
-        "quantile" => LossKind::Quantile { tau: opts.quantile_tau },
-        "epsilon-insensitive" | "epsilon_insensitive" | "eps-insensitive" | "eps_insensitive" => {
-            LossKind::EpsilonInsensitive {
-                eps: opts.epsilon_insensitive_eps,
-            }
-        }
-        other => {
-            return Err(JsValue::from_str(&format!(
-                "unknown loss_kind {other:?} (expected \"mse\", \"mae\", \"rmse\", \"huber\", \"logcosh\", \"lp\", \"quantile\", or \"epsilon-insensitive\")"
-            )));
-        }
-    };
+fn options_from_wasm(
+    opts: &WasmSearchOptions,
+    operators: Operators<WasmOps, 3>,
+) -> Result<Options<f64, WasmOps, 3>, JsValue> {
+    let error = |e: dynamic_expressions::dsl::DslError| JsValue::from_str(&e.to_string());
+    let loss = parse_loss::<f64>(&opts.loss).map_err(error)?;
+    let early_stop_condition = opts
+        .early_stop_condition
+        .as_deref()
+        .map(parse_early_stop::<f64>)
+        .transpose()
+        .map_err(error)?;
 
-    let mut out = Options::<f64, 3> {
+    let mut out = Options::<f64, WasmOps, 3> {
         operators,
         ..Default::default()
     };
@@ -318,52 +344,66 @@ fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Resul
     opts.core.apply_to(&mut out);
     // Keep browser output clean (and default-features disables progress anyway).
     out.progress = false;
-    out.loss = symbolic_regression::make_loss::<f64>(loss_kind);
+    out.loss = loss;
+    out.early_stop_condition = early_stop_condition;
 
     Ok(out)
 }
 
-fn snapshot(engine: &SearchEngine<f64, BuiltinOpsF64, 3>, pareto_k: usize) -> SearchSnapshot {
-    let best = summary_from_member(engine, engine.best());
+type ScoredMember = (symbolic_regression::PopMember<f64, WasmOps, 3>, f64);
 
-    let mut pareto = engine.hall_of_fame().pareto_front();
-    if pareto.len() > pareto_k {
-        pareto.drain(0..(pareto.len() - pareto_k));
-    }
-    let pareto_points: Vec<EquationPoint> = pareto
-        .into_iter()
-        .map(|m| EquationPoint {
+/// The Pareto front with each member's score, and the index of the member `choose_best` picks
+/// under `loss_scale`.
+fn scored_front(engine: &SearchEngine<f64, WasmOps, 3>) -> Result<(Vec<ScoredMember>, Option<usize>), String> {
+    let loss_scale = engine.options().loss_scale;
+    let scores = engine.hall_of_fame().pareto_scores(loss_scale)?;
+    let front = engine.hall_of_fame().pareto_front();
+    let losses: Vec<f64> = front.iter().map(|m| m.loss).collect();
+    let best = choose_best(&losses, &scores, loss_scale);
+    Ok((front.into_iter().zip(scores).collect(), best))
+}
+
+fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> Result<SearchSnapshot, String> {
+    let (front, best) = scored_front(engine)?;
+    let best = best.map(|i| summary_from_member(engine, &front[i].0, front[i].1));
+    let pareto_points: Vec<EquationPoint> = front[front.len().saturating_sub(pareto_k)..]
+        .iter()
+        .map(|(m, score)| EquationPoint {
             id: m.expr.hash_nodes().to_string(),
             complexity: m.complexity,
             loss: m.loss,
             cost: m.cost,
+            score: *score,
         })
         .collect();
 
-    SearchSnapshot {
+    Ok(SearchSnapshot {
         total_cycles: engine.total_cycles(),
         cycles_completed: engine.cycles_completed(),
         total_evals: engine.total_evals(),
         best,
         pareto_points,
-    }
+    })
 }
 
 fn summary_from_member(
-    engine: &SearchEngine<f64, BuiltinOpsF64, 3>,
-    m: &symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>,
+    engine: &SearchEngine<f64, WasmOps, 3>,
+    m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
+    score: f64,
 ) -> EquationSummary {
     let variable_names = Some(engine.dataset().variable_names.as_slice());
-    let equation = string_tree::<f64, BuiltinOpsF64, 3>(
+    let equation = string_tree::<f64, WasmOps, 3>(
         &m.expr,
+        &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
             pretty: false,
             print_precision: Some(engine.options().print_precision),
         },
     );
-    let equation_full = string_tree::<f64, BuiltinOpsF64, 3>(
+    let equation_full = string_tree::<f64, WasmOps, 3>(
         &m.expr,
+        &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
             pretty: false,
@@ -375,29 +415,27 @@ fn summary_from_member(
         complexity: m.complexity,
         loss: m.loss,
         cost: m.cost,
+        score,
         equation,
         equation_full,
     }
 }
 
 fn find_member_by_id(
-    engine: &SearchEngine<f64, BuiltinOpsF64, 3>,
+    engine: &SearchEngine<f64, WasmOps, 3>,
     member_id: u64,
-) -> Option<symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>> {
+) -> Option<symbolic_regression::PopMember<f64, WasmOps, 3>> {
     engine
         .hall_of_fame()
         .members()
         .find(|m| m.expr.hash_nodes() == member_id)
         .cloned()
-        .or_else(|| {
-            let b = engine.best();
-            (b.expr.hash_nodes() == member_id).then(|| b.clone())
-        })
 }
 
 fn eval_member_on_dataset(
     dataset: &Dataset<f64>,
-    m: &symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>,
+    ops: &WasmOps,
+    m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
 ) -> Result<Vec<f64>, JsValue> {
     let mut yhat = vec![0.0_f64; dataset.n_rows];
     let mut scratch = ndarray::Array2::<f64>::zeros((0, 0));
@@ -405,10 +443,11 @@ fn eval_member_on_dataset(
         check_finite: true,
         early_exit: false,
     };
-    let ok = eval_plan_array_into::<f64, BuiltinOpsF64, 3>(
+    let ok = eval_plan_array_into::<f64, WasmOps, 3>(
         &mut yhat,
         &m.plan,
         &m.expr,
+        ops,
         dataset.x.view(),
         &mut scratch,
         &eval_opts,
@@ -421,7 +460,7 @@ fn eval_member_on_dataset(
 
 fn compute_metrics(yhat: &[f64], dataset: &Dataset<f64>) -> WasmMetrics {
     let y = dataset.y.as_slice().unwrap_or(&[]);
-    let w = dataset.weights.as_ref().and_then(|w| w.as_slice());
+    let w = dataset.weights_slice();
     let n = y.len();
 
     let mut mse = 0.0;
@@ -765,17 +804,128 @@ mod tests {
     }
 
     #[test]
+    fn wasm_search_options_read_loss_strings_and_loss_scale() {
+        let opts: WasmSearchOptions = serde_json::from_value(serde_json::json!({
+            "loss": "myloss(x, y, w) = w * abs(x - y)",
+            "early_stop_condition": "f(loss, complexity) = loss < 1e-6 && complexity < 10",
+            "loss_scale": "linear",
+        }))
+        .unwrap();
+        assert_eq!(opts.loss, "myloss(x, y, w) = w * abs(x - y)");
+        assert_eq!(opts.core.loss_scale, symbolic_regression::LossScale::Linear);
+        let options = symbolic_regression::Options::<f64, super::WasmOps, 3> {
+            loss: symbolic_regression::parse_loss(&opts.loss).unwrap(),
+            ..Default::default()
+        };
+        assert!(options.loss.check_weights(false).is_err());
+        assert!(options.loss.check_weights(true).is_ok());
+
+        assert_eq!(WasmSearchOptions::default().loss, "L2DistLoss()");
+        assert!(WasmSearchOptions::default().early_stop_condition.is_none());
+        assert!(serde_json::from_value::<WasmSearchOptions>(serde_json::json!({ "loss_scale": "cubic" })).is_err());
+    }
+
+    #[test]
     fn wasm_options_shim_apply_to_patches_core_options() {
         let mut core = WasmSearchOptions::default().core;
         core.seed = 123;
         core.niterations = 9;
         core.progress = false;
 
-        let mut opt: symbolic_regression::Options<f64, 3> = Default::default();
+        let mut opt: symbolic_regression::Options<f64, super::WasmOps, 3> = Default::default();
         core.apply_to(&mut opt);
 
         assert_eq!(opt.seed, 123);
         assert_eq!(opt.niterations, 9);
         assert!(!opt.progress);
+    }
+    fn tokens(v: &[&str]) -> Vec<String> {
+        v.iter().map(|t| t.to_string()).collect()
+    }
+
+    #[test]
+    fn operator_tokens_accept_definitions() {
+        use dynamic_expressions::OperatorSet;
+
+        let operators =
+            super::operators_from_tokens(&tokens(&["cos", "-", "inv(x) = 1/x"]), &tokens(&["+", "-"]), &[]).unwrap();
+        assert_eq!(operators.nops(1), 3);
+        assert_eq!(operators.nops(2), 2);
+        let inv = operators.set.lookup("inv").unwrap();
+        assert!(operators.set.is_custom(inv));
+        assert!(operators.ops_by_arity[0].contains(&inv));
+    }
+
+    #[test]
+    fn operator_tokens_must_match_their_list_arity() {
+        let err = super::operators_from_tokens(&tokens(&["f(x, y) = x * y"]), &[], &[]).unwrap_err();
+        assert_eq!(
+            err,
+            "operator `f` takes 2 arguments, but it is in the unary operator list"
+        );
+        let err = super::operators_from_tokens(&[], &tokens(&["+", "cos"]), &[]).unwrap_err();
+        assert_eq!(
+            err,
+            "operator `cos` takes 1 argument, but it is in the binary operator list"
+        );
+    }
+
+    #[test]
+    fn operator_tokens_reject_external_package_functions() {
+        let err = super::operators_from_tokens(&tokens(&["myerf(x) = SpecialFunctions.erf(x)"]), &[], &[]).unwrap_err();
+        assert!(err.contains("`SpecialFunctions.erf`"), "{err}");
+        let err = super::operators_from_tokens(&[], &tokens(&["p(a, b) = Primes.prime(a) + b"]), &[]).unwrap_err();
+        assert!(err.contains("`Primes.prime`"), "{err}");
+    }
+
+    fn engine(loss: &str, loss_scale: symbolic_regression::LossScale) -> super::SearchEngine<f64, super::WasmOps, 3> {
+        let x = ndarray::Array2::from_shape_fn((1, 32), |(_, i)| i as f64 / 8.0);
+        let y = x.row(0).mapv(|v| v * v - 1.0);
+        let options = super::Options::<f64, super::WasmOps, 3> {
+            operators: super::operators_from_tokens(&[], &tokens(&["+", "*"]), &[]).unwrap(),
+            loss: super::parse_loss(loss).unwrap(),
+            loss_scale,
+            niterations: 2,
+            populations: 4,
+            progress: false,
+            ..Default::default()
+        };
+        super::SearchEngine::new(super::Dataset::new(x, y), options)
+    }
+
+    #[test]
+    fn search_errors_on_negative_losses_under_log_scale() {
+        use symbolic_regression::LossScale;
+
+        let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Log);
+        let err = super::snapshot(&search, 10).unwrap_err();
+        assert!(err.contains("negative loss"), "{err}");
+        assert!(search.step(usize::MAX).unwrap_err().contains("negative loss"));
+
+        let mut search = engine("(x, y) -> abs(x - y) - 100", LossScale::Linear);
+        search.step(usize::MAX).unwrap();
+        assert!(super::snapshot(&search, 10).unwrap().best.unwrap().loss < 0.0);
+    }
+
+    #[test]
+    fn snapshot_rows_carry_scores_and_best_is_the_choose_best_pick() {
+        use symbolic_regression::{LossScale, choose_best};
+
+        for loss_scale in [LossScale::Log, LossScale::Linear] {
+            let mut search = engine("L2DistLoss()", loss_scale);
+            search.step(usize::MAX).unwrap();
+            let snap = super::snapshot(&search, usize::MAX).unwrap();
+            let scores: Vec<f64> = snap.pareto_points.iter().map(|p| p.score).collect();
+            assert_eq!(scores, search.hall_of_fame().pareto_scores(loss_scale).unwrap());
+
+            let losses: Vec<f64> = snap.pareto_points.iter().map(|p| p.loss).collect();
+            let pick = &snap.pareto_points[choose_best(&losses, &scores, loss_scale).unwrap()];
+            let best = snap.best.unwrap();
+            assert_eq!((&best.id, best.score), (&pick.id, pick.score), "{loss_scale:?}");
+
+            let last_two = super::snapshot(&search, 2).unwrap().pareto_points;
+            let ids = |points: &[super::EquationPoint]| points.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+            assert_eq!(ids(&last_two), ids(&snap.pareto_points[snap.pareto_points.len() - 2..]));
+        }
     }
 }

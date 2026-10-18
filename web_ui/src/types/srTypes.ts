@@ -25,14 +25,18 @@ export type WasmMutationWeights = {
   break_connection: number;
 };
 
+export type LossScale = "log" | "linear";
+
 export type WasmSearchOptions = {
   has_headers: boolean;
   x_columns: number[] | null;
   y_column: number | null;
   weights_column: number | null;
   validation_fraction: number;
-  loss_kind: string;
-  huber_delta: number;
+  /** PySR `elementwise_loss`: a built-in such as "L1DistLoss()" or a definition such as "f(x, y) = abs(x - y)". */
+  loss: string;
+  /** PySR `early_stop_condition`: a loss threshold such as "1e-6", or a definition of (loss, complexity). */
+  early_stop_condition: string | null;
 
   seed: number;
   niterations: number;
@@ -58,6 +62,7 @@ export type WasmSearchOptions = {
   fraction_replaced_hof: number;
   topn: number;
   print_precision: number;
+  loss_scale: LossScale;
 
   use_frequency: boolean;
   use_frequency_in_tournament: boolean;
@@ -78,6 +83,8 @@ export type EquationPoint = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
 };
 
 export type EquationSummary = {
@@ -85,6 +92,8 @@ export type EquationSummary = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
   /** Display-precision equation (matches `print_precision`, default 5 significant digits). */
   equation: string;
   /** Full-precision equation, suitable for copy-to-clipboard. */
@@ -95,7 +104,8 @@ export type SearchSnapshot = {
   total_cycles: number;
   cycles_completed: number;
   total_evals: number;
-  best: EquationSummary;
+  /** The equation SymbolicRegression.jl reports as best (`choose_best` under `loss_scale`). */
+  best: EquationSummary | null;
   pareto_points: EquationPoint[];
 };
 

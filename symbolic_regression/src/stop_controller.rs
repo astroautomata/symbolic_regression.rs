@@ -18,7 +18,7 @@ pub(crate) struct StopController {
 }
 
 impl StopController {
-    pub(crate) fn from_options<T: Float, const D: usize>(options: &Options<T, D>) -> Self {
+    pub(crate) fn from_options<T: Float, Ops, const D: usize>(options: &Options<T, Ops, D>) -> Self {
         Self {
             max_evals: options.max_evals,
             timeout_in_seconds: options.timeout_in_seconds,

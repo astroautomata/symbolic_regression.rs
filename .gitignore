@@ -19,3 +19,4 @@ web_ui/src/generated/defaultCsv.ts
 **/.playwright-browsers/**
 !symbolic_regression_wasm/.cargo/
 !symbolic_regression_wasm/.cargo/**
+!/.cargo/

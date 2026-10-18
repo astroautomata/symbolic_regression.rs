@@ -12,7 +12,7 @@ fn search_engine_honors_max_evals_budget() {
         Array1::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         use_baseline: false,
         niterations: 10,
@@ -23,7 +23,7 @@ fn search_engine_honors_max_evals_budget() {
     };
 
     let mut engine = SearchEngine::<T, TestOps, D>::new(dataset, options);
-    let completed = engine.step(1000);
+    let completed = engine.step(1000).unwrap();
 
     assert_eq!(completed, 0);
     assert!(engine.is_finished());
