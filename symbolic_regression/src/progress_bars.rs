@@ -34,7 +34,7 @@ mod imp {
     }
 
     impl SearchProgress {
-        pub(crate) fn new<T: Float, const D: usize>(options: &Options<T, D>, total_cycles: usize) -> Self {
+        pub(crate) fn new<T: Float, Ops, const D: usize>(options: &Options<T, Ops, D>, total_cycles: usize) -> Self {
             let show = options.progress && std::io::stderr().is_terminal();
 
             let ansi = match options.output_style {
@@ -87,6 +87,7 @@ mod imp {
         pub(crate) fn on_cycle_complete<T, Ops, const D: usize>(
             &mut self,
             hall: &HallOfFame<T, Ops, D>,
+            ops: &Ops,
             total_evals: u64,
             cycles_remaining: usize,
             print_precision: usize,
@@ -101,6 +102,7 @@ mod imp {
             update_progress_msg(ProgressMsgCtx {
                 pb: &self.bar,
                 hall,
+                ops,
                 start_time: self.start_time,
                 msg_min_interval: self.msg_min_interval,
                 progress: &mut self.tracking,
@@ -121,6 +123,7 @@ mod imp {
     struct ProgressMsgCtx<'a, T: Float, Ops, const D: usize> {
         pb: &'a ProgressBar,
         hall: &'a HallOfFame<T, Ops, D>,
+        ops: &'a Ops,
         start_time: Instant,
         msg_min_interval: Duration,
         progress: &'a mut ProgressTracking,
@@ -138,6 +141,7 @@ mod imp {
         let ProgressMsgCtx {
             pb,
             hall,
+            ops,
             start_time,
             msg_min_interval,
             progress,
@@ -188,7 +192,7 @@ mod imp {
             ),
         };
 
-        let hof = format_hall_of_fame(hall, term_width, usize::MAX, render, print_precision);
+        let hof = format_hall_of_fame(hall, ops, term_width, usize::MAX, render, print_precision);
         let hof_title = "Hall of Fame:".to_string();
         pb.set_message(format!(
             "{}\n{}\n{}",
@@ -202,6 +206,7 @@ mod imp {
 
     fn format_hall_of_fame<T, Ops, const D: usize>(
         hall: &HallOfFame<T, Ops, D>,
+        ops: &Ops,
         terminal_width: usize,
         max_entries: usize,
         render: RenderOptions,
@@ -253,6 +258,7 @@ mod imp {
 
             let eqn_plain = string_tree(
                 &m.expr,
+                ops,
                 StringTreeOptions {
                     print_precision: Some(print_precision),
                     ..Default::default()
@@ -377,7 +383,7 @@ mod imp {
     pub(crate) struct SearchProgress;
 
     impl SearchProgress {
-        pub(crate) fn new<T: Float, const D: usize>(_options: &Options<T, D>, _total_cycles: usize) -> Self {
+        pub(crate) fn new<T: Float, Ops, const D: usize>(_options: &Options<T, Ops, D>, _total_cycles: usize) -> Self {
             Self
         }
 
@@ -386,6 +392,7 @@ mod imp {
         pub(crate) fn on_cycle_complete<T: Float, Ops, const D: usize>(
             &mut self,
             _hall: &HallOfFame<T, Ops, D>,
+            _ops: &Ops,
             _total_evals: u64,
             _cycles_remaining: usize,
             _print_precision: usize,

@@ -39,7 +39,7 @@ pub struct NextGenerationCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub temperature: f64,
     pub curmaxsize: usize,
     pub stats: &'a RunningSearchStatistics,
-    pub options: &'a Options<T, D>,
+    pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub _ops: core::marker::PhantomData<Ops>,
 }
@@ -48,7 +48,7 @@ pub struct CrossoverCtx<'a, T: Float, Ops, const D: usize> {
     pub rng: &'a mut Rng,
     pub dataset: TaggedDataset<'a, T>,
     pub curmaxsize: usize,
-    pub options: &'a Options<T, D>,
+    pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub _ops: core::marker::PhantomData<Ops>,
 }
@@ -60,7 +60,7 @@ fn count_constants(nodes: &[PNode]) -> usize {
 pub fn condition_mutation_weights<T: Float + AddAssign, Ops, const D: usize>(
     weights: &mut MutationWeights,
     member: &PopMember<T, Ops, D>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     curmaxsize: usize,
     nfeatures: usize,
 ) {
@@ -137,7 +137,7 @@ struct MutationApplyCtx<'a, 'd, T: Float + AddAssign, Ops, const D: usize> {
     dataset: TaggedDataset<'d, T>,
     temperature: f64,
     curmaxsize: usize,
-    options: &'a Options<T, D>,
+    options: &'a Options<T, Ops, D>,
     evaluator: &'a mut Evaluator<T, D>,
 }
 
@@ -196,7 +196,7 @@ impl MutationChoice {
                 MutationResult::ProposedExpr { expr, evals: 0.0 }
             }
             MutationChoice::Simplify => {
-                let _ = dynamic_expressions::simplify_in_place(&mut expr, &evaluator.eval_opts);
+                let _ = dynamic_expressions::simplify_in_place(&mut expr, &options.operators.set, &evaluator.eval_opts);
                 let mut out = PopMember::from_expr(expr, n_features, options);
 
                 // Match the intended behavior (and current SymbolicRegression.jl main):
