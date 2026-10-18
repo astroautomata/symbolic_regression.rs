@@ -123,6 +123,7 @@ fn resolve_jac_src<'a, T: Float>(
 
 fn eval_jac_tree_array<T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     x_columns: ArrayView2<'_, T>,
     target: JacTarget,
     ctx: &mut GradContext<T, D>,
@@ -197,7 +198,7 @@ where
             *dst_ja = resolve_jac_src(instr.args[j], target, dst_slot, jac_before, jac_after, jac_stride);
         }
 
-        let ok = Ops::grad(
+        let ok = ops.grad(
             OpId {
                 arity: instr.arity,
                 id: instr.op,
@@ -291,6 +292,7 @@ where
 
 pub fn eval_grad_tree_array<T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     x_columns: ArrayView2<'_, T>,
     variable: bool,
     ctx: &mut GradContext<T, D>,
@@ -305,11 +307,12 @@ where
     } else {
         JacTarget::Constants
     };
-    eval_jac_tree_array(expr, x_columns, target, ctx, opts)
+    eval_jac_tree_array(expr, ops, x_columns, target, ctx, opts)
 }
 
 pub fn eval_diff_tree_array<T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     x_columns: ArrayView2<'_, T>,
     direction: usize,
     ctx: &mut DiffContext<T, D>,
@@ -321,7 +324,8 @@ where
 {
     assert!(x_columns.is_standard_layout(), "X must be contiguous");
     assert!(direction < x_columns.nrows());
-    let (out_val, jac, complete) = eval_jac_tree_array(expr, x_columns, JacTarget::VariableDir(direction), ctx, opts);
+    let (out_val, jac, complete) =
+        eval_jac_tree_array(expr, ops, x_columns, JacTarget::VariableDir(direction), ctx, opts);
     debug_assert_eq!(jac.n_dir, 1);
     (out_val, jac.data, complete)
 }
