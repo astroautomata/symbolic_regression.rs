@@ -42,18 +42,19 @@ pub struct WasmOpInfo {
 
 #[wasm_bindgen]
 pub fn builtin_operator_registry() -> Result<JsValue, JsValue> {
+    let opset = BuiltinOpsF64::new();
     let mut ops = Vec::new();
-    for arity in 1..=BuiltinOpsF64::MAX_ARITY {
-        for &id in BuiltinOpsF64::ops_with_arity(arity) {
+    for arity in 1..=opset.max_arity() {
+        for id in opset.ops_with_arity(arity) {
             let op = OpId { arity, id };
             ops.push(WasmOpInfo {
                 arity,
-                name: BuiltinOpsF64::name(op).to_string(),
-                display: BuiltinOpsF64::display(op).to_string(),
-                infix: BuiltinOpsF64::infix(op).map(|s| s.to_string()),
-                commutative: BuiltinOpsF64::commutative(op),
-                associative: BuiltinOpsF64::associative(op),
-                complexity: BuiltinOpsF64::complexity(op),
+                name: opset.name(op).to_string(),
+                display: opset.display(op).to_string(),
+                infix: opset.infix(op).map(|s| s.to_string()),
+                commutative: opset.commutative(op),
+                associative: opset.associative(op),
+                complexity: opset.complexity(op),
             });
         }
     }
@@ -212,7 +213,9 @@ impl WasmSearch {
             toks.push(s.as_str());
         }
 
-        let operators: Operators<3> = BuiltinOpsF64::from_names(toks).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let operators: Operators<BuiltinOpsF64, 3> = BuiltinOpsF64::new()
+            .from_names(toks)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let (headers, rows) = parse_csv_to_rows(&csv_text, opts.has_headers).map_err(|e| JsValue::from_str(&e))?;
 
@@ -280,14 +283,17 @@ impl WasmSearch {
 
         let m = find_member_by_id(&self.engine, member_id).ok_or_else(|| JsValue::from_str("member not found"))?;
 
-        let yhat = eval_member_on_dataset(dataset, &m)?;
+        let yhat = eval_member_on_dataset(dataset, &self.engine.options().operators.set, &m)?;
         let metrics = compute_metrics(&yhat, dataset);
         let out = WasmEvalResult { metrics, yhat };
         to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 
-fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Result<Options<f64, 3>, JsValue> {
+fn options_from_wasm(
+    opts: &WasmSearchOptions,
+    operators: Operators<BuiltinOpsF64, 3>,
+) -> Result<Options<f64, BuiltinOpsF64, 3>, JsValue> {
     let loss_kind = match opts.loss_kind.trim().to_ascii_lowercase().as_str() {
         "mse" => LossKind::Mse,
         "mae" => LossKind::Mae,
@@ -310,7 +316,7 @@ fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Resul
         }
     };
 
-    let mut out = Options::<f64, 3> {
+    let mut out = Options::<f64, BuiltinOpsF64, 3> {
         operators,
         ..Default::default()
     };
@@ -356,6 +362,7 @@ fn summary_from_member(
     let variable_names = Some(engine.dataset().variable_names.as_slice());
     let equation = string_tree::<f64, BuiltinOpsF64, 3>(
         &m.expr,
+        &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
             pretty: false,
@@ -364,6 +371,7 @@ fn summary_from_member(
     );
     let equation_full = string_tree::<f64, BuiltinOpsF64, 3>(
         &m.expr,
+        &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
             pretty: false,
@@ -397,6 +405,7 @@ fn find_member_by_id(
 
 fn eval_member_on_dataset(
     dataset: &Dataset<f64>,
+    ops: &BuiltinOpsF64,
     m: &symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>,
 ) -> Result<Vec<f64>, JsValue> {
     let mut yhat = vec![0.0_f64; dataset.n_rows];
@@ -409,6 +418,7 @@ fn eval_member_on_dataset(
         &mut yhat,
         &m.plan,
         &m.expr,
+        ops,
         dataset.x.view(),
         &mut scratch,
         &eval_opts,
@@ -771,7 +781,7 @@ mod tests {
         core.niterations = 9;
         core.progress = false;
 
-        let mut opt: symbolic_regression::Options<f64, 3> = Default::default();
+        let mut opt: symbolic_regression::Options<f64, super::BuiltinOpsF64, 3> = Default::default();
         core.apply_to(&mut opt);
 
         assert_eq!(opt.seed, 123);

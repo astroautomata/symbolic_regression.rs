@@ -113,6 +113,7 @@ pub(crate) fn resolve_val_src<'a, T: Float>(
 
 pub fn eval_tree_array<T, Ops, const D: usize>(
     expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     x_columns: ArrayView2<'_, T>,
     opts: &EvalOptions,
 ) -> (Vec<T>, bool)
@@ -124,7 +125,7 @@ where
     let n_rows = x_columns.ncols();
     let mut ctx = EvalContext::<T, D>::new(n_rows);
     let mut out = vec![T::zero(); n_rows];
-    let complete = eval_tree_array_into::<T, Ops, D>(&mut out, expr, x_columns, &mut ctx, opts);
+    let complete = eval_tree_array_into::<T, Ops, D>(&mut out, expr, ops, x_columns, &mut ctx, opts);
     (out, complete)
 }
 
@@ -132,6 +133,7 @@ pub fn eval_plan_array_into<T, Ops, const D: usize>(
     out: &mut [T],
     plan: &EvalPlan<D>,
     expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     x_columns: ArrayView2<'_, T>,
     scratch: &mut Array2<T>,
     opts: &EvalOptions,
@@ -165,7 +167,7 @@ where
             *dst = resolve_val_src(instr.args[j], x_data, n_rows, &expr.consts, dst_slot, before, after);
         }
 
-        let ok = Ops::eval(
+        let ok = ops.eval(
             OpId {
                 arity: instr.arity,
                 id: instr.op,
@@ -207,6 +209,7 @@ where
 pub fn eval_tree_array_into<T, Ops, const D: usize>(
     out: &mut [T],
     expr: &PostfixExpr<T, Ops, D>,
+    ops: &Ops,
     x_columns: ArrayView2<'_, T>,
     ctx: &mut EvalContext<T, D>,
     opts: &EvalOptions,
@@ -223,7 +226,7 @@ where
     let plan = ctx.plan.as_ref().unwrap();
     let scratch = ctx.scratch.as_mut().unwrap();
 
-    eval_plan_array_into::<T, Ops, D>(out, plan, expr, x_columns, scratch, opts)
+    eval_plan_array_into::<T, Ops, D>(out, plan, expr, ops, x_columns, scratch, opts)
 }
 
 #[doc(hidden)]
