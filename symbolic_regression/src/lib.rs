@@ -9,6 +9,7 @@ pub(crate) mod check_constraints;
 pub(crate) mod complexity;
 pub(crate) mod constant_optimization;
 pub(crate) mod dataset;
+pub(crate) mod expression;
 pub(crate) mod hall_of_fame;
 pub(crate) mod loss_functions;
 pub(crate) mod migration;
@@ -36,12 +37,16 @@ pub mod bench;
 pub use check_constraints::{NestedConstraints, OpConstraints};
 pub use complexity::compute_complexity;
 pub use dataset::{Dataset, TaggedDataset};
+pub use dynamic_expressions::dsl::TemplateStructure;
 pub use dynamic_expressions::{OperatorSelectError, Operators, op, opset};
-pub use hall_of_fame::HallOfFame;
-pub use loss_functions::{LossKind, epsilon_insensitive, huber, log_cosh, lp, mae, make_loss, mse, quantile, rmse};
+pub use expression::{Expression, OneOrMany};
+pub use hall_of_fame::{HallOfFame, choose_best, pareto_volume};
+pub use loss_functions::{BuiltinLoss, LossFn, LossObject, parse_loss};
 pub use operator_library::OperatorLibrary;
 pub use operator_selection::OperatorsSampling;
-pub use options::{EarlyStop, EarlyStopCondition, MutationWeights, Options, OutputStyle, WasmOptionsShim};
+pub use options::{
+    EarlyStop, EarlyStopCondition, LossScale, MutationWeights, Options, OutputStyle, WasmOptionsShim, parse_early_stop,
+};
 pub use pop_member::PopMember;
 pub use search_utils::{SearchEngine, SearchResult, equation_search};
 #[cfg(feature = "bench")]

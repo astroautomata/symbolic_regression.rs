@@ -23,7 +23,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
         Array2::from_shape_vec((1, 1), vec![0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
-    let mut options = Options::<T, D> {
+    let mut options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         maxsize: 2,
         ..Default::default()
@@ -49,14 +49,18 @@ fn randomize_mutation_can_succeed_below_size_3() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
-    let mut parent = PopMember::from_expr_with_birth(0, leaf_expr(0), dataset.n_features);
+    let mut parent = PopMember::from_expr_with_birth(0, leaf_expr(0), dataset.n_features, &options);
     assert!(parent.evaluate(&full_dataset, &options, &mut evaluator));
 
     let mut rng = Rng::with_seed(0);
@@ -76,15 +80,15 @@ fn randomize_mutation_can_succeed_below_size_3() {
 
     assert!(ok, "randomize mutation should succeed with curmaxsize=2");
     assert!(
-        (1..=2).contains(&child.expr.nodes.len()),
+        (1..=2).contains(&child.expr.trees[0].nodes.len()),
         "expected a tree size in 1..=2, got {}",
-        child.expr.nodes.len()
+        child.expr.trees[0].nodes.len()
     );
 }
 
 #[test]
 fn rotate_tree_is_not_disabled_on_non_binary_trees() {
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         ..Default::default()
     };
@@ -111,7 +115,7 @@ fn rotate_tree_is_not_disabled_on_non_binary_trees() {
 
 #[test]
 fn default_mutation_weights_match_symbolicregressionjl() {
-    let w = Options::<T, D>::default().mutation_weights;
+    let w = Options::<T, TestOps, D>::default().mutation_weights;
     let eps = 1e-12;
 
     // Match SymbolicRegression.jl's `defaults` tuple in `src/Options.jl`.
@@ -146,9 +150,9 @@ fn add_node_includes_append_at_leaf_move() {
     );
 
     let add = <TestOps as HasOp<builtin::Add>>::op_id();
-    let mut ops = Operators::<D>::new();
+    let mut ops = Operators::<TestOps, D>::default();
     ops.push(add);
-    let mut options = Options::<T, D> {
+    let mut options = Options::<T, TestOps, D> {
         operators: ops,
         ..Default::default()
     };
@@ -186,18 +190,22 @@ fn add_node_includes_append_at_leaf_move() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
-    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features);
+    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features, &options);
     assert!(parent.evaluate(&full_dataset, &options, &mut evaluator));
 
     let mut rng = Rng::with_seed(0);
-    let parent_nodes = parent.expr.nodes.clone();
+    let parent_nodes = parent.expr.trees[0].nodes.clone();
     let mut saw_prepend = false;
     let mut saw_append = false;
 
@@ -217,7 +225,7 @@ fn add_node_includes_append_at_leaf_move() {
         );
         assert!(ok, "add_node mutation should succeed");
 
-        if contains_contiguous_slice(&child.expr.nodes, &parent_nodes) {
+        if contains_contiguous_slice(&child.expr.trees[0].nodes, &parent_nodes) {
             saw_prepend = true;
         } else {
             saw_append = true;
@@ -240,10 +248,10 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
     );
 
     let add = <TestOps as HasOp<builtin::Add>>::op_id();
-    let mut ops = Operators::<D>::new();
+    let mut ops = Operators::<TestOps, D>::default();
     ops.push(add);
 
-    let mut options = Options::<T, D> {
+    let mut options = Options::<T, TestOps, D> {
         operators: ops,
         ..Default::default()
     };
@@ -281,14 +289,18 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
     let stats = RunningSearchStatistics::new(options.maxsize, 10_000);
 
-    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features);
+    let mut parent = PopMember::from_expr_with_birth(0, expr, dataset.n_features, &options);
     assert!(parent.evaluate(&full_dataset, &options, &mut evaluator));
 
     let mut rng = Rng::with_seed(0);
@@ -308,7 +320,43 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
 
     assert!(ok, "mutate_operator should succeed even when it is a no-op");
     assert_eq!(
-        child.expr.nodes, parent.expr.nodes,
+        child.expr.trees[0].nodes, parent.expr.trees[0].nodes,
         "with only one operator available, mutate_operator should be a no-op"
     );
+}
+
+/// SymbolicRegression.jl conditions `mutate_feature` on `max_features(dataset, options)`: in
+/// `f(x1) + g(x2)` each tree reads one argument, so a feature mutation can never apply.
+#[test]
+fn template_feature_mutation_sees_subexpression_arity() {
+    let operators = OperatorLibrary::sr_default::<TestOps, D>();
+    let template = dynamic_expressions::dsl::TemplateStructure::new(
+        "f(x1) + g(x2)",
+        &["f", "g"],
+        None,
+        &["x1", "x2"],
+        &[],
+        &operators.set,
+    )
+    .unwrap();
+    let options = Options::<T, TestOps, D> {
+        operators,
+        template: Some(template),
+        ..Default::default()
+    };
+    let expr = crate::expression::Expression {
+        trees: vec![leaf_expr(0), leaf_expr(0)].into(),
+        params: Vec::new(),
+    };
+    let member = PopMember::from_expr(expr, 2, &options);
+    let weights = mutate::next_generation_weights(&member, &options, options.maxsize, 2);
+    assert_eq!(weights.mutate_feature, 0.0);
+
+    let plain = Options::<T, TestOps, D> {
+        operators: OperatorLibrary::sr_default::<TestOps, D>(),
+        ..Default::default()
+    };
+    let member = PopMember::from_expr(leaf_expr(0), 2, &plain);
+    let weights = mutate::next_generation_weights(&member, &plain, plain.maxsize, 2);
+    assert!(weights.mutate_feature > 0.0);
 }

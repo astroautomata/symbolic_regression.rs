@@ -42,6 +42,7 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
     fraction_replaced_hof: 0.0614,
     topn: 12,
     print_precision: 5,
+    loss_scale: "log",
 
     use_frequency: true,
     use_frequency_in_tournament: true,
@@ -83,8 +84,9 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
       y_column: null,
       weights_column: null,
       validation_fraction: 0,
-      loss_kind: "mse",
-      huber_delta: 1.0,
+      loss: "L2DistLoss()",
+      early_stop_condition: null,
+      template: null,
 
       ...coreDefaults
     }))
