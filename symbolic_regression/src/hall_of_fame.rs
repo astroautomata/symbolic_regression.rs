@@ -14,7 +14,7 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
         }
     }
 
-    pub fn consider(&mut self, member: &PopMember<T, Ops, D>, options: &Options<T, D>) {
+    pub fn consider(&mut self, member: &PopMember<T, Ops, D>, options: &Options<T, Ops, D>) {
         let c = member.complexity;
         // Match SymbolicRegression.jl `s_r_cycle`: keep entries with `0 < c <= maxsize`.
         if c == 0 || c > options.maxsize {
@@ -38,7 +38,7 @@ impl<T: Float, Ops, const D: usize> HallOfFame<T, Ops, D> {
         }
     }
 
-    pub fn update_from_members(&mut self, members: &[PopMember<T, Ops, D>], options: &Options<T, D>) {
+    pub fn update_from_members(&mut self, members: &[PopMember<T, Ops, D>], options: &Options<T, Ops, D>) {
         for m in members {
             self.consider(m, options);
         }

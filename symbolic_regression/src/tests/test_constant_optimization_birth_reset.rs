@@ -31,7 +31,7 @@ fn optimize_constants_resets_birth_on_improvement() {
         Array1::from_vec(y),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         should_optimize_constants: true,
         deterministic: true,
@@ -46,7 +46,11 @@ fn optimize_constants_resets_birth_on_improvement() {
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };

@@ -41,7 +41,7 @@ fn random_leaf<R: Rng>(rng: &mut R, n_features: usize, consts: &mut Vec<T>) -> P
 
 fn random_expr<Ops2, const D2: usize, R: Rng>(
     rng: &mut R,
-    operators: &Operators<D2>,
+    operators: &Operators<Ops, D2>,
     n_features: usize,
     target_size: usize,
 ) -> PostfixExpr<T, Ops2, D2> {
@@ -89,16 +89,20 @@ fn random_expr<Ops2, const D2: usize, R: Rng>(
     PostfixExpr::new(nodes, consts, Default::default())
 }
 
-fn make_ops_search() -> Operators<D> {
-    Ops::from_names(["exp", "abs", "+", "sub", "*", "/"]).expect("search operators")
+fn make_ops_search() -> Operators<Ops, D> {
+    Ops::new()
+        .from_names(["exp", "abs", "+", "sub", "*", "/"])
+        .expect("search operators")
 }
 
-fn make_ops_utils() -> Operators<D> {
-    Ops::from_names(["sin", "cos", "+", "sub", "*", "/"]).expect("utils operators")
+fn make_ops_utils() -> Operators<Ops, D> {
+    Ops::new()
+        .from_names(["sin", "cos", "+", "sub", "*", "/"])
+        .expect("utils operators")
 }
 
-fn make_search_options(seed: u64) -> Options<T, D> {
-    let mut options = Options::<T, D> {
+fn make_search_options(seed: u64) -> Options<T, Ops, D> {
+    let mut options = Options::<T, Ops, D> {
         seed,
         niterations: 30,
         populations: 1,
@@ -113,8 +117,8 @@ fn make_search_options(seed: u64) -> Options<T, D> {
     options
 }
 
-fn make_utils_options() -> Options<T, D> {
-    Options::<T, D> {
+fn make_utils_options() -> Options<T, Ops, D> {
+    Options::<T, Ops, D> {
         operators: make_ops_utils(),
         progress: false,
         ..Default::default()
@@ -166,7 +170,7 @@ fn make_random_dataset(seed: u64, n_rows: usize, n_features: usize) -> Dataset<T
 fn make_population(
     seed: u64,
     dataset: &Dataset<T>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     pop_size: usize,
     tree_size: usize,
 ) -> (Population<T, Ops, D>, RunningSearchStatistics) {
@@ -303,18 +307,20 @@ fn bench_utils(c: &mut Criterion) {
         });
     }
 
-    // compute_complexity_x10 (Rust uses fixed u16 complexity types)
+    // compute_complexity_x10: inputs and results pass through black_box, so the compiler
+    // cannot delete the measured work.
     {
-        let options = make_utils_options();
+        let options = std::hint::black_box(make_utils_options());
         let mut rng = StdRng::seed_from_u64(7);
         let trees: Vec<_> = (0..10)
             .map(|_| random_expr::<Ops, D, _>(&mut rng, &options.operators, 3, 20))
             .collect();
+        let trees = std::hint::black_box(trees);
 
-        group.bench_function(BenchmarkId::new("compute_complexity_x10", "u16"), |b| {
+        group.bench_function(BenchmarkId::new("compute_complexity_x10", "default_costs"), |b| {
             b.iter(|| {
                 for tree in &trees {
-                    let _ = symbolic_regression::compute_complexity(&tree.nodes, &options);
+                    std::hint::black_box(symbolic_regression::compute_complexity(&tree.nodes, &options));
                 }
             })
         });

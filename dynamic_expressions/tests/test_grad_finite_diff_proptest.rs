@@ -161,7 +161,7 @@ fn arb_forward_slot_nodes(
 }
 
 fn custom_op_id(name: &str, arity: u8) -> u16 {
-    TestOps::lookup_with_arity(name, arity).unwrap().id
+    TestOps::new().lookup_with_arity(name, arity).unwrap().id
 }
 
 fn custom_unary_ops() -> Vec<u16> {
@@ -295,7 +295,7 @@ fn eval_with_x(expr: &PostfixExpr<f64, BuiltinOpsF64, D_TEST>, x_data: &[f64], n
         check_finite: true,
         early_exit: true,
     };
-    let (y, ok) = eval_tree_array::<f64, BuiltinOpsF64, D_TEST>(expr, x.view(), &opts);
+    let (y, ok) = eval_tree_array::<f64, BuiltinOpsF64, D_TEST>(expr, &BuiltinOpsF64::new(), x.view(), &opts);
     assert!(ok);
     y
 }
@@ -427,7 +427,8 @@ fn grad_custom_ops_const_const_zero_grad() {
     );
 
     let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
-    let (_eval, grad, ok) = eval_grad_tree_array::<f64, TestOps, D_TEST>(&expr, x.view(), true, &mut gctx, &opts);
+    let (_eval, grad, ok) =
+        eval_grad_tree_array::<f64, TestOps, D_TEST>(&expr, &TestOps::new(), x.view(), true, &mut gctx, &opts);
     assert!(ok);
     assert!(grad.data.iter().all(|&g| g == 0.0));
 }
@@ -632,7 +633,7 @@ proptest! {
 
         let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
         let (eval, grad, ok_grad) =
-            eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(&expr, x.view(), variable, &mut gctx, &opts);
+            eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(&expr, &BuiltinOpsF64::new(), x.view(), variable, &mut gctx, &opts);
         prop_assert!(ok_grad);
 
         let (ref_val, ref_grad) = eval_reference(&expr, &x_data, n_rows, variable, builtin_op_ids());
@@ -674,7 +675,7 @@ proptest! {
 
         let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
         let (eval, grad, ok_grad) =
-            eval_grad_tree_array::<f64, TestOps, D_TEST>(&expr, x.view(), variable, &mut gctx, &opts);
+            eval_grad_tree_array::<f64, TestOps, D_TEST>(&expr, &TestOps::new(), x.view(), variable, &mut gctx, &opts);
         prop_assert!(ok_grad);
 
         let (ref_val, ref_grad) = eval_reference(&expr, &x_data, n_rows, variable, custom_op_ids());
@@ -720,7 +721,7 @@ proptest! {
 
         let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
         let (_eval, grad, ok) = eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(
-            &expr,
+            &expr, &BuiltinOpsF64::new(),
             x.view(),
             true,
             &mut gctx,
@@ -763,7 +764,7 @@ proptest! {
 
         let mut gctx = GradContext::<f64, D_TEST>::new(n_rows);
         let (_eval, grad, ok) =
-            eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(&expr, x.view(), true, &mut gctx, &opts);
+            eval_grad_tree_array::<f64, BuiltinOpsF64, D_TEST>(&expr, &BuiltinOpsF64::new(), x.view(), true, &mut gctx, &opts);
         prop_assert!(ok);
 
         for dir in 0..N_FEATURES {

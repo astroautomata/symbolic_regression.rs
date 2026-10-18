@@ -21,8 +21,14 @@ fn grad_constant_has_correct_shape() {
         early_exit: true,
     };
     let mut gctx = GradContext::<f64, 3>::new(x_view.ncols());
-    let (_eval, grad, ok) =
-        dynamic_expressions::eval_grad_tree_array::<f64, TestOps, 3>(&expr, x_view, false, &mut gctx, &opts);
+    let (_eval, grad, ok) = dynamic_expressions::eval_grad_tree_array::<f64, TestOps, 3>(
+        &expr,
+        &TestOps::new(),
+        x_view,
+        false,
+        &mut gctx,
+        &opts,
+    );
     assert!(ok);
     assert_eq!(grad.n_dir, expr.consts.len());
     assert_eq!(grad.n_rows, x_view.ncols());

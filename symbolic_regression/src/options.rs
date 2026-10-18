@@ -74,9 +74,9 @@ macro_rules! sr_options_spec {
                 batch_size:
                     (usize, 50, "batch-size"),
                 complexity_of_constants:
-                    (u16, 1, "complexity-of-constants"),
+                    (f32, 1.0, "complexity-of-constants"),
                 complexity_of_variables:
-                    (u16, 1, "complexity-of-variables"),
+                    (f32, 1.0, "complexity-of-variables"),
                 maxsize:
                     (usize, 30, "maxsize"),
                 maxdepth:
@@ -190,21 +190,38 @@ macro_rules! __define_options {
         pos_flags { $( $pname:ident: ($pdefault:expr, $cli_pname:ident, $cli_plong:literal), )* }
     ) => {
         #[derive(Clone)]
-        pub struct Options<T: Float, const D: usize> {
+        pub struct Options<T: Float, Ops, const D: usize> {
             $(pub $name: $ty,)*
             $(pub $iname: bool,)*
             $(pub $pname: bool,)*
 
-            pub operators: Operators<D>,
+            /// The operator set that evaluates, prints, and parses every expression in the
+            /// search (`operators.set`), and the operators the search may use. Operators written
+            /// as strings live in the set's `custom` table and get ids after the built-ins:
+            ///
+            /// ```
+            /// use symbolic_regression::prelude::*;
+            ///
+            /// let (custom, names) = parse_operator_tokens::<f64, _>(["+", "*", "inv(x) = 1/x"]).unwrap();
+            /// let options = Options::<f64, _, 3> {
+            ///     operators: BuiltinOpsF64::new().with_custom(custom).from_names(&names).unwrap(),
+            ///     ..Default::default()
+            /// };
+            /// assert_eq!(options.operators.nops(1), 1);
+            /// assert_eq!(options.operators.nops(2), 2);
+            /// ```
+            pub operators: Operators<Ops, D>,
             pub mutation_weights: MutationWeights,
             pub loss: LossObject<T>,
 
             pub output_style: OutputStyle,
 
-            pub variable_complexities: Option<Vec<u16>>,
+            /// Complexity costs may be fractional; a tree's complexity is the sum of its node
+            /// costs rounded to the nearest integer, as in SymbolicRegression.jl.
+            pub variable_complexities: Option<Vec<f32>>,
             pub operator_complexity_overrides: std::collections::HashMap<
                 dynamic_expressions::OpId,
-                u16,
+                f32,
             >,
             pub op_constraints: crate::check_constraints::OpConstraints<D>,
             pub nested_constraints: crate::check_constraints::NestedConstraints,
@@ -214,13 +231,13 @@ macro_rules! __define_options {
             pub early_stop_condition: Option<EarlyStopCondition<T>>,
         }
 
-        impl<T: Float, const D: usize> Default for Options<T, D> {
+        impl<T: Float, Ops: Default, const D: usize> Default for Options<T, Ops, D> {
             fn default() -> Self {
                 Self {
                     $($name: $default,)*
                     $($iname: $bdefault,)*
                     $($pname: $pdefault,)*
-                    operators: Operators::new(),
+                    operators: Operators::default(),
                     mutation_weights: MutationWeights::default(),
                     loss: mse::<T>(),
                     output_style: OutputStyle::Auto,
@@ -270,7 +287,7 @@ macro_rules! __define_wasm_options_shim {
         }
 
         impl WasmOptionsShim {
-            pub fn apply_to<T: Float, const D: usize>(&self, opt: &mut Options<T, D>) {
+            pub fn apply_to<T: Float, Ops, const D: usize>(&self, opt: &mut Options<T, Ops, D>) {
                 $(opt.$name = self.$name;)*
                 $(opt.$iname = self.$iname;)*
                 $(opt.$pname = self.$pname;)*
@@ -282,11 +299,19 @@ macro_rules! __define_wasm_options_shim {
 
 sr_options_spec!(__define_wasm_options_shim);
 
-impl<T: Float, const D: usize> Options<T, D> {
+impl<T: Float, Ops: dynamic_expressions::OperatorSet, const D: usize> Options<T, Ops, D> {
+    #[inline]
     pub fn uses_default_complexity(&self) -> bool {
-        self.complexity_of_constants == 1
-            && self.complexity_of_variables == 1
+        self.complexity_of_constants == 1.0
+            && self.complexity_of_variables == 1.0
             && self.variable_complexities.is_none()
             && self.operator_complexity_overrides.is_empty()
+            && (Ops::UNIT_COMPLEXITY
+                || self
+                    .operators
+                    .ops_by_arity
+                    .iter()
+                    .flatten()
+                    .all(|&op| self.operators.set.complexity(op) == 1))
     }
 }
