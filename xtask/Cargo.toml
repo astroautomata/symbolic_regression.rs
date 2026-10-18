@@ -1,0 +1,8 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }

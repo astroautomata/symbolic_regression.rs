@@ -21,9 +21,9 @@ fn test_timeout_under_max_iterations() {
         Array1::from_vec(vec![1.0]),
     );
 
-    let operators = SlowOps::from_names::<D, _>(["slow_id"]).unwrap();
+    let operators = SlowOps::new().from_names::<D, _>(["slow_id"]).unwrap();
 
-    let options = Options::<f64, D> {
+    let options = Options::<f64, SlowOps, D> {
         timeout_in_seconds: 0.05,
         niterations: 1_000_000_000,
         operators,

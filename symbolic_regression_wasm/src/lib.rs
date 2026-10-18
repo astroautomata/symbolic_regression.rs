@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use csv::ReaderBuilder;
+use dynamic_expressions::dsl::{CustomOps, parse_operator_tokens};
 use dynamic_expressions::operator_enum::presets::BuiltinOpsF64;
 use dynamic_expressions::strings::{StringTreeOptions, string_tree};
 use dynamic_expressions::utils::ZipEq;
@@ -11,6 +12,45 @@ use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
 use symbolic_regression::{Dataset, LossKind, Options, SearchEngine, WasmOptionsShim};
 use wasm_bindgen::prelude::*;
+
+type WasmOps = BuiltinOpsF64<CustomOps<f64>>;
+
+/// Operator tokens from the web UI, one list per arity. A token is a built-in name or symbol
+/// (`"cos"`, `"+"`) or a custom operator definition (`"inv(x) = 1/x"`); each operator must take as
+/// many arguments as its list says.
+fn operators_from_tokens(
+    unary: &[String],
+    binary: &[String],
+    ternary: &[String],
+) -> Result<Operators<WasmOps, 3>, String> {
+    let tokens: Vec<(u8, &str)> = (1u8..)
+        .zip([unary, binary, ternary])
+        .flat_map(|(arity, list)| {
+            list.iter().map(move |s| match (arity, s.as_str()) {
+                (1, "-") => (arity, "neg"),
+                (2, "-") => (arity, "sub"),
+                (_, s) => (arity, s),
+            })
+        })
+        .collect();
+    let (custom, names) = parse_operator_tokens::<f64, _>(tokens.iter().map(|&(_, t)| t)).map_err(|e| e.to_string())?;
+    let operators = BuiltinOpsF64::new()
+        .with_custom(custom)
+        .from_names(&names)
+        .map_err(|e| e.to_string())?;
+    for (&(arity, _), name) in tokens.iter().zip(&names) {
+        let op = operators.set.lookup(name).expect("from_names resolved every name");
+        if op.arity != arity {
+            let list = ["unary", "binary", "ternary"][usize::from(arity) - 1];
+            let plural = if op.arity == 1 { "" } else { "s" };
+            return Err(format!(
+                "operator `{name}` takes {} argument{plural}, but it is in the {list} operator list",
+                op.arity
+            ));
+        }
+    }
+    Ok(operators)
+}
 
 type FullDatasetParts = (Dataset<f64>, Vec<String>, Option<Array1<f64>>);
 type SelectedRows = (Array2<f64>, Array1<f64>, Option<Array1<f64>>);
@@ -42,18 +82,19 @@ pub struct WasmOpInfo {
 
 #[wasm_bindgen]
 pub fn builtin_operator_registry() -> Result<JsValue, JsValue> {
+    let opset = BuiltinOpsF64::new();
     let mut ops = Vec::new();
-    for arity in 1..=BuiltinOpsF64::MAX_ARITY {
-        for &id in BuiltinOpsF64::ops_with_arity(arity) {
+    for arity in 1..=opset.max_arity() {
+        for id in opset.ops_with_arity(arity) {
             let op = OpId { arity, id };
             ops.push(WasmOpInfo {
                 arity,
-                name: BuiltinOpsF64::name(op).to_string(),
-                display: BuiltinOpsF64::display(op).to_string(),
-                infix: BuiltinOpsF64::infix(op).map(|s| s.to_string()),
-                commutative: BuiltinOpsF64::commutative(op),
-                associative: BuiltinOpsF64::associative(op),
-                complexity: BuiltinOpsF64::complexity(op),
+                name: opset.name(op).to_string(),
+                display: opset.display(op).to_string(),
+                infix: opset.infix(op).map(|s| s.to_string()),
+                commutative: opset.commutative(op),
+                associative: opset.associative(op),
+                complexity: opset.complexity(op),
             });
         }
     }
@@ -177,7 +218,7 @@ pub struct WasmSplitIndices {
 
 #[wasm_bindgen]
 pub struct WasmSearch {
-    engine: SearchEngine<f64, BuiltinOpsF64, 3>,
+    engine: SearchEngine<f64, WasmOps, 3>,
     val_dataset: Option<Dataset<f64>>,
     split: WasmSplitIndices,
     pareto_k: usize,
@@ -201,18 +242,7 @@ impl WasmSearch {
         let binary: Vec<String> = from_value(binary_tokens).unwrap_or_default();
         let ternary: Vec<String> = from_value(ternary_tokens).unwrap_or_default();
 
-        let mut toks: Vec<&str> = Vec::with_capacity(unary.len() + binary.len() + ternary.len());
-        for s in &unary {
-            toks.push(if s == "-" { "neg" } else { s.as_str() });
-        }
-        for s in &binary {
-            toks.push(if s == "-" { "sub" } else { s.as_str() });
-        }
-        for s in &ternary {
-            toks.push(s.as_str());
-        }
-
-        let operators: Operators<3> = BuiltinOpsF64::from_names(toks).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let operators = operators_from_tokens(&unary, &binary, &ternary).map_err(|e| JsValue::from_str(&e))?;
 
         let (headers, rows) = parse_csv_to_rows(&csv_text, opts.has_headers).map_err(|e| JsValue::from_str(&e))?;
 
@@ -225,7 +255,7 @@ impl WasmSearch {
 
         let options = options_from_wasm(&opts, operators)?;
 
-        let engine = SearchEngine::<f64, BuiltinOpsF64, 3>::new(train, options);
+        let engine = SearchEngine::<f64, WasmOps, 3>::new(train, options);
 
         Ok(WasmSearch {
             engine,
@@ -280,14 +310,17 @@ impl WasmSearch {
 
         let m = find_member_by_id(&self.engine, member_id).ok_or_else(|| JsValue::from_str("member not found"))?;
 
-        let yhat = eval_member_on_dataset(dataset, &m)?;
+        let yhat = eval_member_on_dataset(dataset, &self.engine.options().operators.set, &m)?;
         let metrics = compute_metrics(&yhat, dataset);
         let out = WasmEvalResult { metrics, yhat };
         to_value(&out).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 
-fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Result<Options<f64, 3>, JsValue> {
+fn options_from_wasm(
+    opts: &WasmSearchOptions,
+    operators: Operators<WasmOps, 3>,
+) -> Result<Options<f64, WasmOps, 3>, JsValue> {
     let loss_kind = match opts.loss_kind.trim().to_ascii_lowercase().as_str() {
         "mse" => LossKind::Mse,
         "mae" => LossKind::Mae,
@@ -310,7 +343,7 @@ fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Resul
         }
     };
 
-    let mut out = Options::<f64, 3> {
+    let mut out = Options::<f64, WasmOps, 3> {
         operators,
         ..Default::default()
     };
@@ -323,7 +356,7 @@ fn options_from_wasm(opts: &WasmSearchOptions, operators: Operators<3>) -> Resul
     Ok(out)
 }
 
-fn snapshot(engine: &SearchEngine<f64, BuiltinOpsF64, 3>, pareto_k: usize) -> SearchSnapshot {
+fn snapshot(engine: &SearchEngine<f64, WasmOps, 3>, pareto_k: usize) -> SearchSnapshot {
     let best = summary_from_member(engine, engine.best());
 
     let mut pareto = engine.hall_of_fame().pareto_front();
@@ -350,20 +383,22 @@ fn snapshot(engine: &SearchEngine<f64, BuiltinOpsF64, 3>, pareto_k: usize) -> Se
 }
 
 fn summary_from_member(
-    engine: &SearchEngine<f64, BuiltinOpsF64, 3>,
-    m: &symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>,
+    engine: &SearchEngine<f64, WasmOps, 3>,
+    m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
 ) -> EquationSummary {
     let variable_names = Some(engine.dataset().variable_names.as_slice());
-    let equation = string_tree::<f64, BuiltinOpsF64, 3>(
+    let equation = string_tree::<f64, WasmOps, 3>(
         &m.expr,
+        &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
             pretty: false,
             print_precision: Some(engine.options().print_precision),
         },
     );
-    let equation_full = string_tree::<f64, BuiltinOpsF64, 3>(
+    let equation_full = string_tree::<f64, WasmOps, 3>(
         &m.expr,
+        &engine.options().operators.set,
         StringTreeOptions {
             variable_names,
             pretty: false,
@@ -381,9 +416,9 @@ fn summary_from_member(
 }
 
 fn find_member_by_id(
-    engine: &SearchEngine<f64, BuiltinOpsF64, 3>,
+    engine: &SearchEngine<f64, WasmOps, 3>,
     member_id: u64,
-) -> Option<symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>> {
+) -> Option<symbolic_regression::PopMember<f64, WasmOps, 3>> {
     engine
         .hall_of_fame()
         .members()
@@ -397,7 +432,8 @@ fn find_member_by_id(
 
 fn eval_member_on_dataset(
     dataset: &Dataset<f64>,
-    m: &symbolic_regression::PopMember<f64, BuiltinOpsF64, 3>,
+    ops: &WasmOps,
+    m: &symbolic_regression::PopMember<f64, WasmOps, 3>,
 ) -> Result<Vec<f64>, JsValue> {
     let mut yhat = vec![0.0_f64; dataset.n_rows];
     let mut scratch = ndarray::Array2::<f64>::zeros((0, 0));
@@ -405,10 +441,11 @@ fn eval_member_on_dataset(
         check_finite: true,
         early_exit: false,
     };
-    let ok = eval_plan_array_into::<f64, BuiltinOpsF64, 3>(
+    let ok = eval_plan_array_into::<f64, WasmOps, 3>(
         &mut yhat,
         &m.plan,
         &m.expr,
+        ops,
         dataset.x.view(),
         &mut scratch,
         &eval_opts,
@@ -771,11 +808,49 @@ mod tests {
         core.niterations = 9;
         core.progress = false;
 
-        let mut opt: symbolic_regression::Options<f64, 3> = Default::default();
+        let mut opt: symbolic_regression::Options<f64, super::WasmOps, 3> = Default::default();
         core.apply_to(&mut opt);
 
         assert_eq!(opt.seed, 123);
         assert_eq!(opt.niterations, 9);
         assert!(!opt.progress);
+    }
+    fn tokens(v: &[&str]) -> Vec<String> {
+        v.iter().map(|t| t.to_string()).collect()
+    }
+
+    #[test]
+    fn operator_tokens_accept_definitions() {
+        use dynamic_expressions::OperatorSet;
+
+        let operators =
+            super::operators_from_tokens(&tokens(&["cos", "-", "inv(x) = 1/x"]), &tokens(&["+", "-"]), &[]).unwrap();
+        assert_eq!(operators.nops(1), 3);
+        assert_eq!(operators.nops(2), 2);
+        let inv = operators.set.lookup("inv").unwrap();
+        assert!(operators.set.is_custom(inv));
+        assert!(operators.ops_by_arity[0].contains(&inv));
+    }
+
+    #[test]
+    fn operator_tokens_must_match_their_list_arity() {
+        let err = super::operators_from_tokens(&tokens(&["f(x, y) = x * y"]), &[], &[]).unwrap_err();
+        assert_eq!(
+            err,
+            "operator `f` takes 2 arguments, but it is in the unary operator list"
+        );
+        let err = super::operators_from_tokens(&[], &tokens(&["+", "cos"]), &[]).unwrap_err();
+        assert_eq!(
+            err,
+            "operator `cos` takes 1 argument, but it is in the binary operator list"
+        );
+    }
+
+    #[test]
+    fn operator_tokens_reject_external_package_functions() {
+        let err = super::operators_from_tokens(&tokens(&["myerf(x) = SpecialFunctions.erf(x)"]), &[], &[]).unwrap_err();
+        assert!(err.contains("`SpecialFunctions.erf`"), "{err}");
+        let err = super::operators_from_tokens(&[], &tokens(&["p(a, b) = Primes.prime(a) + b"]), &[]).unwrap_err();
+        assert!(err.contains("`Primes.prime`"), "{err}");
     }
 }
