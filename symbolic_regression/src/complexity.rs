@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use dynamic_expressions::OpId;
 use dynamic_expressions::node::PNode;
+use dynamic_expressions::{OpId, OperatorSet};
 use num_traits::Float;
 
 use crate::options::Options;
 
-pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
+pub(crate) fn compute_custom_complexity_checked<T: Float, Ops: OperatorSet, const D: usize>(
     nodes: &[PNode],
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     op_arg_limits: Option<&HashMap<OpId, [Option<u16>; D]>>,
 ) -> Option<usize> {
     let mut st: Vec<usize> = Vec::with_capacity(nodes.len().min(256));
@@ -49,7 +49,11 @@ pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
                 for c in child {
                     sum = sum.saturating_add(c);
                 }
-                let base = options.operator_complexity_overrides.get(&oid).copied().unwrap_or(1);
+                let base = options
+                    .operator_complexity_overrides
+                    .get(&oid)
+                    .copied()
+                    .unwrap_or_else(|| options.operators.set.complexity(oid));
                 st.push((base as usize).saturating_add(sum));
             }
         }
@@ -61,10 +65,13 @@ pub(crate) fn compute_custom_complexity_checked<T: Float, const D: usize>(
     Some(st[0])
 }
 
-pub fn compute_complexity<T: Float, const D: usize>(nodes: &[PNode], options: &Options<T, D>) -> usize {
+pub fn compute_complexity<T: Float, Ops: OperatorSet, const D: usize>(
+    nodes: &[PNode],
+    options: &Options<T, Ops, D>,
+) -> usize {
     if options.uses_default_complexity() {
         return nodes.len();
     }
 
-    compute_custom_complexity_checked::<T, D>(nodes, options, None).unwrap_or(0)
+    compute_custom_complexity_checked(nodes, options, None).unwrap_or(0)
 }

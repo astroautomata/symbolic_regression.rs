@@ -77,7 +77,7 @@ impl<T: Float + AddAssign, Ops, const D: usize> PopState<T, Ops, D> {
         &'a mut self,
         f: F,
         full_dataset: TaggedDataset<'a, T>,
-        options: &'a Options<T, D>,
+        options: &'a Options<T, Ops, D>,
         curmaxsize: usize,
         stats: &'a RunningSearchStatistics,
         controller: &'a StopController,
@@ -132,13 +132,16 @@ struct PopPools<T: Float + AddAssign, Ops, const D: usize> {
     total_evals: f64,
 }
 
-pub fn equation_search<T, Ops, const D: usize>(dataset: &Dataset<T>, options: &Options<T, D>) -> SearchResult<T, Ops, D>
+pub fn equation_search<T, Ops, const D: usize>(
+    dataset: &Dataset<T>,
+    options: &Options<T, Ops, D>,
+) -> SearchResult<T, Ops, D>
 where
     T: Float + AddAssign + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + Send + Sync,
     Ops: dynamic_expressions::OperatorSet<T = T> + Send + Sync,
 {
     let baseline_loss = if options.use_baseline {
-        baseline_loss_from_zero_expression::<T, Ops, D>(dataset, options.loss.as_ref())
+        baseline_loss_from_zero_expression::<T, Ops, D>(dataset, &options.operators.set, options.loss.as_ref())
     } else {
         None
     };
@@ -232,7 +235,7 @@ where
         &mut self,
         dataset: &Dataset<T>,
         baseline_loss: Option<T>,
-        options: &Options<T, D>,
+        options: &Options<T, Ops, D>,
         controller: &StopController,
         n_cycles: usize,
     ) -> usize {
@@ -377,7 +380,7 @@ where
 pub struct SearchEngine<T: Float + AddAssign, Ops, const D: usize> {
     dataset: Dataset<T>,
     baseline_loss: Option<T>,
-    options: Options<T, D>,
+    options: Options<T, Ops, D>,
     controller: StopController,
     core: SearchCore<T, Ops, D>,
 }
@@ -387,9 +390,9 @@ where
     T: Float + num_traits::FromPrimitive + num_traits::ToPrimitive + Display + AddAssign,
     Ops: dynamic_expressions::OperatorSet<T = T>,
 {
-    pub fn new(dataset: Dataset<T>, options: Options<T, D>) -> Self {
+    pub fn new(dataset: Dataset<T>, options: Options<T, Ops, D>) -> Self {
         let baseline_loss = if options.use_baseline {
-            baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, options.loss.as_ref())
+            baseline_loss_from_zero_expression::<T, Ops, D>(&dataset, &options.operators.set, options.loss.as_ref())
         } else {
             None
         };
@@ -462,7 +465,7 @@ where
         &self.dataset
     }
 
-    pub fn options(&self) -> &Options<T, D> {
+    pub fn options(&self) -> &Options<T, Ops, D> {
         &self.options
     }
 
@@ -497,7 +500,7 @@ where
 
 fn execute_task<T, Ops, const D: usize>(
     full_dataset: TaggedDataset<'_, T>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     pop_idx: usize,
     curmaxsize: usize,
     stats: RunningSearchStatistics,
@@ -551,7 +554,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn apply_task_result<T, Ops, const D: usize>(
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     counters: &mut SearchCounters,
     stats: &mut RunningSearchStatistics,
     hall: &mut HallOfFame<T, Ops, D>,
@@ -623,6 +626,7 @@ fn apply_task_result<T, Ops, const D: usize>(
     let cycles_remaining = counters.mark_completed();
     progress.on_cycle_complete(
         hall,
+        &options.operators.set,
         pools.total_evals as u64,
         cycles_remaining,
         options.print_precision,
@@ -631,7 +635,7 @@ fn apply_task_result<T, Ops, const D: usize>(
 
 fn init_populations<T, Ops, const D: usize>(
     full_dataset: TaggedDataset<'_, T>,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
     controller: &StopController,
     hall: &mut HallOfFame<T, Ops, D>,
 ) -> PopPools<T, Ops, D>
@@ -747,8 +751,8 @@ mod batching_search_tests {
         let y = Array1::from_iter((0..n_rows).map(|i| i as T));
         let dataset = Dataset::new(x, y);
 
-        let operators = Ops::from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
-        let options: Options<T, D> = Options {
+        let operators = Ops::new().from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
+        let options: Options<T, Ops, D> = Options {
             operators,
             batching: true,
             batch_size: 5,
@@ -797,8 +801,8 @@ mod batching_search_tests {
         let y = Array1::from_iter((0..n_rows).map(|i| i as T));
         let dataset = Dataset::new(x, y);
 
-        let operators = Ops::from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
-        let options: Options<T, D> = Options {
+        let operators = Ops::new().from_names::<D, _>(["sin", "+", "*"]).expect("valid opset");
+        let options: Options<T, Ops, D> = Options {
             operators,
             batching: false,
             batch_size: 5,

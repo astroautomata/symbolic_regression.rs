@@ -23,7 +23,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
         Array2::from_shape_vec((1, 1), vec![0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
-    let mut options = Options::<T, D> {
+    let mut options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         maxsize: 2,
         ..Default::default()
@@ -49,7 +49,11 @@ fn randomize_mutation_can_succeed_below_size_3() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
@@ -84,7 +88,7 @@ fn randomize_mutation_can_succeed_below_size_3() {
 
 #[test]
 fn rotate_tree_is_not_disabled_on_non_binary_trees() {
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         ..Default::default()
     };
@@ -111,7 +115,7 @@ fn rotate_tree_is_not_disabled_on_non_binary_trees() {
 
 #[test]
 fn default_mutation_weights_match_symbolicregressionjl() {
-    let w = Options::<T, D>::default().mutation_weights;
+    let w = Options::<T, TestOps, D>::default().mutation_weights;
     let eps = 1e-12;
 
     // Match SymbolicRegression.jl's `defaults` tuple in `src/Options.jl`.
@@ -146,9 +150,9 @@ fn add_node_includes_append_at_leaf_move() {
     );
 
     let add = <TestOps as HasOp<builtin::Add>>::op_id();
-    let mut ops = Operators::<D>::new();
+    let mut ops = Operators::<TestOps, D>::default();
     ops.push(add);
-    let mut options = Options::<T, D> {
+    let mut options = Options::<T, TestOps, D> {
         operators: ops,
         ..Default::default()
     };
@@ -186,7 +190,11 @@ fn add_node_includes_append_at_leaf_move() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
@@ -240,10 +248,10 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
     );
 
     let add = <TestOps as HasOp<builtin::Add>>::op_id();
-    let mut ops = Operators::<D>::new();
+    let mut ops = Operators::<TestOps, D>::default();
     ops.push(add);
 
-    let mut options = Options::<T, D> {
+    let mut options = Options::<T, TestOps, D> {
         operators: ops,
         ..Default::default()
     };
@@ -281,7 +289,11 @@ fn mutate_operator_can_be_a_noop_and_still_succeeds() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
