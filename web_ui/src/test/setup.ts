@@ -40,8 +40,11 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
     optimizer_f_calls_limit: 10_000,
     fraction_replaced: 0.00036,
     fraction_replaced_hof: 0.0614,
+    fraction_replaced_guesses: 0.001,
     topn: 12,
     print_precision: 5,
+    loss_scale: "log",
+    dimensional_constraint_penalty: 1000,
 
     use_frequency: true,
     use_frequency_in_tournament: true,
@@ -53,6 +56,7 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
     use_baseline: true,
     progress: false,
     should_simplify: true,
+    dimensionless_constants_only: false,
 
     batching: false,
 
@@ -83,8 +87,12 @@ vi.mock("../pkg/symbolic_regression_wasm.js", () => {
       y_column: null,
       weights_column: null,
       validation_fraction: 0,
-      loss_kind: "mse",
-      huber_delta: 1.0,
+      x_units: null,
+      y_units: null,
+      loss: "L2DistLoss()",
+      early_stop_condition: null,
+      template: null,
+      guesses: [],
 
       ...coreDefaults
     }))

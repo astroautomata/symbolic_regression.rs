@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { EnterData } from "./EnterData";
 import { useSessionStore } from "../../state/sessionStore";
 import { vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 function minimalOptions() {
   return {
@@ -11,8 +12,12 @@ function minimalOptions() {
     y_column: 1,
     weights_column: null,
     validation_fraction: 0,
-    loss_kind: "mse",
-    huber_delta: 1,
+    x_units: null,
+    y_units: null,
+    loss: "L2DistLoss()",
+    early_stop_condition: null,
+    template: null,
+    guesses: [],
 
     seed: 0,
     niterations: 100,
@@ -36,8 +41,11 @@ function minimalOptions() {
     optimizer_f_calls_limit: 10_000,
     fraction_replaced: 0.00036,
     fraction_replaced_hof: 0.0614,
+    fraction_replaced_guesses: 0.001,
     topn: 12,
     print_precision: 5,
+    loss_scale: "log",
+    dimensional_constraint_penalty: 1000,
 
     use_frequency: true,
     use_frequency_in_tournament: true,
@@ -49,6 +57,7 @@ function minimalOptions() {
     use_baseline: true,
     progress: false,
     should_simplify: false,
+    dimensionless_constants_only: false,
 
     mutation_weights: {
       mutate_constant: 0.0346,
@@ -86,6 +95,19 @@ describe("EnterData", () => {
     });
   });
 
+  it("stores comma-separated x units and y units, and clears blank fields", async () => {
+    useSessionStore.setState({
+      parsed: { headers: ["a", "b", "y"], rows: [[1, 2, 3]], nRows: 1, nCols: 3 } as any
+    });
+    render(<EnterData />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("x units"), "m, s");
+    await user.type(screen.getByLabelText("y units"), "m/s");
+    expect(useSessionStore.getState().options).toMatchObject({ x_units: ["m", "s"], y_units: "m/s" });
+    fireEvent.change(screen.getByLabelText("x units"), { target: { value: " " } });
+    fireEvent.change(screen.getByLabelText("y units"), { target: { value: " " } });
+    expect(useSessionStore.getState().options).toMatchObject({ x_units: null, y_units: null });
+  });
   it("accepts drag/drop CSV and updates store csvText", async () => {
     const parseSpy = vi.fn();
     useSessionStore.setState({ parseCsv: parseSpy as any });

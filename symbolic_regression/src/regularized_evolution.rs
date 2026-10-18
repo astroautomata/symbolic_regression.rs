@@ -18,7 +18,7 @@ pub struct RegEvolCtx<'a, T: Float + AddAssign, Ops, const D: usize> {
     pub temperature: f64,
     pub curmaxsize: usize,
     pub stats: &'a RunningSearchStatistics,
-    pub options: &'a Options<T, D>,
+    pub options: &'a Options<T, Ops, D>,
     pub evaluator: &'a mut Evaluator<T, D>,
     pub controller: &'a StopController,
     pub _ops: core::marker::PhantomData<Ops>,
