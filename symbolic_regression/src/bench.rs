@@ -63,6 +63,7 @@ pub fn bfgs_quadratic_n16() -> Option<(Vec<f64>, f64)> {
         iterations: 40,
         f_calls_limit: 0,
         g_abstol: 1e-10,
+        ..Default::default()
     };
     let ls = BackTracking::default();
     let res = bfgs_minimize(&x0, &mut obj, opts, ls)?;
@@ -70,8 +71,9 @@ pub fn bfgs_quadratic_n16() -> Option<(Vec<f64>, f64)> {
 }
 
 fn build_linear_expr_for_constant_optimization() -> PostfixExpr<T, Ops, D> {
-    let mul = Ops::lookup("*").unwrap();
-    let add = Ops::lookup("+").unwrap();
+    let ops = Ops::new();
+    let mul = ops.lookup("*").unwrap();
+    let add = ops.lookup("+").unwrap();
 
     // expr: c0 * x0 + c1
     PostfixExpr::new(
@@ -95,7 +97,7 @@ fn build_linear_expr_for_constant_optimization() -> PostfixExpr<T, Ops, D> {
 
 pub struct ConstantOptLinearEnv {
     dataset: Dataset<T>,
-    options: Options<T, D>,
+    options: Options<T, Ops, D>,
 }
 
 pub fn constant_opt_linear_env() -> ConstantOptLinearEnv {
@@ -108,7 +110,7 @@ pub fn constant_opt_linear_env() -> ConstantOptLinearEnv {
         Array1::from_vec(y),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, Ops, D> {
         operators: OperatorLibrary::sr_default::<Ops, D>(),
         should_optimize_constants: true,
         optimizer_iterations: 40,
@@ -125,7 +127,11 @@ pub fn run_constant_opt_linear(env: &ConstantOptLinearEnv) -> (bool, f64, Vec<f6
     let mut evaluator = Evaluator::new(env.dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::new(env.dataset.n_rows);
     let baseline_loss = if env.options.use_baseline {
-        baseline_loss_from_zero_expression::<T, Ops, D>(&env.dataset, env.options.loss.as_ref())
+        baseline_loss_from_zero_expression::<T, Ops, D>(
+            &env.dataset,
+            &env.options.operators.set,
+            env.options.loss.as_ref(),
+        )
     } else {
         None
     };
@@ -145,5 +151,5 @@ pub fn run_constant_opt_linear(env: &ConstantOptLinearEnv) -> (bool, f64, Vec<f6
         },
     );
 
-    (improved, evals, member.expr.consts.clone())
+    (improved, evals, member.expr.constants())
 }

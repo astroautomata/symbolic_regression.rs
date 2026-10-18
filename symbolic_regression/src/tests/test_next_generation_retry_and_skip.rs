@@ -37,13 +37,14 @@ fn next_generation_fails_constraints_after_retries() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         mutation_weights: weights,
         maxsize: 1,
-        maxdepth: 1,
+        maxdepth: Some(1),
         annealing: false,
         skip_mutation_failures: true,
         tournament_selection_n: 1,
@@ -52,9 +53,13 @@ fn next_generation_fails_constraints_after_retries() {
     };
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
-    let mut member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features);
+    let mut member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features, &options);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
@@ -75,6 +80,8 @@ fn next_generation_fails_constraints_after_retries() {
             stats: &stats,
             options: &options,
             evaluator: &mut evaluator,
+            population: &[],
+            weights_state: &mut Default::default(),
             _ops: core::marker::PhantomData,
         },
     );
@@ -102,13 +109,14 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         mutation_weights: weights,
         maxsize: 1,
-        maxdepth: 1,
+        maxdepth: Some(1),
         annealing: false,
         skip_mutation_failures: true,
         tournament_selection_n: 1,
@@ -119,12 +127,16 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
 
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
-    let member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features);
+    let member = PopMember::from_expr_with_birth(0, leaf_expr(), dataset.n_features, &options);
     let mut pop = Population::new(vec![member]);
 
     let mut rng = Rng::with_seed(0);
@@ -138,9 +150,12 @@ fn reg_evol_cycle_skips_replacement_when_configured() {
         stats: &stats,
         options: &options,
         evaluator: &mut evaluator,
+        weights_state: &mut Default::default(),
+        best_seen: &mut crate::HallOfFame::new(options.maxsize),
         controller: &controller,
         temperature: 1.0,
         curmaxsize: 1,
+        trace: None,
         _ops: core::marker::PhantomData,
     };
 

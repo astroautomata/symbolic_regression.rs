@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 
 use dynamic_expressions::utils::ZipEq;
+use num_traits::Float;
+
+use crate::options::Options;
 
 #[derive(Clone, Debug)]
 pub struct RunningSearchStatistics {
@@ -97,4 +100,51 @@ impl RunningSearchStatistics {
             self.normalized_frequencies[size - 1]
         }
     }
+
+    /// SymbolicRegression.jl's `fork_plugin_state`: the normalized snapshot a population reads
+    /// during one dispatch, taken afresh from the output's statistics before every dispatch.
+    pub fn fork(&self) -> Self {
+        let mut snapshot = self.clone();
+        snapshot.normalize();
+        snapshot
+    }
+}
+
+/// SymbolicRegression.jl's `tournament_cost_multiplier` for adaptive parsimony:
+/// `exp(adaptive_parsimony_scaling * frequency)`, or `1` when `use_frequency_in_tournament` is off.
+pub(crate) fn tournament_cost_multiplier<T: Float, Ops, const D: usize>(
+    stats: &RunningSearchStatistics,
+    options: &Options<T, Ops, D>,
+    complexity: usize,
+) -> f64 {
+    if !options.use_frequency_in_tournament {
+        return 1.0;
+    }
+    let frequency = if complexity > 0 && complexity <= options.maxsize {
+        stats.normalized_frequencies[complexity - 1]
+    } else {
+        0.0
+    };
+    (options.adaptive_parsimony_scaling * frequency).exp()
+}
+
+/// SymbolicRegression.jl's `mutation_acceptance_multiplier` for adaptive parsimony:
+/// `old_frequency / new_frequency`, or `1` when `use_frequency` is off.
+pub(crate) fn mutation_acceptance_multiplier<T: Float, Ops, const D: usize>(
+    stats: &RunningSearchStatistics,
+    options: &Options<T, Ops, D>,
+    old_size: usize,
+    new_size: usize,
+) -> f64 {
+    if !options.use_frequency {
+        return 1.0;
+    }
+    let frequency = |size: usize| {
+        if size > 0 && size <= options.maxsize {
+            stats.freq(size)
+        } else {
+            1e-6
+        }
+    };
+    frequency(old_size) / frequency(new_size)
 }

@@ -35,26 +35,32 @@ fn custom_operator_is_used_in_end_to_end_search() {
         optimize: 0.0,
         form_connection: 0.0,
         break_connection: 0.0,
+        backsolve: 0.0,
     };
-    let options = Options::<f64, 1> {
-        seed: 0,
+    let options = Options::<f64, CustomOps, 1> {
+        save_to_file: false,
+        seed: Some(0),
         niterations: 1,
         populations: 1,
         population_size: 128,
         ncycles_per_iteration: 20,
-        maxsize: 2,
-        maxdepth: 2,
+        maxsize: 4,
+        maxdepth: Some(2),
         progress: false,
         should_optimize_constants: false,
         annealing: false,
-        operators: CustomOps::from_names(["square"]).unwrap(),
+        operators: CustomOps::new().from_names(["square"]).unwrap(),
         mutation_weights,
         ..Default::default()
     };
 
-    let result = equation_search::<f64, CustomOps, 1>(&dataset, &options);
+    let best = equation_search::<f64, CustomOps, 1>(std::slice::from_ref(&dataset), &options)
+        .unwrap()
+        .best[0]
+        .clone()
+        .unwrap();
 
-    let eqn = dynamic_expressions::string_tree(&result.best.expr, Default::default());
+    let eqn = best.expr.string(&options, Default::default());
     assert_eq!(eqn, "square(x0)");
-    assert!(result.best.loss <= 1e-12, "best loss was {}", result.best.loss);
+    assert!(best.loss <= 1e-12, "best loss was {}", best.loss);
 }

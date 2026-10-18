@@ -14,8 +14,14 @@ fn diff_early_exit_can_trigger_inside_instruction_loop() {
     };
 
     let mut ctx = DiffContext::<f64, 3>::new(x_view.ncols());
-    let (eval, der, ok) =
-        dynamic_expressions::eval_diff_tree_array::<f64, TestOps, 3>(&expr, x_view, 0, &mut ctx, &opts);
+    let (eval, der, ok) = dynamic_expressions::eval_diff_tree_array::<f64, TestOps, 3>(
+        &expr,
+        &TestOps::new(),
+        x_view,
+        0,
+        &mut ctx,
+        &opts,
+    );
     assert!(!ok);
     assert!(eval.iter().all(|v| v.is_nan()));
     assert!(der.iter().all(|v| v.is_nan()));
@@ -32,8 +38,14 @@ fn grad_early_exit_can_trigger_inside_instruction_loop() {
     };
 
     let mut ctx = GradContext::<f64, 3>::new(x_view.ncols());
-    let (eval, grad, ok) =
-        dynamic_expressions::eval_grad_tree_array::<f64, TestOps, 3>(&expr, x_view, true, &mut ctx, &opts);
+    let (eval, grad, ok) = dynamic_expressions::eval_grad_tree_array::<f64, TestOps, 3>(
+        &expr,
+        &TestOps::new(),
+        x_view,
+        true,
+        &mut ctx,
+        &opts,
+    );
     assert!(!ok);
     assert!(eval.iter().all(|v| v.is_nan()));
     assert!(grad.data.iter().all(|v| v.is_nan()));

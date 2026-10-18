@@ -33,7 +33,12 @@ export function SearchSolutions(): React.ReactElement {
       />
 
       <div className="resultsColumns">
-        <SolutionsTableCard front={c.runtime.front} selectedId={c.runtime.selectedId} selectEquation={c.selectEquation} />
+        <SolutionsTableCard
+          front={c.runtime.front}
+          showScore={(options?.loss_scale ?? "log") === "log"}
+          selectedId={c.runtime.selectedId}
+          selectEquation={c.selectEquation}
+        />
         <SelectedFitCard
           prefersDark={prefersDark}
           selectedSummary={c.selectedSummary}
