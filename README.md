@@ -64,9 +64,9 @@ fn main() {
 
     let dataset = Dataset::new(x, y);
 
-    let operators = BuiltinOpsF32::from_names(["cos", "exp", "sin", "+", "sub", "*", "/"]).unwrap();
+    let operators = BuiltinOpsF32::new().from_names(["cos", "exp", "sin", "+", "sub", "*", "/"]).unwrap();
 
-    let options = Options::<f32, D> {
+    let options = Options::<f32, BuiltinOpsF32, D> {
         operators,
         niterations: 200,
         ..Default::default()
@@ -78,7 +78,8 @@ fn main() {
     println!("Final Pareto front:");
     println!("Complexity\tMSE\tEquation");
     for member in dominating {
-        println!("{}\t{}\t{}", member.complexity, member.loss, member.expr);
+        let equation = string_tree(&member.expr, &options.operators.set, Default::default());
+        println!("{}\t{}\t{}", member.complexity, member.loss, equation);
     }
     // To evaluate the expression, use:
     /*
@@ -89,6 +90,7 @@ fn main() {
             .clone();
         let _ = eval_tree_array::<f32, BuiltinOpsF32, D>(
             &tree,
+            &options.operators.set,
             dataset.x.view(),
             &EvalOptions::default(),
         );
@@ -129,7 +131,7 @@ op!(Sub for f64 {
 });
 
 opset! {
-    pub CustomOps for f64 {
+    pub MyOps for f64 {
         Square,
         Exp,
         Add,
@@ -137,8 +139,8 @@ opset! {
     }
 }
 
-let operators = CustomOps::from_names(["square", "exp", "add", "sub"]).unwrap();
-let options = Options::<f64, _> { operators, ..Default::default() };
+let operators = MyOps::new().from_names(["square", "exp", "add", "sub"]).unwrap();
+let options = Options::<f64, MyOps, _> { operators, ..Default::default() };
 ```
 
 ## WASM

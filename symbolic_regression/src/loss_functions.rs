@@ -14,6 +14,7 @@ pub trait LossFn<T: Float>: Send + Sync {
 
 pub fn baseline_loss_from_zero_expression<T: Float, Ops, const D: usize>(
     dataset: &Dataset<T>,
+    ops: &Ops,
     loss: &dyn LossFn<T>,
 ) -> Option<T>
 where
@@ -30,8 +31,15 @@ where
         check_finite: true,
         early_exit: true,
     };
-    let ok =
-        dynamic_expressions::eval_plan_array_into(&mut yhat, &plan, &expr, dataset.x.view(), &mut scratch, &eval_opts);
+    let ok = dynamic_expressions::eval_plan_array_into(
+        &mut yhat,
+        &plan,
+        &expr,
+        ops,
+        dataset.x.view(),
+        &mut scratch,
+        &eval_opts,
+    );
     if !ok {
         return None;
     }

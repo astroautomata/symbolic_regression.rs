@@ -19,7 +19,14 @@ fn eval_readme_like_matches_manual(#[case] check_finite: bool, #[case] early_exi
     let n_rows = x.ncols();
     let mut out = vec![0.0f64; n_rows];
     let mut ctx = dynamic_expressions::EvalContext::<f64, 3>::new(n_rows);
-    let ok = dynamic_expressions::eval_tree_array_into::<f64, TestOps, 3>(&mut out, &expr, x.view(), &mut ctx, &opts);
+    let ok = dynamic_expressions::eval_tree_array_into::<f64, TestOps, 3>(
+        &mut out,
+        &expr,
+        &TestOps::new(),
+        x.view(),
+        &mut ctx,
+        &opts,
+    );
 
     // manual
     let mut manual = vec![0.0f64; n_rows];
@@ -42,7 +49,7 @@ fn eval_constant_only_fill() {
         check_finite: true,
         early_exit: true,
     };
-    let (out, ok) = eval_tree_array::<f64, TestOps, 3>(&expr, x.view(), &opts);
+    let (out, ok) = eval_tree_array::<f64, TestOps, 3>(&expr, &TestOps::new(), x.view(), &opts);
     assert!(ok);
     for v in out {
         assert_eq!(v, 1.25);
@@ -58,6 +65,6 @@ fn nan_detection_sets_complete_false() {
         check_finite: true,
         early_exit: false,
     };
-    let (_out, ok) = eval_tree_array::<f64, TestOps, 3>(&expr, x.view(), &opts);
+    let (_out, ok) = eval_tree_array::<f64, TestOps, 3>(&expr, &TestOps::new(), x.view(), &opts);
     assert!(!ok);
 }
