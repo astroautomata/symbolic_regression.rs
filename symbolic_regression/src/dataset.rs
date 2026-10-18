@@ -1,13 +1,17 @@
+use dynamic_expressions::XColumns;
 use dynamic_expressions::utils::ZipEq;
 use fastrand::Rng;
 use ndarray::{Array1, Array2};
 use num_traits::Float;
 
 use crate::random::usize_range;
+use crate::units::Units;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TaggedDataset<'a, T: Float> {
-    pub data: &'a Dataset<T>,
+    data: &'a Dataset<T>,
+    /// `data.x`, scanned once for non-finite values; the borrow keeps the scan current.
+    x_columns: XColumns<'a, T>,
     pub baseline_loss: Option<T>,
     /// Row count of the *full* dataset this tag refers to. Equal to `data.n_rows` when the tag
     /// wraps the full dataset; when it wraps a batch buffer, this is the underlying full size.
@@ -17,18 +21,22 @@ pub struct TaggedDataset<'a, T: Float> {
 
 impl<'a, T: Float> TaggedDataset<'a, T> {
     pub fn new(data: &'a Dataset<T>, baseline_loss: Option<T>) -> Self {
-        Self {
-            data,
-            baseline_loss,
-            full_n_rows: data.n_rows,
-        }
+        Self::for_batch(data, baseline_loss, data.n_rows)
     }
     pub fn for_batch(batch: &'a Dataset<T>, baseline_loss: Option<T>, full_n_rows: usize) -> Self {
         Self {
             data: batch,
+            x_columns: XColumns::checked(batch.x.view()),
             baseline_loss,
             full_n_rows,
         }
+    }
+    pub fn data(&self) -> &'a Dataset<T> {
+        self.data
+    }
+    /// The feature columns to evaluate expressions on.
+    pub fn x_columns(&self) -> XColumns<'a, T> {
+        self.x_columns
     }
     /// Matches SymbolicRegression.jl `dataset_fraction`: ratio of `data.n_rows` to the full size.
     pub fn dataset_fraction(&self) -> f64 {
@@ -59,6 +67,8 @@ pub struct Dataset<T: Float> {
     pub variable_names: Vec<String>,
     /// Weighted mean of `y` (or unweighted mean when no weights).
     pub avg_y: T,
+    /// SymbolicRegression.jl's `X_units` and `y_units`; see [`Self::with_units`].
+    pub units: Option<Units>,
 }
 
 impl<T: Float> Dataset<T> {
@@ -70,14 +80,17 @@ impl<T: Float> Dataset<T> {
         avg_y: Option<T>,
     ) -> Self {
         let x = x.as_standard_layout().to_owned();
+        let y = contiguous(y);
+        let weights = weights.map(contiguous);
         let (n_features, n_rows) = x.dim();
         assert_eq!(y.len(), n_rows);
         if let Some(ref w) = weights {
             assert_eq!(w.len(), n_rows);
         }
 
-        let avg_y = avg_y
-            .unwrap_or_else(|| Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().and_then(|w| w.as_slice())));
+        let avg_y = avg_y.unwrap_or_else(|| {
+            Self::compute_avg_y(y.as_slice().unwrap(), weights.as_ref().map(|w| w.as_slice().unwrap()))
+        });
 
         Self {
             x,
@@ -87,6 +100,7 @@ impl<T: Float> Dataset<T> {
             weights,
             variable_names,
             avg_y,
+            units: None,
         }
     }
 
@@ -103,12 +117,33 @@ impl<T: Float> Dataset<T> {
         Self::build_dataset(x, y, weights, variable_names, None)
     }
 
+    /// Attaches units to the features and target, written as PySR and SymbolicRegression.jl take
+    /// them (`"kg"`, `"m/s^2"`, `"Constants.G"`). The search then adds
+    /// `Options::dimensional_constraint_penalty` to the loss of each dimensionally inconsistent
+    /// expression. Target units alone make every feature dimensionless.
+    ///
+    /// ```
+    /// use ndarray::{Array1, Array2};
+    /// use symbolic_regression::Dataset;
+    ///
+    /// let dataset = Dataset::<f64>::new(Array2::zeros((2, 3)), Array1::zeros(3))
+    ///     .with_units(Some(&["m", "s"]), Some("m/s"))
+    ///     .unwrap();
+    /// assert_eq!(dataset.units.unwrap().x[0].label(), "[m]");
+    /// ```
+    pub fn with_units<S: AsRef<str>>(mut self, x_units: Option<&[S]>, y_units: Option<&str>) -> Result<Self, String> {
+        self.units = Units::parse(self.n_features, x_units, y_units)?;
+        Ok(self)
+    }
+
     pub fn y_slice(&self) -> &[T] {
         self.y.as_slice().expect("y is contiguous")
     }
 
     pub fn weights_slice(&self) -> Option<&[T]> {
-        self.weights.as_ref().and_then(|w| w.as_slice())
+        self.weights
+            .as_ref()
+            .map(|w| w.as_slice().expect("weights are contiguous"))
     }
 
     pub fn compute_avg_y(y: &[T], weights: Option<&[T]>) -> T {
@@ -140,7 +175,11 @@ impl<T: Float> Dataset<T> {
         let x = Array2::<T>::zeros((full.n_features, batch_size));
         let y = Array1::<T>::zeros(batch_size);
         let weights = full.weights.as_ref().map(|_| Array1::<T>::zeros(batch_size));
-        Self::build_dataset(x, y, weights, full.variable_names.clone(), Some(full.avg_y))
+        let batch = Self::build_dataset(x, y, weights, full.variable_names.clone(), Some(full.avg_y));
+        Dataset {
+            units: full.units.clone(),
+            ..batch
+        }
     }
 
     pub fn resample_from(&mut self, full: &Dataset<T>, rng: &mut Rng) {
@@ -165,5 +204,14 @@ impl<T: Float> Dataset<T> {
                 dst[dst_col] = src[src_idx];
             }
         }
+    }
+}
+
+/// `a`, copied into a contiguous array only if it is not one already, so it has a slice view.
+fn contiguous<T: Clone>(a: Array1<T>) -> Array1<T> {
+    if a.is_standard_layout() {
+        a
+    } else {
+        a.as_standard_layout().into_owned()
     }
 }

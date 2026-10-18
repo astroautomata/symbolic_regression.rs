@@ -23,7 +23,7 @@ fn opts() -> dynamic_expressions::EvalOptions {
 #[test]
 fn simplify_tree_folds_unary_constant() {
     let mut expr: PostfixExpr<f64, Ops, D> = dynamic_expressions::operators::cos(cst(0.0));
-    let changed = simplify_tree_in_place::<f64, Ops, D>(&mut expr, &opts());
+    let changed = simplify_tree_in_place::<f64, Ops, D>(&mut expr, &Ops::new(), &opts());
     assert!(changed);
     assert_eq!(expr.nodes.len(), 1);
     let PNode::Const { idx } = expr.nodes[0] else {
@@ -35,7 +35,7 @@ fn simplify_tree_folds_unary_constant() {
 #[test]
 fn simplify_tree_does_not_fold_nan() {
     let mut expr: PostfixExpr<f64, Ops, D> = dynamic_expressions::operators::cos(cst(f64::NAN));
-    let changed = simplify_tree_in_place::<f64, Ops, D>(&mut expr, &opts());
+    let changed = simplify_tree_in_place::<f64, Ops, D>(&mut expr, &Ops::new(), &opts());
     assert!(!changed);
     assert!(expr.nodes.len() > 1);
 }
@@ -43,7 +43,7 @@ fn simplify_tree_does_not_fold_nan() {
 #[test]
 fn combine_operators_commutative_add_combines_constants() {
     let mut expr: PostfixExpr<f64, Ops, D> = cst(0.5) + (cst(0.2) + var(0));
-    let changed = combine_operators_in_place::<f64, Ops, D>(&mut expr);
+    let changed = combine_operators_in_place::<f64, Ops, D>(&mut expr, &Ops::new());
     assert!(changed);
     let _ = compress_constants(&mut expr);
 
@@ -59,7 +59,7 @@ fn combine_operators_commutative_add_combines_constants() {
 fn combine_operators_sub_pattern_1() {
     // (cA - (cB - x)) => (x - (cB - cA))
     let mut expr: PostfixExpr<f64, Ops, D> = cst(0.5) - (cst(0.2) - var(0));
-    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr);
+    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr, &Ops::new());
     let _ = compress_constants(&mut expr);
 
     assert_eq!(expr.nodes.len(), 3);
@@ -73,7 +73,7 @@ fn combine_operators_sub_pattern_1() {
 fn combine_operators_sub_pattern_2() {
     // (cA - (x - cB)) => ((cA + cB) - x)
     let mut expr: PostfixExpr<f64, Ops, D> = cst(0.5) - (var(0) - cst(0.2));
-    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr);
+    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr, &Ops::new());
     let _ = compress_constants(&mut expr);
 
     assert_eq!(expr.nodes.len(), 3);
@@ -87,7 +87,7 @@ fn combine_operators_sub_pattern_2() {
 fn combine_operators_sub_pattern_3() {
     // ((cA - x) - cB) => ((cA - cB) - x)
     let mut expr: PostfixExpr<f64, Ops, D> = (cst(0.5) - var(0)) - cst(0.2);
-    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr);
+    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr, &Ops::new());
     let _ = compress_constants(&mut expr);
 
     assert_eq!(expr.nodes.len(), 3);
@@ -101,7 +101,7 @@ fn combine_operators_sub_pattern_3() {
 fn combine_operators_sub_pattern_4() {
     // ((x - cA) - cB) => (x - (cA + cB))
     let mut expr: PostfixExpr<f64, Ops, D> = (var(0) - cst(0.2)) - cst(0.6);
-    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr);
+    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr, &Ops::new());
     let _ = compress_constants(&mut expr);
 
     assert_eq!(expr.nodes.len(), 3);
@@ -116,7 +116,7 @@ fn combine_operators_nested_add_inside_cos_matches_julia_like() {
     // cos((0.1 + 0.2) + 0.2) + 2.0  => combine constants to 0.4 and keep 0.1
     let mut expr: PostfixExpr<f64, Ops, D> =
         dynamic_expressions::operators::cos((cst(0.1) + cst(0.2)) + cst(0.2)) + cst(2.0);
-    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr);
+    let _ = combine_operators_in_place::<f64, Ops, D>(&mut expr, &Ops::new());
     let _ = compress_constants(&mut expr);
 
     assert!(expr.consts.iter().copied().all(f64::is_finite));

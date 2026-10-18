@@ -57,30 +57,34 @@ fn main() {
 
     let dataset = Dataset::new(x, y);
 
-    let operators = BuiltinOpsF32::from_names(["cos", "exp", "sin", "+", "sub", "*", "/"]).unwrap();
+    let operators = BuiltinOpsF32::new()
+        .from_names(["cos", "exp", "sin", "+", "sub", "*", "/"])
+        .unwrap();
 
-    let options = Options::<f32, D> {
+    let options = Options::<f32, BuiltinOpsF32, D> {
         operators,
         niterations,
         ..Default::default()
     };
 
-    let result = equation_search::<_, BuiltinOpsF32, D>(&dataset, &options);
+    let result = equation_search::<_, BuiltinOpsF32, D>(&dataset, &options).unwrap();
     let dominating = result.hall_of_fame.pareto_front();
 
     println!("Final Pareto front:");
     println!("Complexity\tMSE\tEquation");
     for member in dominating {
-        println!("{}\t{}\t{}", member.complexity, member.loss, member.expr);
+        let equation = member.expr.string(&options, Default::default());
+        println!("{}\t{}\t{}", member.complexity, member.loss, equation);
     }
     // To evaluate the expression, use:
     // let tree = dominating
     // .last()
     // .unwrap()
-    // .expr
+    // .expr.trees[0]
     // .clone();
     // let _ = eval_tree_array::<f32, BuiltinOpsF32, D>(
     // &tree,
+    // &options.operators.set,
     // dataset.x.view(),
     // &EvalOptions::default(),
     // );

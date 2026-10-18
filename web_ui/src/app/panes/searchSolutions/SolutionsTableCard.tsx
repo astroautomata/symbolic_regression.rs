@@ -4,6 +4,8 @@ import { formatSci } from "./plotUtils";
 
 export function SolutionsTableCard(props: {
   front: EquationSummary[];
+  /** SymbolicRegression.jl shows the score column only for `loss_scale = "log"`. */
+  showScore: boolean;
   selectedId: string | null;
   selectEquation: (sel: { id: string; complexity: number }) => void;
 }): React.ReactElement {
@@ -17,6 +19,11 @@ export function SolutionsTableCard(props: {
               <th className="num" style={{ width: 120 }}>
                 loss
               </th>
+              {props.showScore && (
+                <th className="num" style={{ width: 120 }}>
+                  score
+                </th>
+              )}
               <th>equation</th>
             </tr>
           </thead>
@@ -32,6 +39,7 @@ export function SolutionsTableCard(props: {
                   data-testid={`solution-row-${m.id}`}
                 >
                   <td className="mono num">{formatSci(m.loss)}</td>
+                  {props.showScore && <td className="mono num">{formatSci(m.score)}</td>}
                   <td className="mono equationCell" title={m.equation}>
                     {m.equation}
                   </td>
