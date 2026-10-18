@@ -1,0 +1,27 @@
+[package]
+name = "symbolic_regression_py"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Python bindings for symbolic_regression, imported as symbolic_regression_rs."
+homepage = "https://github.com/astroautomata/symbolic_regression.rs"
+repository = "https://github.com/astroautomata/symbolic_regression.rs"
+publish = false
+
+[lib]
+name = "symbolic_regression_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+crc32fast = "1"
+symbolic_regression = { path = "../symbolic_regression", features = ["serde"] }
+dynamic_expressions = { path = "../dynamic_expressions", default-features = false }
+ndarray = "0.17"
+numpy = "0.29"
+num-traits = "0.2"
+postcard = { version = "1", features = ["use-std"] }
+pyo3 = { version = "0.29", features = ["abi3-py310"] }
+serde = { version = "1", features = ["derive"] }
+
+[build-dependencies]
+pyo3-build-config = "0.29"

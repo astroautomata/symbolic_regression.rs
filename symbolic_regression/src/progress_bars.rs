@@ -5,12 +5,14 @@ mod imp {
     use std::time::{Duration, Instant};
 
     use dynamic_expressions::OperatorSet;
-    use dynamic_expressions::strings::{StringTreeOptions, string_tree};
+    use dynamic_expressions::strings::StringTreeOptions;
     use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
     use num_traits::Float;
 
+    use crate::dataset::Dataset;
     use crate::hall_of_fame::HallOfFame;
-    use crate::options::{Options, OutputStyle};
+    use crate::options::{LossScale, Options, OutputStyle};
+    use crate::units::{UnitLabels, Units};
 
     struct ProgressTracking {
         last_speed_time: Instant,
@@ -20,12 +22,17 @@ mod imp {
     }
 
     #[derive(Copy, Clone, Debug)]
-    struct RenderOptions {
-        ansi: bool,
+    pub(crate) struct RenderOptions {
+        pub(crate) ansi: bool,
+        /// `LossScale::Log` adds a Score column, as in SymbolicRegression.jl.
+        pub(crate) loss_scale: LossScale,
     }
 
     pub(crate) struct SearchProgress {
         show: bool,
+        print: bool,
+        total_cycles: usize,
+        populations: usize,
         bar: ProgressBar,
         start_time: Instant,
         msg_min_interval: Duration,
@@ -34,8 +41,14 @@ mod imp {
     }
 
     impl SearchProgress {
-        pub(crate) fn new<T: Float, const D: usize>(options: &Options<T, D>, total_cycles: usize) -> Self {
-            let show = options.progress && std::io::stderr().is_terminal();
+        /// `show` is false for a multi-output search, which SymbolicRegression.jl shows no bar for.
+        pub(crate) fn new<T: Float, Ops, const D: usize>(
+            options: &Options<T, Ops, D>,
+            show: bool,
+            total_cycles: usize,
+        ) -> Self {
+            let show =
+                show && options.progress && options.verbosity.unwrap_or(1) > 0 && std::io::stderr().is_terminal();
 
             let ansi = match options.output_style {
                 OutputStyle::Plain => {
@@ -48,7 +61,10 @@ mod imp {
                 }
                 OutputStyle::Auto => console::colors_enabled_stderr(),
             };
-            let render = RenderOptions { ansi };
+            let render = RenderOptions {
+                ansi,
+                loss_scale: options.loss_scale,
+            };
 
             let bar = if show {
                 let pb = ProgressBar::new(total_cycles as u64);
@@ -66,6 +82,9 @@ mod imp {
 
             Self {
                 show,
+                print: !options.progress && options.verbosity.unwrap_or(1) > 0,
+                total_cycles,
+                populations: options.populations,
                 bar,
                 start_time: Instant::now(),
                 msg_min_interval: Duration::from_millis(500),
@@ -79,6 +98,12 @@ mod imp {
             }
         }
 
+        pub(crate) fn warn(&self, message: &str) {
+            if self.show {
+                self.bar.println(format!("Warning: {message}"));
+            }
+        }
+
         pub(crate) fn set_initial_evals(&mut self, total_evals: u64) {
             self.tracking.evals_last = total_evals;
             self.tracking.last_speed_time = Instant::now();
@@ -86,21 +111,49 @@ mod imp {
 
         pub(crate) fn on_cycle_complete<T, Ops, const D: usize>(
             &mut self,
-            hall: &HallOfFame<T, Ops, D>,
+            halls: &[HallOfFame<T, Ops, D>],
+            datasets: &[Dataset<T>],
+            options: &Options<T, Ops, D>,
             total_evals: u64,
             cycles_remaining: usize,
             print_precision: usize,
-        ) where
+        ) -> Result<(), String>
+        where
             T: Float + num_traits::ToPrimitive + Display,
             Ops: OperatorSet,
         {
+            if self.print
+                && (self.tracking.last_msg_update.elapsed() >= Duration::from_secs(5) || cycles_remaining == 0)
+            {
+                let state = crate::printing::format_search_state(self.total_cycles, cycles_remaining, self.populations);
+                println!("{state}");
+                for (j, (hall, dataset)) in halls.iter().zip(datasets).enumerate() {
+                    if datasets.len() > 1 {
+                        println!("Best equations for output {}", j + 1);
+                    }
+                    let hall = format_hall_of_fame(
+                        hall,
+                        options,
+                        options.terminal_width.unwrap_or(100).max(100),
+                        usize::MAX,
+                        self.render,
+                        print_precision,
+                        dataset.units.as_ref(),
+                        Some(&dataset.display_variable_names),
+                        &dataset.y_variable_name,
+                    )?;
+                    println!("{hall}");
+                }
+                self.tracking.last_msg_update = Instant::now();
+            }
             if !self.show {
-                return;
+                return Ok(());
             }
             self.bar.inc(1);
             update_progress_msg(ProgressMsgCtx {
                 pb: &self.bar,
-                hall,
+                hall: &halls[0],
+                options,
                 start_time: self.start_time,
                 msg_min_interval: self.msg_min_interval,
                 progress: &mut self.tracking,
@@ -108,7 +161,8 @@ mod imp {
                 total_evals,
                 cycles_remaining,
                 print_precision,
-            });
+                dataset: &datasets[0],
+            })
         }
 
         pub(crate) fn finish(&self) {
@@ -121,6 +175,7 @@ mod imp {
     struct ProgressMsgCtx<'a, T: Float, Ops, const D: usize> {
         pb: &'a ProgressBar,
         hall: &'a HallOfFame<T, Ops, D>,
+        options: &'a Options<T, Ops, D>,
         start_time: Instant,
         msg_min_interval: Duration,
         progress: &'a mut ProgressTracking,
@@ -128,9 +183,10 @@ mod imp {
         total_evals: u64,
         cycles_remaining: usize,
         print_precision: usize,
+        dataset: &'a Dataset<T>,
     }
 
-    fn update_progress_msg<T, Ops, const D: usize>(ctx: ProgressMsgCtx<'_, T, Ops, D>)
+    fn update_progress_msg<T, Ops, const D: usize>(ctx: ProgressMsgCtx<'_, T, Ops, D>) -> Result<(), String>
     where
         T: Float + num_traits::ToPrimitive + Display,
         Ops: OperatorSet,
@@ -138,6 +194,7 @@ mod imp {
         let ProgressMsgCtx {
             pb,
             hall,
+            options,
             start_time,
             msg_min_interval,
             progress,
@@ -145,6 +202,7 @@ mod imp {
             total_evals,
             cycles_remaining,
             print_precision,
+            dataset,
         } = ctx;
 
         let now = Instant::now();
@@ -160,12 +218,12 @@ mod imp {
         }
 
         if now.duration_since(progress.last_msg_update) < msg_min_interval && cycles_remaining != 0 {
-            return;
+            return Ok(());
         }
 
         let term_width = {
             let (_, w) = console::Term::stderr().size();
-            (w as usize).max(80)
+            options.terminal_width.unwrap_or(w as usize).max(80)
         };
 
         let avg_speed = if progress.speeds.is_empty() {
@@ -188,7 +246,17 @@ mod imp {
             ),
         };
 
-        let hof = format_hall_of_fame(hall, term_width, usize::MAX, render, print_precision);
+        let hof = format_hall_of_fame(
+            hall,
+            options,
+            term_width,
+            usize::MAX,
+            render,
+            print_precision,
+            dataset.units.as_ref(),
+            Some(&dataset.display_variable_names),
+            &dataset.y_variable_name,
+        )?;
         let hof_title = "Hall of Fame:".to_string();
         pb.set_message(format!(
             "{}\n{}\n{}",
@@ -198,47 +266,49 @@ mod imp {
         ));
 
         progress.last_msg_update = now;
+        Ok(())
     }
 
-    fn format_hall_of_fame<T, Ops, const D: usize>(
+    /// SymbolicRegression.jl's hall of fame. Each equation reads `y = ...`; with units,
+    /// `y[kg] = x1[m] * 3.2[?]`: features carry their units, constants whose units are free carry
+    /// `[?]`, and the target carries its units, or `[?]` when only the features have units.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn format_hall_of_fame<T, Ops, const D: usize>(
         hall: &HallOfFame<T, Ops, D>,
+        options: &Options<T, Ops, D>,
         terminal_width: usize,
         max_entries: usize,
         render: RenderOptions,
         print_precision: usize,
-    ) -> String
+        units: Option<&Units>,
+        variable_names: Option<&[String]>,
+        y_variable_name: &str,
+    ) -> Result<String, String>
     where
         T: Float + num_traits::ToPrimitive + Display,
         Ops: OperatorSet,
     {
         let terminal_width = terminal_width.max(80);
-        let raw_border = "─".repeat(terminal_width.saturating_sub(1));
-        let raw_header = format!("{:<10}  {:<10}  {}", "Complexity", "Loss", "Equation");
-
-        let border = raw_border;
-        let header = if render.ansi {
-            let s = console::Style::new().bold().underlined();
-
-            let complexity_plain = "Complexity";
-            let loss_plain = "Loss";
-            let equation_plain = "Equation";
-
-            let complexity = format!(
-                "{}{}",
-                s.apply_to(complexity_plain),
-                " ".repeat(10_usize.saturating_sub(complexity_plain.len()))
-            );
-            let loss = format!(
-                "{}{}",
-                s.apply_to(loss_plain),
-                " ".repeat(10_usize.saturating_sub(loss_plain.len()))
-            );
-            let equation = s.apply_to(equation_plain).to_string();
-
-            format!("{complexity}  {loss}  {equation}")
+        let border = "─".repeat(terminal_width.saturating_sub(1));
+        let show_score = render.loss_scale == LossScale::Log;
+        let style = console::Style::new().bold().underlined();
+        let mut header = String::new();
+        for name in ["Complexity", "Loss", "Score"] {
+            if name == "Score" && !show_score {
+                continue;
+            }
+            let styled = if render.ansi {
+                style.apply_to(name).to_string()
+            } else {
+                name.to_string()
+            };
+            header.push_str(&format!("{styled}{}  ", " ".repeat(10 - name.len())));
+        }
+        header.push_str(&if render.ansi {
+            style.apply_to("Equation").to_string()
         } else {
-            raw_header
-        };
+            "Equation".to_string()
+        });
 
         let mut out = String::new();
         out.push_str(&border);
@@ -246,18 +316,32 @@ mod imp {
         out.push_str(&truncate_to_width(&header, terminal_width, render));
         out.push('\n');
 
-        for m in hall.pareto_front().into_iter().take(max_entries) {
+        let scores = hall.pareto_scores(render.loss_scale)?;
+        let labels = units.map(|u| UnitLabels::new(u, options.dimensionless_constants_only));
+        let prefix = format!(
+            "{y_variable_name}{} = ",
+            labels.as_ref().map_or("", |l| l.target.as_str())
+        );
+        for (m, score) in hall.pareto_front().into_iter().zip(scores).take(max_entries) {
             let loss = m.loss.to_f64().unwrap_or(f64::INFINITY);
-            let stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
+            let mut stats = format!("{:<10}  {:<10.3e}  ", m.complexity, loss);
+            if show_score {
+                stats.push_str(&format!("{:<10.3e}  ", score.to_f64().unwrap_or(f64::NAN)));
+            }
             let left_cols_width = stats.chars().count();
 
-            let eqn_plain = string_tree(
-                &m.expr,
-                StringTreeOptions {
-                    print_precision: Some(print_precision),
-                    ..Default::default()
-                },
-            );
+            let eqn_plain = prefix.clone()
+                + &m.expr.string(
+                    options,
+                    StringTreeOptions {
+                        print_precision: Some(print_precision),
+                        variable_names,
+                        pretty: true,
+                        variable_suffixes: labels.as_ref().map(|l| l.variables.as_slice()),
+                        constant_suffix: labels.as_ref().map_or("", |l| l.constant),
+                        ..Default::default()
+                    },
+                );
             let eqn_lines = wrap_equation(&eqn_plain, terminal_width, left_cols_width);
 
             if let Some((first, rest)) = eqn_lines.split_first() {
@@ -266,7 +350,7 @@ mod imp {
                 out.push('\n');
                 for line in rest {
                     let eq = line.to_string();
-                    let padded = format!("{}{}", " ".repeat(left_cols_width), eq);
+                    let padded = eq;
                     out.push_str(&truncate_to_width(&padded, terminal_width, render));
                     out.push('\n');
                 }
@@ -277,35 +361,14 @@ mod imp {
         }
 
         out.push_str(&border);
-        out
+        Ok(out)
     }
 
     fn wrap_equation(eqn: &str, terminal_width: usize, left_cols_width: usize) -> Vec<String> {
-        let dots = "...";
-        let avail = terminal_width
-            .saturating_sub(1)
-            .saturating_sub(left_cols_width)
-            .saturating_sub(dots.len())
-            .max(10);
-
-        let mut out = Vec::new();
-        let mut start = 0;
-        while start < eqn.len() {
-            let mut end = (start + avail).min(eqn.len());
-            while end > start && !eqn.is_char_boundary(end) {
-                end -= 1;
-            }
-            if end == start {
-                break;
-            }
-            let mut chunk = eqn[start..end].to_string();
-            if end < eqn.len() {
-                chunk.push_str(dots);
-            }
-            out.push(chunk);
-            start = end;
-        }
-        out
+        crate::printing::wrap_equation_string(eqn, left_cols_width, terminal_width)
+            .lines()
+            .map(str::to_string)
+            .collect()
     }
 
     fn truncate_to_width(s: &str, terminal_width: usize, render: RenderOptions) -> String {
@@ -319,77 +382,41 @@ mod imp {
             s.chars().take(max).collect()
         }
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn header_equation_column_aligns_with_rows() {
-            let render = RenderOptions { ansi: true };
-
-            let raw_header = format!("{:<10}  {:<10}  {}", "Complexity", "Loss", "Equation");
-            let header = if render.ansi {
-                let s = console::Style::new().bold().underlined();
-
-                let complexity_plain = "Complexity";
-                let loss_plain = "Loss";
-                let equation_plain = "Equation";
-
-                let complexity = format!(
-                    "{}{}",
-                    s.apply_to(complexity_plain),
-                    " ".repeat(10_usize.saturating_sub(complexity_plain.len()))
-                );
-                let loss = format!(
-                    "{}{}",
-                    s.apply_to(loss_plain),
-                    " ".repeat(10_usize.saturating_sub(loss_plain.len()))
-                );
-                let equation = s.apply_to(equation_plain).to_string();
-                format!("{complexity}  {loss}  {equation}")
-            } else {
-                raw_header
-            };
-
-            let header_plain = console::strip_ansi_codes(&header);
-            let eq_header_start = header_plain.find("Equation").expect("header should contain Equation");
-
-            let stats = format!("{:<10}  {:<10.3e}  ", 5_u32, 1.234_f64);
-            let row = format!("{stats}x0");
-            let eq_row_start = row.find("x0").expect("row should contain equation");
-
-            assert_eq!(
-                eq_header_start, eq_row_start,
-                "Equation header must align with equation column"
-            );
-        }
-    }
 }
 
 #[cfg(not(feature = "progress"))]
 mod imp {
     use num_traits::Float;
 
+    use crate::dataset::Dataset;
     use crate::hall_of_fame::HallOfFame;
     use crate::options::Options;
 
     pub(crate) struct SearchProgress;
 
     impl SearchProgress {
-        pub(crate) fn new<T: Float, const D: usize>(_options: &Options<T, D>, _total_cycles: usize) -> Self {
+        pub(crate) fn new<T: Float, Ops, const D: usize>(
+            _options: &Options<T, Ops, D>,
+            _show: bool,
+            _total_cycles: usize,
+        ) -> Self {
             Self
         }
+
+        pub(crate) fn warn(&self, _message: &str) {}
 
         pub(crate) fn set_initial_evals(&mut self, _total_evals: u64) {}
 
         pub(crate) fn on_cycle_complete<T: Float, Ops, const D: usize>(
             &mut self,
-            _hall: &HallOfFame<T, Ops, D>,
+            _halls: &[HallOfFame<T, Ops, D>],
+            _datasets: &[Dataset<T>],
+            _options: &Options<T, Ops, D>,
             _total_evals: u64,
             _cycles_remaining: usize,
             _print_precision: usize,
-        ) {
+        ) -> Result<(), String> {
+            Ok(())
         }
 
         pub(crate) fn finish(&self) {}
@@ -397,3 +424,5 @@ mod imp {
 }
 
 pub(crate) use imp::SearchProgress;
+#[cfg(all(test, feature = "progress"))]
+pub(crate) use imp::{RenderOptions, format_hall_of_fame};

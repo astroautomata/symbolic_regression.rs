@@ -35,7 +35,7 @@ pub fn best_of_sample<T: Float, Ops, const D: usize>(
     rng: &mut Rng,
     pop: &Population<T, Ops, D>,
     stats: &RunningSearchStatistics,
-    options: &Options<T, D>,
+    options: &Options<T, Ops, D>,
 ) -> PopMember<T, Ops, D> {
     let n = options.tournament_selection_n.min(pop.len());
     let indices = sample_indices(rng, pop.len(), n);
@@ -43,16 +43,8 @@ pub fn best_of_sample<T: Float, Ops, const D: usize>(
     let mut scored: Vec<(f64, usize)> = Vec::with_capacity(n);
     for idx in indices {
         let m = &pop.members[idx];
-        let mut adjusted = m.cost.to_f64().unwrap_or(f64::INFINITY);
-        if options.use_frequency_in_tournament {
-            let size = m.complexity;
-            let freq = if size > 0 && size <= options.maxsize {
-                stats.normalized_frequencies[size - 1]
-            } else {
-                0.0
-            };
-            adjusted *= (options.adaptive_parsimony_scaling * freq).exp();
-        }
+        let adjusted = m.cost.to_f64().unwrap_or(f64::INFINITY)
+            * crate::adaptive_parsimony::tournament_cost_multiplier(stats, options, m.complexity);
         scored.push((adjusted, idx));
     }
 
@@ -78,17 +70,18 @@ pub(crate) fn weighted_index(rng: &mut Rng, weights: &[f64]) -> usize {
         panic!("at least one weight must be > 0");
     }
 
-    let mut target = rng.f64() * total;
+    let target = (rng.f64() * total).min(total.next_down());
+    let mut cumulative = 0.0;
     for (idx, &w) in weights.iter().enumerate() {
         if w <= 0.0 {
             continue;
         }
-        if target < w {
+        cumulative += w;
+        if target < cumulative {
             return idx;
         }
-        target -= w;
     }
-    weights.len() - 1
+    unreachable!("positive weights exhaust the sampling interval")
 }
 
 fn sample_indices(rng: &mut Rng, len: usize, n: usize) -> Vec<usize> {

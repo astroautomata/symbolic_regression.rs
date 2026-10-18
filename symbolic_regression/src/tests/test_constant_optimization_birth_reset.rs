@@ -8,7 +8,7 @@ use crate::Options;
 use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
 use crate::operator_library::OperatorLibrary;
-use crate::pop_member::{Evaluator, PopMember, reset_pseudo_time_for_tests};
+use crate::pop_member::{Evaluator, PopMember};
 
 fn var(feature: u16) -> PostfixExpr<T, TestOps, D> {
     PostfixExpr::new(vec![PNode::Var { feature }], Vec::new(), Metadata::default())
@@ -16,7 +16,6 @@ fn var(feature: u16) -> PostfixExpr<T, TestOps, D> {
 
 #[test]
 fn optimize_constants_resets_birth_on_improvement() {
-    reset_pseudo_time_for_tests();
     let n_rows = 128;
     let n_features = 1;
     let mut x = vec![0.0; n_rows];
@@ -31,10 +30,11 @@ fn optimize_constants_resets_birth_on_improvement() {
         Array1::from_vec(y),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         should_optimize_constants: true,
         deterministic: true,
+        parallelism: crate::Parallelism::Serial,
         optimizer_iterations: 200,
         optimizer_nrestarts: 1,
         ..Default::default()
@@ -46,7 +46,11 @@ fn optimize_constants_resets_birth_on_improvement() {
     let mut evaluator = Evaluator::<T, D>::new(dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::<T, D>::new(dataset.n_rows);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };

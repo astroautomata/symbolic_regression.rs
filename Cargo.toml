@@ -3,7 +3,9 @@ resolver = "2"
 members = [
     "dynamic_expressions",
     "symbolic_regression",
+    "symbolic_regression_py",
     "symbolic_regression_wasm",
+    "xtask",
 ]
 
 [profile.profiling]

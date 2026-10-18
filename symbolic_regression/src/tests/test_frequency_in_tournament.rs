@@ -17,7 +17,7 @@ fn leaf_expr() -> PostfixExpr<T, TestOps, D> {
 
 #[test]
 fn tournament_penalizes_frequent_sizes_when_enabled() {
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         tournament_selection_n: 2,
         tournament_selection_p: 1.0,
@@ -27,8 +27,8 @@ fn tournament_penalizes_frequent_sizes_when_enabled() {
     };
     let mut rng = Rng::with_seed(0);
 
-    let mut a = PopMember::from_expr_with_birth(0, leaf_expr(), 1);
-    let mut b = PopMember::from_expr_with_birth(0, leaf_expr(), 1);
+    let mut a = PopMember::from_expr_with_birth(0, leaf_expr(), 1, &options);
+    let mut b = PopMember::from_expr_with_birth(0, leaf_expr(), 1, &options);
     a.complexity = 1;
     b.complexity = 3;
     a.cost = T::one();

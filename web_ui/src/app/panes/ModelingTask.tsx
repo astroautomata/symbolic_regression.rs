@@ -1,6 +1,44 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useSessionStore } from "../../state/sessionStore";
-import type { WasmOpInfo } from "../../types/srTypes";
+import type {
+  LossScale,
+  WasmAdaptiveMutationWeights,
+  WasmGuess,
+  WasmMutationBurst,
+  WasmOpInfo,
+  WasmSearchOptions,
+  WasmTemplateOptions
+} from "../../types/srTypes";
+
+/** SymbolicRegression.jl's plugin defaults, used when a plugin is switched on. */
+const ADAPTIVE_MUTATION_WEIGHTS_DEFAULTS: WasmAdaptiveMutationWeights = { smoothing: 0.02, floor: 0.05, reward: "cost", adaptation_strength: 0.5 };
+const MUTATION_BURST_DEFAULTS: WasmMutationBurst = { retry_attempts: 4, compound_probability: 0.25, compound_max_steps: 2 };
+
+/** Built-in losses, written as PySR's `elementwise_loss` takes them. Any definition such as
+ * `f(x, y) = abs(x - y)^1.5` also works. */
+const BUILTIN_LOSSES = [
+  "L2DistLoss()",
+  "L1DistLoss()",
+  "LPDistLoss{3}()",
+  "HuberLoss(1.0)",
+  "L1EpsilonInsLoss(0.1)",
+  "L2EpsilonInsLoss(0.1)",
+  "LogitDistLoss()",
+  "QuantileLoss(0.5)",
+  "LogCoshLoss()",
+  "PeriodicLoss(1.0)",
+  "ZeroOneLoss()",
+  "PerceptronLoss()",
+  "LogitMarginLoss()",
+  "L1HingeLoss()",
+  "L2HingeLoss()",
+  "SmoothedL1HingeLoss(1.0)",
+  "ModifiedHuberLoss()",
+  "L2MarginLoss()",
+  "ExpLoss()",
+  "SigmoidLoss()",
+  "DWDMarginLoss(1.0)"
+];
 
 function groupByArity(ops: WasmOpInfo[]): Record<number, WasmOpInfo[]> {
   const out: Record<number, WasmOpInfo[]> = {};
@@ -64,6 +102,173 @@ function OperatorsGroup(props: {
   );
 }
 
+function splitList(text: string): string[] {
+  return text
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+}
+
+/** Comma-separated subexpression arities; blank infers them. A non-integer entry stays NaN, so the
+ * search setup reports it. */
+function parseArities(text: string): number[] | null {
+  const parts = splitList(text);
+  return parts.length === 0 ? null : parts.map((s) => (/^\d+$/.test(s) ? Number(s) : NaN));
+}
+
+function TemplateCard(props: {
+  template: WasmTemplateOptions | null;
+  setTemplate: (template: WasmTemplateOptions | null) => void;
+}): React.ReactElement {
+  const { template, setTemplate } = props;
+  // The list fields keep their raw text, so typing "f, " does not drop the trailing comma.
+  const [expressionsText, setExpressionsText] = useState(template?.expressions.join(", ") ?? "");
+  const [aritiesText, setAritiesText] = useState(template?.num_features?.join(", ") ?? "");
+  const patch = (p: Partial<WasmTemplateOptions>) => template && setTemplate({ ...template, ...p });
+  const parameters = template?.parameters ?? [];
+  const aritiesValid = (parseArities(aritiesText) ?? []).every(Number.isInteger);
+
+  return (
+    <div className="card">
+      <div className="cardTitle">Template expression</div>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={template !== null}
+          onChange={(e) =>
+            setTemplate(
+              e.target.checked
+                ? {
+                    combine: "",
+                    expressions: splitList(expressionsText),
+                    num_features: parseArities(aritiesText),
+                    variable_names: null,
+                    parameters: []
+                  }
+                : null
+            )
+          }
+        />
+        search a template expression
+      </label>
+      {template && (
+        <>
+          <div className="row">
+            <label className="field">
+              <div className="label">combine</div>
+              <input
+                type="text"
+                placeholder="f(x1, x2) + g(x3) * p[x4]"
+                value={template.combine}
+                onChange={(e) => patch({ combine: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <div className="label">expressions</div>
+              <input
+                type="text"
+                placeholder="f, g"
+                value={expressionsText}
+                onChange={(e) => {
+                  setExpressionsText(e.target.value);
+                  patch({ expressions: splitList(e.target.value) });
+                }}
+              />
+            </label>
+            <label className="field">
+              <div className="label">arities</div>
+              <input
+                type="text"
+                placeholder="blank infers them, or 2, 1"
+                value={aritiesText}
+                onChange={(e) => {
+                  setAritiesText(e.target.value);
+                  patch({ num_features: parseArities(e.target.value) });
+                }}
+              />
+            </label>
+          </div>
+          {!aritiesValid && <div className="errorText">arities must be comma-separated whole numbers</div>}
+          <div className="subTitle">Parameters</div>
+          {parameters.map(([name, size], i) => (
+            <div className="row" key={i}>
+              <label className="field">
+                <div className="label">parameter name</div>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => patch({ parameters: parameters.map<[string, number]>((p, j) => (j === i ? [e.target.value, size] : p)) })}
+                />
+              </label>
+              <label className="field">
+                <div className="label">parameter size</div>
+                <input
+                  type="number"
+                  min={1}
+                  value={size}
+                  onChange={(e) => patch({ parameters: parameters.map<[string, number]>((p, j) => (j === i ? [name, Number(e.target.value)] : p)) })}
+                />
+              </label>
+              <button type="button" onClick={() => patch({ parameters: parameters.filter((_, j) => j !== i) })}>
+                remove
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => patch({ parameters: [...parameters, ["p", 1]] })}>
+            add parameter
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A template guess names each part as template results print, `f = #1 * #2; p = [5.0, 10.0]`;
+ * any other line is a plain equation. */
+function parseGuess(line: string): WasmGuess {
+  if (!/^\s*[A-Za-z_]\w*\s*=(?!=)/.test(line)) return line.trim();
+  return line
+    .split(";")
+    .filter((part) => part.trim() !== "")
+    .map((part) => {
+      const [name, ...rest] = part.split("=");
+      const value = rest.join("=").trim();
+      return [name.trim(), /^\[.*\]$/.test(value) ? splitList(value.slice(1, -1)).map(Number) : value];
+    });
+}
+
+function formatGuess(guess: WasmGuess): string {
+  if (typeof guess === "string") return guess;
+  return guess.map(([name, value]) => `${name} = ${typeof value === "string" ? value : `[${value.join(", ")}]`}`).join("; ");
+}
+
+function GuessesCard(props: { guesses: WasmGuess[]; setGuesses: (guesses: WasmGuess[]) => void }): React.ReactElement {
+  const [text, setText] = useState(props.guesses.map(formatGuess).join("\n"));
+  return (
+    <div className="card">
+      <div className="cardTitle">Guesses</div>
+      <label className="field">
+        <div className="label">guesses</div>
+        <textarea
+          className="textarea"
+          rows={3}
+          placeholder={"one equation per line, such as 2.0*cos(x0) + x1*x1\na template guess: f = #1 * #2; p = [5.0, 10.0]"}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            props.setGuesses(
+              e.target.value
+                .split("\n")
+                .filter((line) => line.trim() !== "")
+                .map(parseGuess)
+            );
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function ModelingTask(): React.ReactElement {
   const registry = useSessionStore((s) => s.operatorRegistry);
   const options = useSessionStore((s) => s.options);
@@ -123,22 +328,36 @@ export function ModelingTask(): React.ReactElement {
         <div className="cardTitle">Loss</div>
         <div className="row">
           <label className="field">
-            <div className="label">loss_kind</div>
-            <select value={options.loss_kind} onChange={(e) => setOptionsPatch({ loss_kind: e.target.value })}>
-              <option value="mse">MSE</option>
-              <option value="mae">MAE</option>
-              <option value="rmse">RMSE</option>
-              <option value="huber">Huber</option>
+            <div className="label">loss</div>
+            <input type="text" list="builtin-losses" value={options.loss} onChange={(e) => setOptionsPatch({ loss: e.target.value })} />
+            <datalist id="builtin-losses">
+              {BUILTIN_LOSSES.map((loss) => (
+                <option key={loss} value={loss} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field">
+            <div className="label">loss_scale</div>
+            <select value={options.loss_scale} onChange={(e) => setOptionsPatch({ loss_scale: e.target.value as LossScale })}>
+              <option value="log">log</option>
+              <option value="linear">linear</option>
             </select>
           </label>
-          {options.loss_kind === "huber" && (
-            <label className="field">
-              <div className="label">huber_delta</div>
-              <input type="number" min={1e-6} step={0.1} value={options.huber_delta} onChange={(e) => setOptionsPatch({ huber_delta: Number(e.target.value) })} />
-            </label>
-          )}
+          <label className="field">
+            <div className="label">early_stop_condition</div>
+            <input
+              type="text"
+              placeholder="1e-6 or f(loss, complexity) = loss < 1e-6 && complexity < 10"
+              value={options.early_stop_condition ?? ""}
+              onChange={(e) => setOptionsPatch({ early_stop_condition: e.target.value.trim() === "" ? null : e.target.value })}
+            />
+          </label>
         </div>
       </div>
+
+      <TemplateCard template={options.template ?? null} setTemplate={(template) => setOptionsPatch({ template })} />
+
+      <GuessesCard guesses={options.guesses ?? []} setGuesses={(guesses) => setOptionsPatch({ guesses })} />
 
       <div className="card">
         <div className="cardTitle">Hyperparameters</div>
@@ -147,11 +366,11 @@ export function ModelingTask(): React.ReactElement {
         <div className="row">
           <label className="field">
             <div className="label">maxsize</div>
-            <input type="number" min={1} value={options.maxsize} onChange={(e) => setOptionsPatch({ maxsize: Number(e.target.value) })} />
+            <input type="number" min={4} value={options.maxsize} onChange={(e) => setOptionsPatch({ maxsize: Number(e.target.value) })} />
           </label>
           <label className="field">
             <div className="label">seed</div>
-            <input type="number" min={0} value={options.seed} onChange={(e) => setOptionsPatch({ seed: Number(e.target.value) })} />
+            <input type="number" min={0} value={options.seed ?? ""} placeholder="Random" onChange={(e) => setOptionsPatch({ seed: e.target.value === "" ? null : Number(e.target.value) })} />
           </label>
         </div>
 
@@ -190,13 +409,37 @@ export function ModelingTask(): React.ReactElement {
                   data-testid="opt-ncycles"
                 />
               </label>
+              <label className="field">
+                <div className="label">timeout_in_seconds</div>
+                <input type="number" min={0} value={options.timeout_in_seconds} placeholder="0 = no limit" onChange={(e) => setOptionsPatch({ timeout_in_seconds: Number(e.target.value) })} />
+              </label>
+              <label className="field">
+                <div className="label">max_evals</div>
+                <input type="number" min={0} value={options.max_evals} placeholder="0 = no limit" onChange={(e) => setOptionsPatch({ max_evals: Number(e.target.value) })} />
+              </label>
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Batching</div>
+              <label className="field">
+                <div className="label">batching</div>
+                <select value={options.batching} onChange={(e) => setOptionsPatch({ batching: e.target.value as WasmSearchOptions["batching"] })}>
+                  <option value="auto">auto (over 1000 rows)</option>
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </label>
+              <label className="field">
+                <div className="label">batch_size</div>
+                <input type="number" min={1} value={options.batch_size ?? ""} placeholder="Auto" onChange={(e) => setOptionsPatch({ batch_size: e.target.value === "" ? null : Number(e.target.value) })} />
+              </label>
             </section>
 
             <section className="section">
               <div className="subTitle">Constraints</div>
               <label className="field">
                 <div className="label">maxdepth</div>
-                <input type="number" min={1} value={options.maxdepth} onChange={(e) => setOptionsPatch({ maxdepth: Number(e.target.value) })} />
+                <input type="number" min={1} value={options.maxdepth ?? ""} placeholder={String(options.maxsize)} onChange={(e) => setOptionsPatch({ maxdepth: e.target.value === "" ? null : Number(e.target.value) })} />
               </label>
               <label className="field">
                 <div className="label">warmup_maxsize_by</div>
@@ -205,6 +448,22 @@ export function ModelingTask(): React.ReactElement {
               <label className="field">
                 <div className="label">topn</div>
                 <input type="number" min={1} value={options.topn} onChange={(e) => setOptionsPatch({ topn: Number(e.target.value) })} />
+              </label>
+              <label className="field">
+                <div className="label">dimensional_constraint_penalty</div>
+                <input
+                  type="number"
+                  value={options.dimensional_constraint_penalty}
+                  onChange={(e) => setOptionsPatch({ dimensional_constraint_penalty: Number(e.target.value) })}
+                />
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.dimensionless_constants_only}
+                  onChange={(e) => setOptionsPatch({ dimensionless_constants_only: e.target.checked })}
+                />
+                dimensionless_constants_only
               </label>
             </section>
 
@@ -267,7 +526,7 @@ export function ModelingTask(): React.ReactElement {
                 skip_mutation_failures
               </label>
               <label className="checkbox">
-                <input type="checkbox" checked={options.should_simplify} onChange={(e) => setOptionsPatch({ should_simplify: e.target.checked })} />
+                <input type="checkbox" checked={options.should_simplify ?? true} onChange={(e) => setOptionsPatch({ should_simplify: e.target.checked })} />
                 should_simplify
               </label>
             </section>
@@ -277,6 +536,13 @@ export function ModelingTask(): React.ReactElement {
               <label className="checkbox">
                 <input type="checkbox" checked={options.should_optimize_constants} onChange={(e) => setOptionsPatch({ should_optimize_constants: e.target.checked })} />
                 should_optimize_constants
+              </label>
+              <label className="field">
+                <div className="label">optimizer_algorithm</div>
+                <select value={options.optimizer_algorithm} onChange={(e) => setOptionsPatch({ optimizer_algorithm: e.target.value as WasmSearchOptions["optimizer_algorithm"] })}>
+                  <option value="BFGS">BFGS</option>
+                  <option value="NelderMead">NelderMead</option>
+                </select>
               </label>
               <label className="field">
                 <div className="label">optimizer_probability</div>
@@ -314,6 +580,15 @@ export function ModelingTask(): React.ReactElement {
                 <div className="label">fraction_replaced_hof</div>
                 <input type="number" step={0.0001} value={options.fraction_replaced_hof} onChange={(e) => setOptionsPatch({ fraction_replaced_hof: Number(e.target.value) })} />
               </label>
+              <label className="field">
+                <div className="label">fraction_replaced_guesses</div>
+                <input
+                  type="number"
+                  step={0.0001}
+                  value={options.fraction_replaced_guesses}
+                  onChange={(e) => setOptionsPatch({ fraction_replaced_guesses: Number(e.target.value) })}
+                />
+              </label>
             </section>
 
             <section className="section">
@@ -322,6 +597,89 @@ export function ModelingTask(): React.ReactElement {
                 <div className="label">alpha</div>
                 <input type="number" step={0.001} value={options.alpha} onChange={(e) => setOptionsPatch({ alpha: Number(e.target.value) })} />
               </label>
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Backsolve mutation</div>
+              <label className="field">
+                <div className="label">max_library_size</div>
+                <input type="number" min={1} value={options.backsolve.max_library_size} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, max_library_size: Number(e.target.value) } })} />
+              </label>
+              <label className="field">
+                <div className="label">max_terms</div>
+                <input type="number" min={1} value={options.backsolve.max_terms} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, max_terms: Number(e.target.value) } })} />
+              </label>
+              <label className="field">
+                <div className="label">min_improvement</div>
+                <input type="number" min={0} step={0.0001} value={options.backsolve.min_improvement} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, min_improvement: Number(e.target.value) } })} />
+              </label>
+              <label className="field">
+                <div className="label">node_attempts</div>
+                <input type="number" min={1} value={options.backsolve.node_attempts} onChange={(e) => setOptionsPatch({ backsolve: { ...options.backsolve, node_attempts: Number(e.target.value) } })} />
+              </label>
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Adaptive mutation weights</div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.adaptive_mutation_weights !== null}
+                  onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: e.target.checked ? ADAPTIVE_MUTATION_WEIGHTS_DEFAULTS : null })}
+                />
+                adaptive_mutation_weights
+              </label>
+              {options.adaptive_mutation_weights && (
+                <>
+                  <label className="field">
+                    <div className="label">smoothing</div>
+                    <input type="number" min={0} max={1} step={0.01} value={options.adaptive_mutation_weights.smoothing} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, smoothing: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">floor</div>
+                    <input type="number" min={0} max={1} step={0.01} value={options.adaptive_mutation_weights.floor} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, floor: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">adaptation_strength</div>
+                    <input type="number" min={0} max={1} step={0.05} value={options.adaptive_mutation_weights.adaptation_strength} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, adaptation_strength: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">reward</div>
+                    <select value={options.adaptive_mutation_weights.reward} onChange={(e) => setOptionsPatch({ adaptive_mutation_weights: { ...options.adaptive_mutation_weights!, reward: e.target.value as WasmAdaptiveMutationWeights["reward"] } })}>
+                      <option value="cost">cost</option>
+                      <option value="loss">loss</option>
+                    </select>
+                  </label>
+                </>
+              )}
+            </section>
+
+            <section className="section">
+              <div className="subTitle">Mutation burst</div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={options.mutation_burst !== null}
+                  onChange={(e) => setOptionsPatch({ mutation_burst: e.target.checked ? MUTATION_BURST_DEFAULTS : null })}
+                />
+                mutation_burst
+              </label>
+              {options.mutation_burst && (
+                <>
+                  <label className="field">
+                    <div className="label">retry_attempts</div>
+                    <input type="number" min={1} value={options.mutation_burst.retry_attempts} onChange={(e) => setOptionsPatch({ mutation_burst: { ...options.mutation_burst!, retry_attempts: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">compound_probability</div>
+                    <input type="number" min={0} max={1} step={0.01} value={options.mutation_burst.compound_probability} onChange={(e) => setOptionsPatch({ mutation_burst: { ...options.mutation_burst!, compound_probability: Number(e.target.value) } })} />
+                  </label>
+                  <label className="field">
+                    <div className="label">compound_max_steps</div>
+                    <input type="number" min={1} value={options.mutation_burst.compound_max_steps} onChange={(e) => setOptionsPatch({ mutation_burst: { ...options.mutation_burst!, compound_max_steps: Number(e.target.value) } })} />
+                  </label>
+                </>
+              )}
             </section>
 
             <section className="section fullWidth">

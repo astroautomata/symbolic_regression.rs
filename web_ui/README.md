@@ -2,6 +2,10 @@
 
 Minimal browser UI for `symbolic_regression_wasm` (runs symbolic regression in a WebWorker).
 
+The Data pane accepts PySR unit strings for the target and a comma-separated list for the selected X columns. Blank fields leave units unset. Advanced hyperparameters include `dimensional_constraint_penalty` and `dimensionless_constants_only`; the solutions table shows unit annotations while copied equations remain parseable.
+
+Advanced hyperparameters also cover the backsolve mutation (its weight and parameters), the adaptive mutation weights plugin (on by default), mutation bursts (off by default), batching, the constant optimizer algorithm, and the `timeout_in_seconds`/`max_evals` stopping limits. Browser searches never write hall-of-fame or trace files, print progress, or read stdin.
+
 ## Prereqs
 
 - Rust target: `wasm32-unknown-unknown`

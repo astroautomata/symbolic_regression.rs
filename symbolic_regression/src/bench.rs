@@ -9,7 +9,7 @@ use ndarray::{Array1, Array2};
 use crate::constant_optimization::{OptimizeConstantsCtx, optimize_constants};
 use crate::dataset::TaggedDataset;
 use crate::loss_functions::baseline_loss_from_zero_expression;
-use crate::optim::{BackTracking, EvalBudget, Objective, OptimOptions, bfgs_minimize};
+use crate::optim::{BackTracking, Objective, OptimOptions, bfgs_minimize};
 use crate::pop_member::Evaluator;
 use crate::{Dataset, OperatorLibrary, Options, PopMember};
 
@@ -23,8 +23,7 @@ struct QuadND<'a> {
 }
 
 impl Objective for QuadND<'_> {
-    fn f_only(&mut self, x: &[f64], budget: &mut EvalBudget) -> Option<f64> {
-        budget.f_calls += 1;
+    fn f_only(&mut self, x: &[f64]) -> Option<f64> {
         let mut acc = 0.0;
         for ((&xi, &ti), &wi) in x.iter().zip_eq(self.target).zip_eq(self.weight) {
             let d = xi - ti;
@@ -33,8 +32,7 @@ impl Objective for QuadND<'_> {
         Some(acc)
     }
 
-    fn fg(&mut self, x: &[f64], g_out: &mut [f64], budget: &mut EvalBudget) -> Option<f64> {
-        budget.f_calls += 1;
+    fn fg(&mut self, x: &[f64], g_out: &mut [f64]) -> Option<f64> {
         let mut acc = 0.0;
         for (((&xi, &ti), &wi), go) in x
             .iter()
@@ -63,15 +61,17 @@ pub fn bfgs_quadratic_n16() -> Option<(Vec<f64>, f64)> {
         iterations: 40,
         f_calls_limit: 0,
         g_abstol: 1e-10,
+        ..Default::default()
     };
     let ls = BackTracking::default();
-    let res = bfgs_minimize(&x0, &mut obj, opts, ls)?;
+    let res = bfgs_minimize(&x0, &mut obj, opts, ls).ok()?;
     Some((res.minimizer, res.minimum))
 }
 
 fn build_linear_expr_for_constant_optimization() -> PostfixExpr<T, Ops, D> {
-    let mul = Ops::lookup("*").unwrap();
-    let add = Ops::lookup("+").unwrap();
+    let ops = Ops::new();
+    let mul = ops.lookup("*").unwrap();
+    let add = ops.lookup("+").unwrap();
 
     // expr: c0 * x0 + c1
     PostfixExpr::new(
@@ -95,7 +95,7 @@ fn build_linear_expr_for_constant_optimization() -> PostfixExpr<T, Ops, D> {
 
 pub struct ConstantOptLinearEnv {
     dataset: Dataset<T>,
-    options: Options<T, D>,
+    options: Options<T, Ops, D>,
 }
 
 pub fn constant_opt_linear_env() -> ConstantOptLinearEnv {
@@ -108,7 +108,7 @@ pub fn constant_opt_linear_env() -> ConstantOptLinearEnv {
         Array1::from_vec(y),
     );
 
-    let options = Options::<T, D> {
+    let options = Options::<T, Ops, D> {
         operators: OperatorLibrary::sr_default::<Ops, D>(),
         should_optimize_constants: true,
         optimizer_iterations: 40,
@@ -125,7 +125,11 @@ pub fn run_constant_opt_linear(env: &ConstantOptLinearEnv) -> (bool, f64, Vec<f6
     let mut evaluator = Evaluator::new(env.dataset.n_rows);
     let mut grad_ctx = dynamic_expressions::GradContext::new(env.dataset.n_rows);
     let baseline_loss = if env.options.use_baseline {
-        baseline_loss_from_zero_expression::<T, Ops, D>(&env.dataset, env.options.loss.as_ref())
+        baseline_loss_from_zero_expression::<T, Ops, D>(
+            &env.dataset,
+            &env.options.operators.set,
+            env.options.loss.as_ref(),
+        )
     } else {
         None
     };
@@ -145,5 +149,5 @@ pub fn run_constant_opt_linear(env: &ConstantOptLinearEnv) -> (bool, f64, Vec<f6
         },
     );
 
-    (improved, evals, member.expr.consts.clone())
+    (improved, evals, member.expr.constants())
 }

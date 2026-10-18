@@ -19,21 +19,25 @@ fn population_replaces_by_oldest_birth() {
         Array2::from_shape_vec((1, 1), vec![0.0]).unwrap(),
         Array1::from_vec(vec![0.0]),
     );
-    let options = Options::<T, D> {
+    let options = Options::<T, TestOps, D> {
         operators: OperatorLibrary::sr_default::<TestOps, D>(),
         ..Default::default()
     };
     let mut evaluator = Evaluator::<T, D>::new(1);
     let baseline_loss = if options.use_baseline {
-        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(&dataset, options.loss.as_ref())
+        crate::loss_functions::baseline_loss_from_zero_expression::<T, TestOps, D>(
+            &dataset,
+            &options.operators.set,
+            options.loss.as_ref(),
+        )
     } else {
         None
     };
     let full_dataset = TaggedDataset::new(&dataset, baseline_loss);
 
-    let mut m1 = PopMember::from_expr_with_birth(10, leaf_expr(0), 1);
-    let mut m2 = PopMember::from_expr_with_birth(20, leaf_expr(0), 1);
-    let mut m3 = PopMember::from_expr_with_birth(30, leaf_expr(0), 1);
+    let mut m1 = PopMember::from_expr_with_birth(10, leaf_expr(0), 1, &options);
+    let mut m2 = PopMember::from_expr_with_birth(20, leaf_expr(0), 1, &options);
+    let mut m3 = PopMember::from_expr_with_birth(30, leaf_expr(0), 1, &options);
     let _ = m1.evaluate(&full_dataset, &options, &mut evaluator);
     let _ = m2.evaluate(&full_dataset, &options, &mut evaluator);
     let _ = m3.evaluate(&full_dataset, &options, &mut evaluator);
@@ -44,7 +48,7 @@ fn population_replaces_by_oldest_birth() {
     pop.members[2].birth = 5;
     assert_eq!(pop.oldest_index(), 2);
 
-    let child = PopMember::from_expr_with_birth(100, leaf_expr(0), 1);
+    let child = PopMember::from_expr_with_birth(100, leaf_expr(0), 1, &options);
     pop.replace_oldest(child);
     assert_eq!(pop.members[2].birth, 100);
 }

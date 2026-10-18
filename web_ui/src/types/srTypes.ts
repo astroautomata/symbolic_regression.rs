@@ -23,7 +23,59 @@ export type WasmMutationWeights = {
   optimize: number;
   form_connection: number;
   break_connection: number;
+  backsolve: number;
 };
+
+/** Parameters of the backsolve mutation, which fires with weight `mutation_weights.backsolve`. */
+export type WasmBacksolveOptions = {
+  max_library_size: number;
+  max_terms: number;
+  min_improvement: number;
+  node_attempts: number;
+};
+
+/** SymbolicRegression.jl's `AdaptiveMutationWeightsPlugin`. */
+export type WasmAdaptiveMutationWeights = {
+  smoothing: number;
+  floor: number;
+  reward: "cost" | "loss";
+  adaptation_strength: number;
+};
+
+/** SymbolicRegression.jl's `MutationBurstPlugin`. */
+export type WasmMutationBurst = {
+  retry_attempts: number;
+  compound_probability: number;
+  compound_max_steps: number;
+};
+
+export type LossScale = "log" | "linear";
+
+/** A template expression, as PySR's `TemplateExpressionSpec`. */
+export type WasmTemplateOptions = {
+  /** The formula combining the subexpressions, such as "f(x1, x2) + p[x3]". */
+  combine: string;
+  /** Subexpression names, such as ["f", "g"]. */
+  expressions: string[];
+  /** Each subexpression's number of arguments; null infers them from `combine`. */
+  num_features: number[] | null;
+  /** The names `combine` uses for the features; null uses the selected columns' CSV headers. */
+  variable_names: string[] | null;
+  /** Parameter vectors as [name, length], in declaration order. */
+  parameters: [string, number][];
+};
+
+/** A template guess's value for one name: a subexpression over its arguments #1, #2, ..., or a parameter vector. */
+export type WasmTemplateGuessValue = string | number[];
+
+/** A guess that seeds the search: an equation, or a template search's [name, value] pairs, as PySR's dict guesses. */
+export type WasmGuess = string | [string, WasmTemplateGuessValue][];
+
+export type WasmBuiltinMutation =
+  | { Constant: { perturbation_factor: number; probability_negate: number } }
+  | "Operator" | "Feature" | "SwapOperands" | "RotateTree" | "AddNode"
+  | "InsertNode" | "DeleteNode" | "Simplify" | "Randomize" | "DoNothing" | "Optimize"
+  | { Backsolve: WasmBacksolveOptions };
 
 export type WasmSearchOptions = {
   has_headers: boolean;
@@ -31,16 +83,31 @@ export type WasmSearchOptions = {
   y_column: number | null;
   weights_column: number | null;
   validation_fraction: number;
-  loss_kind: string;
-  huber_delta: number;
+  /** One PySR unit string per selected x column, in x_columns order. */
+  x_units: string[] | null;
+  /** PySR unit string for the target column. */
+  y_units: string | null;
+  /** PySR `elementwise_loss`: a built-in such as "L1DistLoss()" or a definition such as "f(x, y) = abs(x - y)". */
+  loss: string;
+  /** PySR `early_stop_condition`: a loss threshold such as "1e-6", or a definition of (loss, complexity). */
+  early_stop_condition: string | null;
+  /** A template expression; null searches plain expressions. */
+  template: WasmTemplateOptions | null;
+  /** SymbolicRegression.jl `guesses`: equations that seed the search. */
+  guesses: WasmGuess[];
+  backsolve: WasmBacksolveOptions;
+  /** On by default; null samples `mutation_weights` throughout. */
+  adaptive_mutation_weights: WasmAdaptiveMutationWeights | null;
+  /** Off (null) by default. */
+  mutation_burst: WasmMutationBurst | null;
 
-  seed: number;
+  seed: number | null;
   niterations: number;
   populations: number;
   population_size: number;
   ncycles_per_iteration: number;
   maxsize: number;
-  maxdepth: number;
+  maxdepth: number | null;
   warmup_maxsize_by: number;
   parsimony: number;
   adaptive_parsimony_scaling: number;
@@ -52,12 +119,27 @@ export type WasmSearchOptions = {
   alpha: number;
   optimizer_nrestarts: number;
   optimizer_probability: number;
+  optimizer_algorithm: "BFGS" | "NelderMead";
+  optimizer_g_abstol: number;
+  optimizer_x_abstol: number;
+  optimizer_f_reltol: number;
+  optimizer_g_calls_limit: number;
+  parallelism: "serial" | "multithreading";
+  batching: "auto" | "on" | "off";
+  batch_size: number | null;
   optimizer_iterations: number;
   optimizer_f_calls_limit: number;
   fraction_replaced: number;
   fraction_replaced_hof: number;
+  fraction_replaced_guesses: number;
   topn: number;
   print_precision: number;
+  loss_scale: LossScale;
+  dimensional_constraint_penalty: number;
+  /** Stop after this many evaluations; 0 means no limit. */
+  max_evals: number;
+  /** Stop after this many seconds; 0 means no limit. */
+  timeout_in_seconds: number;
 
   use_frequency: boolean;
   use_frequency_in_tournament: boolean;
@@ -68,8 +150,13 @@ export type WasmSearchOptions = {
   hof_migration: boolean;
   use_baseline: boolean;
   progress: boolean;
-  should_simplify: boolean;
+  should_simplify: boolean | null;
+  dimensionless_constants_only: boolean;
 
+  mutations: Array<[WasmBuiltinMutation, number]>;
+  default_mutations: Array<[WasmBuiltinMutation, number]> | null;
+  crossovers: Array<["Subtree", number]>;
+  default_crossovers: Array<["Subtree", number]> | null;
   mutation_weights: WasmMutationWeights;
 };
 
@@ -78,6 +165,8 @@ export type EquationPoint = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
 };
 
 export type EquationSummary = {
@@ -85,6 +174,8 @@ export type EquationSummary = {
   complexity: number;
   loss: number;
   cost: number;
+  /** The Pareto score, as in SymbolicRegression.jl's hall-of-fame table. */
+  score: number;
   /** Display-precision equation (matches `print_precision`, default 5 significant digits). */
   equation: string;
   /** Full-precision equation, suitable for copy-to-clipboard. */
@@ -95,7 +186,8 @@ export type SearchSnapshot = {
   total_cycles: number;
   cycles_completed: number;
   total_evals: number;
-  best: EquationSummary;
+  /** The equation SymbolicRegression.jl reports as best (`choose_best` under `loss_scale`). */
+  best: EquationSummary | null;
   pareto_points: EquationPoint[];
 };
 
